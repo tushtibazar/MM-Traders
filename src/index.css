@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    font-family: 'Hind Siliguri', 'Noto Sans Bengali', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  }
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  body {
+    background-color: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Hide everything on page when printing except the print preview container */
+  body * {
+    visibility: hidden;
+  }
+
+  #daily-sales-print-area,
+  #daily-sales-print-area *,
+  .printable-area,
+  .printable-area * {
+    visibility: visible;
+  }
+
+  #daily-sales-print-area,
+  .printable-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+  }
+
+  .daily-print-a4-page,
+  .printable-a4-page {
+    width: 100% !important;
+    min-height: 100vh !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    padding: 16mm 14mm !important;
+    page-break-after: always;
+    break-after: page;
+  }
+
+  .daily-print-a4-page:last-child,
+  .printable-a4-page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

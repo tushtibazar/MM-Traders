@@ -1,0 +1,6 @@
+{
+  "name": "MM TRADERS - DISTRIBUTOR",
+  "description": "Private dealership and distribution business management system for MM TRADERS (Proprietor: Mohammad Mamun).",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
