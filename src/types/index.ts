@@ -191,6 +191,15 @@ export interface SalesRepresentative {
   createdAt: string;
 }
 
+export interface DeliveryRepresentative {
+  id: string;
+  name: string;
+  phone: string;
+  vehicleNo?: string;
+  active: boolean;
+  createdAt: string;
+}
+
 export interface OtherPositionItem {
   id: string;
   description: string;
@@ -305,6 +314,7 @@ export interface DailyAccountSheet {
   sheetNo?: string;
   srId?: string;
   srName?: string;
+  dsrId?: string;
   dsrName?: string;
   routeOrVan?: string;
   items: DailyAccountItem[];
@@ -353,6 +363,7 @@ export interface AppDatabase {
   lessEntries: LessEntry[];
   lessSettlements?: LessSettlement[];
   salesRepresentatives: SalesRepresentative[];
+  deliveryRepresentatives?: DeliveryRepresentative[];
   settings: BusinessSettings;
   lastUpdated: string;
 }

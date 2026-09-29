@@ -14,6 +14,7 @@ import {
   Sale,
   SaleItem,
   SalesRepresentative,
+  DeliveryRepresentative,
   StockTransaction,
   User,
 } from '../types';
@@ -118,6 +119,9 @@ interface AppContextType {
   addSR: (srInput: Omit<SalesRepresentative, 'id' | 'createdAt'>) => SalesRepresentative;
   addSalesRepresentative: (srInput: Omit<SalesRepresentative, 'id' | 'createdAt'>) => SalesRepresentative;
   updateSalesRepresentative: (sr: SalesRepresentative) => void;
+  addDSR: (dsrInput: Omit<DeliveryRepresentative, 'id' | 'createdAt'>) => DeliveryRepresentative;
+  updateDSR: (dsr: DeliveryRepresentative) => void;
+  deleteDSR: (dsrId: string) => void;
   updateSettings: (settings: BusinessSettings) => void;
   addRoute: (routeName: string) => void;
   updateRoute: (oldName: string, newName: string) => void;
@@ -731,7 +735,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       date: input.date,
       type: 'sale',
       referenceId: input.dueNo,
-      description: `দৈনিক হিসাব বাকি # ${input.dueNo}${input.routeOrVan ? ` (${input.routeOrVan})` : ''}`,
+      description: input.note
+        ? `${input.note}${input.routeOrVan ? ` (${input.routeOrVan})` : ''}`
+        : `বাকি হিসাব # ${input.dueNo}${input.routeOrVan ? ` (${input.routeOrVan})` : ''}`,
       debit: amount,
       credit: 0,
       balance: customer.currentDue,
@@ -1790,6 +1796,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateDb({ ...db, salesRepresentatives: updatedList });
   };
 
+  // 10. DSR MANAGEMENT
+  const addDSR = (input: Omit<DeliveryRepresentative, 'id' | 'createdAt'>): DeliveryRepresentative => {
+    const newDsr: DeliveryRepresentative = {
+      ...input,
+      id: `dsr-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    const updatedDeliveryList = [...(db.deliveryRepresentatives || []), newDsr];
+    const updatedDsrList = updatedDeliveryList.filter((d) => d.active !== false).map((d) => d.name);
+
+    updateDb({
+      ...db,
+      deliveryRepresentatives: updatedDeliveryList,
+      settings: {
+        ...db.settings,
+        dsrList: updatedDsrList,
+      },
+    });
+    return newDsr;
+  };
+
+  const updateDSR = (updatedDsr: DeliveryRepresentative) => {
+    const oldDsr = (db.deliveryRepresentatives || []).find((d) => d.id === updatedDsr.id);
+    const oldName = oldDsr?.name?.trim();
+    const newName = updatedDsr.name.trim();
+
+    const updatedDeliveryList = (db.deliveryRepresentatives || []).map((d) =>
+      d.id === updatedDsr.id ? updatedDsr : d
+    );
+
+    // Update existing daily sheets referencing this DSR (by dsrId or by oldName)
+    // so records continue pointing to the same underlying DSR ID without breaking or disappearing
+    const updatedDailySheets = (db.dailySheets || []).map((sheet) => {
+      if (sheet.dsrId === updatedDsr.id || (oldName && sheet.dsrName?.trim() === oldName)) {
+        return {
+          ...sheet,
+          dsrId: updatedDsr.id,
+          dsrName: newName,
+        };
+      }
+      return sheet;
+    });
+
+    const updatedDsrList = updatedDeliveryList.filter((d) => d.active !== false).map((d) => d.name);
+
+    updateDb({
+      ...db,
+      deliveryRepresentatives: updatedDeliveryList,
+      dailySheets: updatedDailySheets,
+      settings: {
+        ...db.settings,
+        dsrList: updatedDsrList,
+      },
+    });
+  };
+
+  const deleteDSR = (dsrId: string) => {
+    const updatedDeliveryList = (db.deliveryRepresentatives || []).filter((d) => d.id !== dsrId);
+    const updatedDsrList = updatedDeliveryList.filter((d) => d.active !== false).map((d) => d.name);
+
+    updateDb({
+      ...db,
+      deliveryRepresentatives: updatedDeliveryList,
+      settings: {
+        ...db.settings,
+        dsrList: updatedDsrList,
+      },
+    });
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -1832,6 +1908,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addSR,
         addSalesRepresentative,
         updateSalesRepresentative,
+        addDSR,
+        updateDSR,
+        deleteDSR,
         updateSettings,
         addRoute,
         updateRoute,

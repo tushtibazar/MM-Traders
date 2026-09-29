@@ -23,6 +23,8 @@ import {
   Eye,
   ImageDown,
   Printer,
+  Plus,
+  X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DEFAULT_ROUTES } from '../../services/storage';
@@ -52,6 +54,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
     todayDateStr,
     todayLessAmount,
     totalOutstandingLess,
+    recordCustomerDue,
     recordDueCollection,
     settleDueEntry,
     voidDueEntry,
@@ -60,6 +63,34 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
   const isOwner = currentUser.role === 'owner';
   const currency = db.settings.currency || '৳';
+
+  // Helper to generate next sequential Due Number (e.g. DUE-0001, DUE-0002)
+  const getNextDueNumber = () => {
+    let maxSeq = 0;
+    (db.customerLedgers || []).forEach((l) => {
+      if (l.referenceId && l.referenceId.startsWith('DUE-')) {
+        const match = l.referenceId.match(/^DUE-(\d+)/);
+        if (match) {
+          const num = parseInt(match[1], 10);
+          if (!isNaN(num) && num > maxSeq) maxSeq = num;
+        }
+      }
+    });
+    return `DUE-${String(maxSeq + 1).padStart(4, '0')}`;
+  };
+
+  // Manual Due Entry Modal State ("+ বাকি এন্ট্রি" - Add Existing/Opening Due)
+  const [isAddDueModalOpen, setIsAddDueModalOpen] = useState<boolean>(false);
+  const [addDueCustomerName, setAddDueCustomerName] = useState<string>('');
+  const [addDueSelectedCustomer, setAddDueSelectedCustomer] = useState<Customer | null>(null);
+  const [addDuePhone, setAddDuePhone] = useState<string>('');
+  const [addDueRoute, setAddDueRoute] = useState<string>('');
+  const [addDueAmount, setAddDueAmount] = useState<string>('');
+  const [addDueDate, setAddDueDate] = useState<string>(todayDateStr);
+  const [addDueNote, setAddDueNote] = useState<string>('');
+  const [addDueSuccessMsg, setAddDueSuccessMsg] = useState<string>('');
+  const [addDueErrorMsg, setAddDueErrorMsg] = useState<string>('');
+  const [showCustomerSuggestions, setShowCustomerSuggestions] = useState<boolean>(false);
 
   // Customer delete state
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
@@ -304,6 +335,110 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
   const handleDownloadPNG = () => {
     handleOpenPrintPreview('png');
+  };
+
+  // -------------------------------------------------------------
+  // MANUAL DUE ENTRY ("+ বাকি এন্ট্রি") LOGIC & HANDLERS
+  // -------------------------------------------------------------
+  const addDueCustomerSuggestions = useMemo(() => {
+    const q = addDueCustomerName.trim().toLowerCase();
+    if (!q || addDueSelectedCustomer) return [];
+    return db.customers
+      .filter((c) => {
+        return (
+          c.name.toLowerCase().includes(q) ||
+          c.shopName.toLowerCase().includes(q) ||
+          (c.phone && c.phone.includes(q))
+        );
+      })
+      .slice(0, 6);
+  }, [db.customers, addDueCustomerName, addDueSelectedCustomer]);
+
+  const handleSelectCustomerSuggestion = (cust: Customer) => {
+    setAddDueSelectedCustomer(cust);
+    setAddDueCustomerName(cust.shopName || cust.name);
+    setShowCustomerSuggestions(false);
+    setAddDueErrorMsg('');
+    // Auto-detect route if customer has one
+    const custRoutes = customerRouteMap.get(cust.id);
+    if (custRoutes && custRoutes.size > 0) {
+      const firstRoute = Array.from(custRoutes)[0];
+      setAddDueRoute(firstRoute);
+    }
+  };
+
+  const handleClearSelectedCustomer = () => {
+    setAddDueSelectedCustomer(null);
+    setAddDueCustomerName('');
+    setAddDuePhone('');
+    setAddDueRoute('');
+    setAddDueErrorMsg('');
+  };
+
+  const handleSaveAddDue = (e: React.FormEvent) => {
+    e.preventDefault();
+    setAddDueErrorMsg('');
+    setAddDueSuccessMsg('');
+
+    const targetName = addDueSelectedCustomer
+      ? addDueSelectedCustomer.name
+      : addDueCustomerName.trim();
+    const targetShop = addDueSelectedCustomer
+      ? addDueSelectedCustomer.shopName
+      : addDueCustomerName.trim();
+
+    if (!targetName && !targetShop) {
+      setAddDueErrorMsg('অনুগ্রহ করে কাস্টমার বা দোকানের নাম লিখুন');
+      return;
+    }
+
+    const amt = parseFloat(addDueAmount);
+    if (isNaN(amt) || amt <= 0) {
+      setAddDueErrorMsg('অনুগ্রহ করে সঠিক বাকির পরিমাণ (টাকা) দিন');
+      return;
+    }
+
+    if (!addDueDate) {
+      setAddDueErrorMsg('অনুগ্রহ করে তারিখ নির্বাচন করুন');
+      return;
+    }
+
+    const dueNo = getNextDueNumber();
+    const noteText = addDueNote.trim() || 'পূর্বের বকেয়া বাকি এন্ট্রি';
+
+    try {
+      const res = recordCustomerDue({
+        dueNo,
+        customerId: addDueSelectedCustomer ? addDueSelectedCustomer.id : undefined,
+        customerName: targetName,
+        shopName: targetShop,
+        phone: addDueSelectedCustomer ? addDueSelectedCustomer.phone : addDuePhone.trim(),
+        amount: amt,
+        date: addDueDate,
+        routeOrVan: addDueRoute.trim() || undefined,
+        note: noteText,
+      });
+
+      setAddDueSuccessMsg(
+        `✅ বাকি এন্ট্রি সফল হয়েছে! ভাউচার #${dueNo} | কাস্টমার: ${res.customer.shopName || res.customer.name} | পরিমাণ: ${currency} ${amt.toLocaleString()}`
+      );
+
+      // Reset form
+      setAddDueCustomerName('');
+      setAddDueSelectedCustomer(null);
+      setAddDuePhone('');
+      setAddDueAmount('');
+      setAddDueRoute('');
+      setAddDueDate(todayDateStr);
+      setAddDueNote('');
+
+      setTimeout(() => {
+        setIsAddDueModalOpen(false);
+        setAddDueSuccessMsg('');
+      }, 2200);
+    } catch (err: any) {
+      setAddDueErrorMsg(`সংরক্ষণ করতে সমস্যা হয়েছে: ${err.message || 'অজানা ত্রুটি'}`);
+    }
   };
 
   // -------------------------------------------------------------
@@ -581,6 +716,21 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
             <button
+              id="add-manual-due-btn"
+              type="button"
+              onClick={() => {
+                setAddDueErrorMsg('');
+                setAddDueSuccessMsg('');
+                setIsAddDueModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-rose-700 transition-colors shadow-xs cursor-pointer active:scale-[0.98]"
+              title="নতুন বা পূর্বের বকেয়া বাকি এন্ট্রি যোগ করুন"
+            >
+              <Plus className="h-4 w-4" />
+              <span>+ বাকি এন্ট্রি</span>
+            </button>
+
+            <button
               type="button"
               onClick={() => handleOpenPrintPreview(null)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100 hover:border-sky-400 transition-colors shadow-xs cursor-pointer"
@@ -800,9 +950,23 @@ export const DueModule: React.FC<DueModuleProps> = ({
                 </div>
               </div>
 
-              {/* Sort Order Toggle */}
+              {/* Add Due Button & Sort Order Toggle */}
               <div className="flex items-center gap-2 self-end sm:self-auto">
-                <span className="text-xs text-slate-500">সাজান:</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddDueErrorMsg('');
+                    setAddDueSuccessMsg('');
+                    setIsAddDueModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 transition-colors shadow-2xs cursor-pointer"
+                  title="পূর্বের বা নতুন বাকি এন্ট্রি"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>+ বাকি এন্ট্রি</span>
+                </button>
+
+                <span className="text-xs text-slate-500 hidden sm:inline">সাজান:</span>
                 <button
                   onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
@@ -1005,8 +1169,28 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                   {filteredCustomers.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
-                        কোন কাস্টমারের তথ্য পাওয়া যায়নি
+                      <td colSpan={6} className="py-12 text-center text-slate-500 text-xs">
+                        <div className="flex flex-col items-center justify-center gap-2 max-w-sm mx-auto">
+                          <div className="h-10 w-10 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mb-1">
+                            <Wallet className="h-5 w-5" />
+                          </div>
+                          <p className="font-bold text-slate-700 text-sm">কোন কাস্টমারের বকেয়া তথ্য পাওয়া যায়নি</p>
+                          <p className="text-[11px] text-slate-400 leading-relaxed">
+                            সিস্টেম ব্যবহারের পূর্বের বকেয়া বাকি বা নতুন বাকি এন্ট্রি যোগ করতে নিচের বাটনে ক্লিক করুন।
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddDueErrorMsg('');
+                              setAddDueSuccessMsg('');
+                              setIsAddDueModalOpen(true);
+                            }}
+                            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-rose-700 transition-colors shadow-xs cursor-pointer"
+                          >
+                            <Plus className="h-4 w-4" />
+                            <span>+ বাকি এন্ট্রি যোগ করুন</span>
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   )}
@@ -1726,6 +1910,302 @@ export const DueModule: React.FC<DueModuleProps> = ({
         todayDateStr={todayDateStr}
         initialAction={printAction}
       />
+
+      {/* 6. Manual Due Entry Modal ("+ বাকি এন্ট্রি" - Add Existing/Opening Due) */}
+      {isAddDueModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 sm:p-6 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95 my-auto">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="h-9 w-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shadow-xs">
+                  <Wallet className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 font-bengali">
+                    + বাকি এন্ট্রি (পূর্বের বা নতুন বকেয়া বাকি)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-bengali">
+                    সিস্টেম ব্যবহারের পূর্বের বকেয়া বাকি অথবা কাস্টমারের বকেয়া সরাসরি যোগ করুন
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddDueModalOpen(false);
+                  setAddDueErrorMsg('');
+                  setAddDueSuccessMsg('');
+                }}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Success message */}
+            {addDueSuccessMsg && (
+              <div className="mb-4 rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-900 flex items-start gap-2 animate-in fade-in">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span className="font-semibold font-bengali">{addDueSuccessMsg}</span>
+              </div>
+            )}
+
+            {/* Error message */}
+            {addDueErrorMsg && (
+              <div className="mb-4 rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800 flex items-start gap-2 animate-in fade-in">
+                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0 mt-0.5" />
+                <span className="font-semibold font-bengali">{addDueErrorMsg}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveAddDue} className="space-y-4">
+              {/* Field 1: Customer / Shop Name with Autocomplete */}
+              <div className="relative">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-bold text-slate-700 font-bengali">
+                    কাস্টমার / দোকানের নাম *
+                  </label>
+                  {addDueSelectedCustomer && (
+                    <button
+                      type="button"
+                      onClick={handleClearSelectedCustomer}
+                      className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer"
+                    >
+                      কাস্টমার পরিবর্তন করুন
+                    </button>
+                  )}
+                </div>
+
+                {addDueSelectedCustomer ? (
+                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/70 p-3 flex items-center justify-between gap-3">
+                    <div className="space-y-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <Store className="h-4 w-4 text-emerald-700 shrink-0" />
+                        <span className="font-bold text-emerald-950 text-xs font-bengali">
+                          {addDueSelectedCustomer.shopName}
+                        </span>
+                        {addDueSelectedCustomer.name !== addDueSelectedCustomer.shopName && (
+                          <span className="text-[11px] text-emerald-800">
+                            ({addDueSelectedCustomer.name})
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-800">
+                        {addDueSelectedCustomer.phone && (
+                          <span>ফোন: {addDueSelectedCustomer.phone}</span>
+                        )}
+                        <span>
+                          বর্তমান বকেয়া: {currency} {addDueSelectedCustomer.currentDue.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-200 text-emerald-900 text-[10px] font-bold">
+                      <Check className="h-3 w-3" />
+                      তালিকাভুক্ত
+                    </span>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        required
+                        value={addDueCustomerName}
+                        onChange={(e) => {
+                          setAddDueCustomerName(e.target.value);
+                          setShowCustomerSuggestions(true);
+                          setAddDueErrorMsg('');
+                        }}
+                        onFocus={() => setShowCustomerSuggestions(true)}
+                        placeholder="কাস্টমার বা দোকানের নাম লিখুন বা খুঁজুন..."
+                        className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs text-slate-900 focus:border-rose-500 focus:outline-none"
+                      />
+                      {addDueCustomerName && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAddDueCustomerName('');
+                            setShowCustomerSuggestions(false);
+                          }}
+                          className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Autocomplete Suggestions Dropdown */}
+                    {showCustomerSuggestions && addDueCustomerSuggestions.length > 0 && (
+                      <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg py-1 text-xs">
+                        <div className="px-3 py-1 text-[10px] font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                          বিদ্যমান কাস্টমার তালিকা থেকে নির্বাচন করুন:
+                        </div>
+                        {addDueCustomerSuggestions.map((cust) => (
+                          <button
+                            key={cust.id}
+                            type="button"
+                            onClick={() => handleSelectCustomerSuggestion(cust)}
+                            className="w-full text-left px-3 py-2 hover:bg-rose-50 flex items-center justify-between gap-2 border-b border-slate-50 last:border-0 transition-colors cursor-pointer"
+                          >
+                            <div>
+                              <span className="font-bold text-slate-900 block">
+                                {cust.shopName}
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                {cust.name} {cust.phone ? `• ${cust.phone}` : ''}
+                              </span>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <span className="text-[10px] text-slate-400 block">বর্তমান বকেয়া</span>
+                              <span className="font-bold text-rose-600 text-xs">
+                                {currency} {cust.currentDue.toLocaleString()}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {addDueCustomerName.trim() && !addDueSelectedCustomer && (
+                      <p className="mt-1 text-[11px] text-emerald-600 font-bengali flex items-center gap-1">
+                        <Check className="h-3 w-3" />
+                        <span>নতুন নাম দেওয়া হয়েছে — সেভ করার সাথে সাথে নতুন কাস্টমার হিসেবে তৈরি হবে।</span>
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Field 2: Phone Number (shown/used only when creating a new customer) */}
+              {!addDueSelectedCustomer && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
+                    ফোন নম্বর (নতুন কাস্টমারের ক্ষেত্রে)
+                  </label>
+                  <input
+                    type="tel"
+                    value={addDuePhone}
+                    onChange={(e) => setAddDuePhone(e.target.value)}
+                    placeholder="যেমন: 017xxxxxxxx"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:border-rose-500 focus:outline-none"
+                  />
+                  <p className="mt-0.5 text-[10.5px] text-slate-400">
+                    বিদ্যমান কাস্টমারের ক্ষেত্রে ফোন নম্বর স্বয়ংক্রিয়ভাবে সংরক্ষিত থাকে।
+                  </p>
+                </div>
+              )}
+
+              {/* Field 3: Route (dropdown of configured routes) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
+                  রুট (Route)
+                </label>
+                <div className="relative">
+                  <select
+                    value={addDueRoute}
+                    onChange={(e) => setAddDueRoute(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:border-rose-500 focus:outline-none"
+                  >
+                    <option value="">-- কোনো নির্দিষ্ট রুট নেই / সাধারণ --</option>
+                    {availableRoutes.map((route) => (
+                      <option key={route} value={route}>
+                        {route}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <p className="mt-0.5 text-[10.5px] text-slate-400">
+                  রুট নির্বাচন করলে রুটভিত্তিক ফিল্টারে এই কাস্টমারের বাকি সঠিকভাবে প্রতিফলিত হবে।
+                </p>
+              </div>
+
+              {/* Field 4 & 5: Amount and Date (in 2 cols) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Amount */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
+                    বাকির পরিমাণ (টাকা) *
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    step="any"
+                    value={addDueAmount}
+                    onChange={(e) => setAddDueAmount(e.target.value)}
+                    placeholder="যেমন: 5000"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-rose-700 focus:border-rose-500 focus:outline-none font-mono"
+                  />
+                  {addDueAmount && !isNaN(parseFloat(addDueAmount)) && (
+                    <p className="mt-0.5 text-[11px] font-semibold text-rose-600">
+                      {currency} {parseFloat(addDueAmount).toLocaleString()}
+                    </p>
+                  )}
+                </div>
+
+                {/* Date */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
+                    তারিখ (Date) *
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={addDueDate}
+                    onChange={(e) => setAddDueDate(e.target.value)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:border-rose-500 focus:outline-none"
+                  />
+                  <p className="mt-0.5 text-[10.5px] text-slate-400">
+                    পূর্বের কোনো তারিখের বাকি হলে তারিখটি পরিবর্তন করে দিতে পারেন।
+                  </p>
+                </div>
+              </div>
+
+              {/* Field 6: Note (Optional) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
+                  নোট বা বিবরণ (ঐচ্ছিক)
+                </label>
+                <input
+                  type="text"
+                  value={addDueNote}
+                  onChange={(e) => setAddDueNote(e.target.value)}
+                  placeholder="যেমন: পূর্বের খাতার বকেয়া জের / উদ্বোধনী বাকি"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:border-rose-500 focus:outline-none"
+                />
+              </div>
+
+              {/* Informational banner about non-interference with daily reconciliation */}
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-[11px] text-slate-600 leading-relaxed font-bengali">
+                ℹ️ <strong>নোট:</strong> এই এন্ট্রিটি সরাসরি কেন্দ্রীয় কাস্টমার বকেয়া খতিয়ানে (Due Ledger) অন্তর্ভুক্ত হবে এবং কাস্টমারের মোট বাকি বৃদ্ধি পাবে। এটি কোনো নির্দিষ্ট দিনের Daily হিসাবের ক্যাশ বা সেলস রিকনসিলিয়েশন পরিবর্তন করবে না। কোনো পিন আবশ্যক নয়।
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddDueModalOpen(false);
+                    setAddDueErrorMsg('');
+                    setAddDueSuccessMsg('');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>বাকি সংরক্ষণ করুন</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

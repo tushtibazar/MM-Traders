@@ -71,20 +71,12 @@ interface DailySalesModuleProps {
 }
 
 const DEFAULT_ROUTES = [
-  'রুট ১: চকবাজার ও বেগম বাজার',
-  'রুট ২: লালবাগ ও ইসলামবাগ',
-  'রুট ৩: নিউমার্কেট ও আজিমপুর',
-  'রুট ৪: সদরঘাট ও বাবুবাজার',
-  'রুট ৫: মৌলভীবাজার ও মিটফোর্ড',
-  'রুট ৬: বংশাল ও নাজিরাবাজার',
-];
-
-const DEFAULT_DSRS = [
-  'মো: রফিকুল ইসলাম (DSR / ভ্যান চালক)',
-  'মো: বাবুল মিয়া (DSR / ডেলিভারি)',
-  'মো: হাসান আলী (DSR / ভ্যান চালক)',
-  'মো: সুমন আহমেদ (DSR / ডেলিভারি)',
-  'মো: তারেক হোসেন (DSR)',
+  'রুট ১: শনিবার - সদর',
+  'রুট ২: তারাকান্দি - নারায়ন খোলা',
+  'রুট ৩: খোরপার - করুয়া',
+  'রুট ৪: কুসুমহাটী - নন্দীরবাজার',
+  'রুট ৫: শেখহাটী - বালুঘাটা',
+  'রুট ৬: হাজির মোড় - চন্দ্রকোনা',
 ];
 
 const createEmptyRow = (): RowData => ({
@@ -170,22 +162,45 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
   // Configured SR list
   const availableSRs = useMemo(() => {
-    const active = db.salesRepresentatives.filter((s) => s.active !== false).map((s) => s.name);
-    if (active.length > 0) return active;
-    return ['মো: আরিফুল ইসলাম (SR)', 'মো: শফিকুল আলম (SR)'];
+    return db.salesRepresentatives.filter((s) => s.active !== false).map((s) => s.name);
   }, [db.salesRepresentatives]);
 
-  // Configured DSR list
-  const availableDSRs = useMemo(() => {
-    const fromSettings = db.settings.dsrList || [];
-    return Array.from(new Set([...DEFAULT_DSRS, ...fromSettings]));
-  }, [db.settings.dsrList]);
-
   // HEADER STATE (In exact order: Route, Date, SR Name, DSR Name)
-  const [selectedRoute, setSelectedRoute] = useState<string>(availableRoutes[0] || 'রুট ১: চকবাজার ও বেগম বাজার');
+  const [selectedRoute, setSelectedRoute] = useState<string>(availableRoutes[0] || '');
   const [selectedDate, setSelectedDate] = useState<string>(todayDateStr);
-  const [selectedSR, setSelectedSR] = useState<string>(availableSRs[0] || 'মো: আরিফুল ইসলাম (SR)');
-  const [selectedDSR, setSelectedDSR] = useState<string>(availableDSRs[0] || 'মো: রফিকুল ইসলাম (DSR / ভ্যান চালক)');
+  const [selectedSR, setSelectedSR] = useState<string>(availableSRs[0] || '');
+  const [selectedDSR, setSelectedDSR] = useState<string>(
+    () => (db.deliveryRepresentatives || []).find((d) => d.active !== false)?.name || ''
+  );
+
+  // Configured DSR list directly from DSR Management
+  const availableDSRs = useMemo(() => {
+    const list = (db.deliveryRepresentatives || [])
+      .filter((d) => d.active !== false)
+      .map((d) => d.name);
+    if (selectedDSR && !list.includes(selectedDSR)) {
+      return [selectedDSR, ...list];
+    }
+    return list;
+  }, [db.deliveryRepresentatives, selectedDSR]);
+
+  useEffect(() => {
+    if (!selectedRoute && availableRoutes.length > 0) {
+      setSelectedRoute(availableRoutes[0]);
+    }
+  }, [availableRoutes, selectedRoute]);
+
+  useEffect(() => {
+    if (!selectedSR && availableSRs.length > 0) {
+      setSelectedSR(availableSRs[0]);
+    }
+  }, [availableSRs, selectedSR]);
+
+  useEffect(() => {
+    if (!selectedDSR && availableDSRs.length > 0) {
+      setSelectedDSR(availableDSRs[0]);
+    }
+  }, [availableDSRs, selectedDSR]);
 
   // Active loaded Sheet ID (if editing an existing record)
   const [currentSheetId, setCurrentSheetId] = useState<string | null>(null);
@@ -625,7 +640,12 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setSelectedDate(sheet.date);
     if (sheet.routeOrVan) setSelectedRoute(sheet.routeOrVan);
     if (sheet.srName) setSelectedSR(sheet.srName);
-    if (sheet.dsrName) setSelectedDSR(sheet.dsrName);
+    if (sheet.dsrName) {
+      setSelectedDSR(sheet.dsrName);
+    } else if (sheet.dsrId) {
+      const match = (db.deliveryRepresentatives || []).find((d) => d.id === sheet.dsrId);
+      if (match) setSelectedDSR(match.name);
+    }
 
     setCurrentSheetId(sheet.id);
     const status = sheet.status === 'confirmed' || sheet.status === 'completed' ? 'completed' : 'pending';
@@ -760,12 +780,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // "A Date + Route + SR + DSR combination should have only ONE Daily হিসাব record.
   // Do not allow creating a duplicate entry for the same combination on the same date; instead open the existing one."
   const findExistingCombinationSheet = (date: string, route: string, sr: string, dsr: string) => {
+    const matchedDsr = (db.deliveryRepresentatives || []).find((d) => d.name === dsr);
     return (db.dailySheets || []).find(
       (s) =>
         s.date === date &&
         s.routeOrVan?.trim() === route.trim() &&
         s.srName?.trim() === sr.trim() &&
-        s.dsrName?.trim() === dsr.trim()
+        (s.dsrName?.trim() === dsr.trim() || Boolean(matchedDsr && s.dsrId && s.dsrId === matchedDsr.id))
     );
   };
 
@@ -1753,11 +1774,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
           pinVerified: r.pinVerified,
         }));
 
+      const matchedDsr = (db.deliveryRepresentatives || []).find((d) => d.name === selectedDSR);
       const sheetDataToSave: Omit<DailyAccountSheet, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'> & { id?: string } = {
         ...(currentSheetId ? { id: currentSheetId } : {}),
         date: selectedDate,
         routeOrVan: selectedRoute,
         srName: selectedSR,
+        dsrId: matchedDsr?.id,
         dsrName: selectedDSR,
         items,
         damageItems,
@@ -1904,11 +1927,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         amount: Number(r.amount) || 0,
       }));
 
+    const matchedDsr = (db.deliveryRepresentatives || []).find((d) => d.name === selectedDSR);
     return {
       id: currentSheetId || `DAS-${selectedDate.replace(/-/g, '')}`,
       date: selectedDate,
       routeOrVan: selectedRoute,
       srName: selectedSR,
+      dsrId: matchedDsr?.id,
       dsrName: selectedDSR,
       items,
       damageItems,
@@ -2223,6 +2248,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                   disabled={isLockedForEdit}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs sm:text-sm font-medium text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                 >
+                  {availableRoutes.length === 0 && (
+                    <option value="">-- কোনো রুট যোগ করা নেই --</option>
+                  )}
                   {availableRoutes.map((route) => (
                     <option key={route} value={route}>
                       {route}
@@ -2259,6 +2287,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                   disabled={isLockedForEdit}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs sm:text-sm font-medium text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                 >
+                  {availableSRs.length === 0 && (
+                    <option value="">-- কোনো SR নেই (SR পেজে যোগ করুন) --</option>
+                  )}
                   {availableSRs.map((sr) => (
                     <option key={sr} value={sr}>
                       {sr}
@@ -2279,6 +2310,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                   disabled={isLockedForEdit}
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-xs sm:text-sm font-medium text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-500"
                 >
+                  {availableDSRs.length === 0 && (
+                    <option value="">-- কোনো DSR নেই (SR পেজে যোগ করুন) --</option>
+                  )}
                   {availableDSRs.map((dsr) => (
                     <option key={dsr} value={dsr}>
                       {dsr}

@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Settings,
   Building,
@@ -17,6 +17,10 @@ import {
   HardDrive,
   Info,
   FileCheck,
+  Folder,
+  FolderCheck,
+  FolderPlus,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -27,6 +31,15 @@ import {
   DEFAULT_ROUTES,
   BackupValidationResult,
 } from '../../services/storage';
+import {
+  isFileSystemAccessSupported,
+  saveDirectoryHandle,
+  getDirectoryHandle,
+  getStoredFolderName,
+  removeDirectoryHandle,
+  verifyFolderPermission,
+  writeBackupToFolder,
+} from '../../services/localBackupFolder';
 import { PinPromptModal } from '../modals/PinPromptModal';
 
 export const SettingsModule: React.FC = () => {
@@ -40,6 +53,12 @@ export const SettingsModule: React.FC = () => {
   const [securityPin, setSecurityPin] = useState(db.settings.securityPin || '1234');
   const [saveMsg, setSaveMsg] = useState('');
 
+  // Local Folder Auto-Save states (File System Access API)
+  const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
+  const [folderName, setFolderName] = useState<string | null>(null);
+  const [isFolderSupported] = useState<boolean>(() => isFileSystemAccessSupported());
+  const [isFolderSaving, setIsFolderSaving] = useState<boolean>(false);
+
   // Backup & Restore states
   const [downloadMsg, setDownloadMsg] = useState('');
   const [restoreSuccessMsg, setRestoreSuccessMsg] = useState('');
@@ -51,6 +70,23 @@ export const SettingsModule: React.FC = () => {
     validation: BackupValidationResult;
   } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Load remembered local folder handle on component mount
+  useEffect(() => {
+    if (!isFolderSupported) return;
+    (async () => {
+      try {
+        const handle = await getDirectoryHandle();
+        const storedName = await getStoredFolderName();
+        if (handle) {
+          setFolderHandle(handle);
+          setFolderName(storedName || handle.name || 'নির্দিষ্ট ব্যাকআপ ফোল্ডার');
+        }
+      } catch (err) {
+        console.warn('Could not restore backup folder handle:', err);
+      }
+    })();
+  }, [isFolderSupported]);
 
   // Route Management States
   const [isAddRouteOpen, setIsAddRouteOpen] = useState(false);
@@ -80,13 +116,81 @@ export const SettingsModule: React.FC = () => {
     setTimeout(() => setSaveMsg(''), 3500);
   };
 
-  const handleDownloadBackup = () => {
+  const handleSelectFolder = async () => {
+    setRestoreErrorMsg('');
+    setDownloadMsg('');
     try {
-      const fileName = exportDatabaseJson(db);
+      if (!isFileSystemAccessSupported()) {
+        setRestoreErrorMsg('আপনার বর্তমান ব্রাউজারে File System Access API সমর্থিত নয়। (Google Chrome, Microsoft Edge বা Brave ব্রাউজার ব্যবহার করুন)');
+        return;
+      }
+      const dirHandle: FileSystemDirectoryHandle = await (window as any).showDirectoryPicker({
+        mode: 'readwrite',
+      });
+      if (dirHandle) {
+        const name = dirHandle.name || 'ব্যাকআপ ফোল্ডার';
+        await saveDirectoryHandle(dirHandle, name);
+        setFolderHandle(dirHandle);
+        setFolderName(name);
+        setDownloadMsg(`ব্যাকআপ ফোল্ডার সফলভাবে সংযুক্ত করা হয়েছে: "${name}"। এখন থেকে ব্যাকআপ ফাইল সরাসরি এই ফোল্ডারে সেভ হবে।`);
+        setTimeout(() => setDownloadMsg(''), 7000);
+      }
+    } catch (err: any) {
+      if (err.name !== 'AbortError') {
+        setRestoreErrorMsg(`ফোল্ডার নির্বাচনে ত্রুটি: ${err.message || 'অজানা ত্রুটি'}`);
+      }
+    }
+  };
+
+  const handleDisconnectFolder = async () => {
+    await removeDirectoryHandle();
+    setFolderHandle(null);
+    setFolderName(null);
+    setDownloadMsg('লোকাল ফোল্ডারের সংযোগ বিচ্ছিন্ন করা হয়েছে। ব্যাকআপ এখন স্বাভাবিক ব্রাউজার ডাউনলোড ফোল্ডারে সেভ হবে।');
+    setTimeout(() => setDownloadMsg(''), 5000);
+  };
+
+  const handleDownloadBackup = async () => {
+    setRestoreErrorMsg('');
+    setDownloadMsg('');
+    setIsFolderSaving(true);
+    try {
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10);
+      const fileName = `mm-traders-backup-${dateStr}.json`;
+      const jsonString = JSON.stringify(db, null, 2);
+
+      // If user selected a local computer folder and the browser supports it
+      if (folderHandle && isFolderSupported) {
+        const hasPermission = await verifyFolderPermission(folderHandle, true);
+        if (hasPermission) {
+          await writeBackupToFolder(folderHandle, fileName, jsonString);
+          setDownloadMsg(`সরাসরি আপনার কম্পিউটারের "${folderName || 'নির্বাচিত'}" ফোল্ডারে ব্যাকআপ সফলভাবে সেভ হয়েছে: "${fileName}" (কোনো ফাইল ডায়ালগ ছাড়াই)`);
+          setTimeout(() => setDownloadMsg(''), 7000);
+          return;
+        } else {
+          setRestoreErrorMsg(
+            `"${folderName || 'ফোল্ডার'}"-এ ফাইল লেখার অনুমতি পাওয়া যায়নি বা অনুমতি বাতিল হয়েছে (ব্রাউজার রিস্টার্টের কারণে হতে পারে)। অনুগ্রহ করে "ব্যাকআপ ফোল্ডার সিলেক্ট করুন" বাটনে ক্লিক করে পুনরায় অনুমোদন দিন। বিকল্প হিসেবে ফাইলটি স্বাভাবিকভাবে ডাউনলোড করে দেওয়া হলো।`
+          );
+          // Graceful fallback to browser download
+          exportDatabaseJson(db);
+          return;
+        }
+      }
+
+      // Default browser download (when no folder is selected or API not supported)
+      exportDatabaseJson(db);
       setDownloadMsg(`ব্যাকআপ ফাইল সফলভাবে ডাউনলোড হয়েছে: "${fileName}"`);
       setTimeout(() => setDownloadMsg(''), 6000);
     } catch (err: any) {
-      setRestoreErrorMsg(`ব্যাকআপ ফাইল ডাউনলোড করতে সমস্যা হয়েছে: ${err.message || 'অজানা ত্রুটি'}`);
+      setRestoreErrorMsg(`ব্যাকআপ ফোল্ডারে সেভ করতে সমস্যা হয়েছে: ${err.message || 'অজানা ত্রুটি'}। স্বাভাবিকভাবে ডাউনলোড চেষ্টা করা হচ্ছে...`);
+      try {
+        exportDatabaseJson(db);
+      } catch (fallbackErr: any) {
+        setRestoreErrorMsg(`ব্যাকআপ নেওয়া সম্ভব হয়নি: ${fallbackErr.message || 'অজানা ত্রুটি'}`);
+      }
+    } finally {
+      setIsFolderSaving(false);
     }
   };
 
@@ -539,7 +643,7 @@ export const SettingsModule: React.FC = () => {
           </div>
         </div>
 
-        {/* 3. OPTIONAL BUT RECOMMENDED — REMINDER */}
+        {/* Backup & Safety Reminder */}
         <div className="mb-5 rounded-xl bg-blue-50/80 border border-blue-200 p-3.5 text-xs text-blue-900 flex items-start gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700 mt-0.5">
             <Info className="h-4 w-4" />
@@ -549,10 +653,10 @@ export const SettingsModule: React.FC = () => {
               পরামর্শ ও অনুস্মারক (Backup & Safety Reminder):
             </h4>
             <p className="text-[11.5px] leading-relaxed text-blue-800 font-bengali">
-              আপনার প্রতিষ্ঠানের হিসাবের নিরাপত্তা নিশ্চিত করতে প্রতিদিন বা প্রতি সপ্তাহে নিয়মিত{' '}
-              <strong className="font-semibold text-blue-900">"ব্যাকআপ ডাউনলোড করুন"</strong> এবং ডাউনলোড করা ব্যাকআপ JSON
-              ফাইলটি আপনার গুগল ড্রাইভ (Google Drive), ইমেইল বা নিরাপদ ক্লাউড স্টোরেজে সংরক্ষণ করে রাখুন। যেহেতু এটি অফলাইন
-              ও লোকাল স্টোরেজে সংরক্ষিত থাকে, তাই নিয়মিত ব্যাকআপ রাখা আপনার দায়িত্ব এবং এটি তথ্যের সর্বোচ্চ নিরাপত্তা দেবে।
+              আপনার প্রতিষ্ঠানের হিসাবের নিরাপত্তা নিশ্চিত করতে প্রতিদিন কাজের শেষে{' '}
+              <strong className="font-semibold text-blue-900">"ব্যাকআপ সেভ / ডাউনলোড করুন"</strong> বাটনে ক্লিক করে ফাইলটি আপনার
+              কম্পিউটারে সংরক্ষণ করে রাখুন। আপনি নিচে আপনার কম্পিউটারের যেকোনো একটি ব্যাকআপ ফোল্ডার সিলেক্ট করে রাখতে পারেন, যাতে প্রতিবার
+              বাটনে ক্লিক করলেই স্বয়ংক্রিয়ভাবে কোনো ডায়ালগ ছাড়াই সরাসরি সেই ফোল্ডারে ব্যাকআপ ফাইল জমা হয়।
             </p>
           </div>
         </div>
@@ -582,8 +686,74 @@ export const SettingsModule: React.FC = () => {
           </div>
         )}
 
+        {/* Local Folder Auto-Save Banner */}
+        <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 shrink-0 mt-0.5">
+                <Folder className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-xs font-bold text-slate-900 font-bengali">
+                  কম্পিউটারের নির্দিষ্ট ফোল্ডারে ব্যাকআপ অটো-সেভ
+                </h3>
+                <p className="text-[11px] text-slate-500 font-bengali mt-0.5">
+                  আপনার পিসি বা ল্যাপটপের একটি নির্দিষ্ট ফোল্ডার পছন্দ করে রাখুন যাতে প্রতিবার ক্লিক করলেই সরাসরি সেখানে ব্যাকআপ ফাইল জমা হয়।
+                </p>
+              </div>
+            </div>
+
+            {isFolderSupported ? (
+              <button
+                type="button"
+                onClick={handleSelectFolder}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-blue-700 transition-colors shadow-xs cursor-pointer whitespace-nowrap self-start sm:self-auto"
+              >
+                <FolderPlus className="h-4 w-4" />
+                <span>{folderHandle ? 'ব্যাকআপ ফোল্ডার পরিবর্তন করুন' : 'ব্যাকআপ ফোল্ডার সিলেক্ট করুন'}</span>
+              </button>
+            ) : null}
+          </div>
+
+          {/* Connected Folder Status or Fallback Notice */}
+          <div className="mt-3 pt-3 border-t border-slate-200">
+            {folderHandle && isFolderSupported ? (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 rounded-lg p-2.5 text-xs">
+                <div className="flex items-center gap-2">
+                  <FolderCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span className="font-semibold text-emerald-950 font-bengali">
+                    সংযুক্ত ফোল্ডার: <span className="font-mono text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded font-bold">{folderName}</span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 self-end sm:self-auto">
+                  <span className="text-[10px] text-emerald-700 font-medium">অটো-সেভ সক্রিয়</span>
+                  <button
+                    type="button"
+                    onClick={handleDisconnectFolder}
+                    className="text-[11px] font-semibold text-rose-600 hover:text-rose-800 hover:underline cursor-pointer"
+                  >
+                    সংযোগ বিচ্ছিন্ন করুন
+                  </button>
+                </div>
+              </div>
+            ) : isFolderSupported ? (
+              <p className="text-[11px] text-slate-500 font-bengali flex items-center gap-1.5">
+                <Info className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                <span>কোনো ফোল্ডার সিলেক্ট করা নেই। ফোল্ডার সিলেক্ট না করলে ব্যাকআপ ফাইলটি স্বাভাবিকভাবে ব্রাউজার ডাউনলোড ফোল্ডারে সেভ হবে।</span>
+              </p>
+            ) : (
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-2.5 text-[11px] text-amber-900 flex items-start gap-2">
+                <Info className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  আপনার বর্তমান ব্রাউজারে (Firefox বা Safari) সরাসরি কম্পিউটারের নির্দিষ্ট ফোল্ডারে অটো-সেভ সমর্থিত নয়। তবে স্বাভাবিক ব্রাউজার ডাউনলোডের মাধ্যমে আপনি ফাইলটি ইচ্ছামতো ফোল্ডারে সংরক্ষণ করতে পারবেন। (Google Chrome, Microsoft Edge বা Brave ব্রাউজারে স্বয়ংক্রিয় লোকাল ফোল্ডার সেভ সমর্থিত)।
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
-          {/* 1. "ব্যাকআপ ডাউনলোড করুন" (Download Backup) */}
+          {/* 1. "ব্যাকআপ ডাউনলোড / সেভ করুন" */}
           <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-xs flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-2 mb-2">
@@ -591,11 +761,11 @@ export const SettingsModule: React.FC = () => {
                   <Download className="h-4 w-4" />
                 </div>
                 <h3 className="font-bold text-slate-900 font-bengali text-sm">
-                  ১. ব্যাকআপ ডাউনলোড করুন
+                  ১. ব্যাকআপ সংরক্ষণ ও ডাউনলোড
                 </h3>
               </div>
               <p className="text-slate-600 mb-3 leading-relaxed font-bengali text-[11.5px]">
-                অ্যাপ্লিকেশনের সম্পূর্ণ ডাটা (দৈনিক বিক্রি হিসাব, কাস্টমার, প্রোডাক্ট, স্টক ও ইনভেন্টরি, কাস্টমার বকেয়া লেজার, লেস, ড্যামেজ, খরচের হিসাব, রুট, SR/DSR, সামগ্রিক ব্যবসায়িক অবস্থান এবং সকল সেটিংস) টাইমস্ট্যাম্পসহ একটি সিঙ্গেল JSON ফাইলে ডাউনলোড হবে।
+                অ্যাপ্লিকেশনের সম্পূর্ণ ডাটা (দৈনিক বিক্রি হিসাব, কাস্টমার, প্রোডাক্ট, স্টক ও ইনভেন্টরি, কাস্টমার বকেয়া লেজার, লেস, ড্যামেজ, খরচের হিসাব, রুট, SR/DSR, সামগ্রিক ব্যবসায়িক অবস্থান এবং সকল সেটিংস) টাইমস্ট্যাম্পসহ একটি সিঙ্গেল JSON ফাইলে সংরক্ষিত হবে।
               </p>
               <div className="mb-4 rounded-lg bg-white border border-slate-200 p-2.5 text-[11px] text-slate-600 space-y-1 font-bengali">
                 <div className="flex items-center justify-between text-slate-500">
@@ -606,16 +776,37 @@ export const SettingsModule: React.FC = () => {
                   <span>ফাইলের নাম নমুনা:</span>
                   <span className="font-mono text-[10px] text-slate-700">mm-traders-backup-YYYY-MM-DD.json</span>
                 </div>
+                <div className="flex items-center justify-between text-slate-500 pt-1 border-t border-slate-100">
+                  <span>সংরক্ষণ মাধ্যম:</span>
+                  <span className="font-semibold text-slate-700">
+                    {folderHandle ? `📂 ${folderName} (সরাসরি ফোল্ডারে)` : '📥 স্বাভাবিক ব্রাউজার ডাউনলোড'}
+                  </span>
+                </div>
               </div>
             </div>
 
             <button
               type="button"
               onClick={handleDownloadBackup}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 font-bold text-white shadow-xs hover:bg-slate-800 active:scale-[0.99] transition-all cursor-pointer font-bengali text-xs"
+              disabled={isFolderSaving}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 font-bold text-white shadow-xs hover:bg-slate-800 active:scale-[0.99] transition-all cursor-pointer font-bengali text-xs disabled:opacity-50"
             >
-              <Download className="h-4 w-4" />
-              <span>ব্যাকআপ ডাউনলোড করুন</span>
+              {isFolderSaving ? (
+                <>
+                  <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                  <span>ব্যাকআপ সেভ হচ্ছে...</span>
+                </>
+              ) : folderHandle ? (
+                <>
+                  <FolderCheck className="h-4 w-4 text-emerald-400" />
+                  <span>সরাসরি ফোল্ডারে ব্যাকআপ সেভ করুন</span>
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  <span>ব্যাকআপ ডাউনলোড করুন</span>
+                </>
+              )}
             </button>
           </div>
 
