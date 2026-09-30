@@ -739,27 +739,6 @@ export const DueModule: React.FC<DueModuleProps> = ({
               <Eye className="h-4 w-4 text-sky-600" />
               <span>প্রিন্ট প্রিভিউ</span>
             </button>
-
-            <button
-              type="button"
-              onClick={handleDownloadPNG}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition-colors shadow-xs cursor-pointer"
-              title="A4 সাইজের PNG ডাউনলোড"
-            >
-              <ImageDown className="h-4 w-4 text-emerald-600" />
-              <span>PNG ডাউনলোড</span>
-            </button>
-
-            <button
-              id="download-due-pdf-btn"
-              type="button"
-              onClick={handleDownloadPDF}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition-colors shadow-xs cursor-pointer"
-              title="ইমেজ-বেসড PDF ডাউনলোড"
-            >
-              <FileDown className="h-4 w-4 text-emerald-400" />
-              <span>PDF ডাউনলোড</span>
-            </button>
           </div>
         </div>
       </div>

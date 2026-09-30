@@ -232,7 +232,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {formattedDate}
               </h2>
               <p className="text-xs text-slate-500">
-                মালিক: {db.settings.proprietorName} • ফোন: {db.settings.phone}
+                মালিক: {db.settings.proprietorName || 'মালিক'} • ফোন: {db.settings.phone}
               </p>
             </div>
           </div>
@@ -240,18 +240,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={() => onNavigateTab('daily-sale')}
-              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-emerald-700 transition-colors"
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white shadow-xs hover:bg-emerald-700 transition-colors cursor-pointer"
             >
               <TrendingUp className="h-4 w-4" />
               <span>Daily হিসাব খুলুন</span>
-            </button>
-            <button
-              id="dashboard-pdf-report-btn"
-              onClick={handleDownloadPDF}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-3.5 py-2.5 text-xs sm:text-sm font-medium text-white shadow-xs hover:bg-slate-900 transition-colors"
-            >
-              <FileDown className="h-4 w-4 text-emerald-400" />
-              <span>রিপোর্ট (PDF)</span>
             </button>
           </div>
         </div>
@@ -554,22 +546,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </button>
           )}
-
-          <button
-            id="quick-action-today-pdf"
-            onClick={handleDownloadPDF}
-            className="flex flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-50/70 p-4 text-center hover:bg-slate-100 hover:border-slate-300 transition-colors group"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-800 text-white shadow-xs group-hover:scale-105 transition-transform">
-              <FileDown className="h-5 w-5" />
-            </div>
-            <div>
-              <span className="block text-sm font-bold text-slate-800 font-bengali">
-                আজকের PDF
-              </span>
-              <span className="block text-[11px] text-slate-600">Generate Report</span>
-            </div>
-          </button>
         </div>
       </div>
 

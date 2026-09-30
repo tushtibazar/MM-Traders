@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { ShieldCheck, UserCheck, KeyRound, Check, X } from 'lucide-react';
+import { ShieldCheck, UserCheck, KeyRound, Check, X, LogOut } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { UserRole } from '../../types';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -9,7 +8,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { db, currentUser, switchUser } = useApp();
+  const { db, currentUser, switchUser, logout } = useApp();
 
   const [selectedUserId, setSelectedUserId] = useState<string>(currentUser.id);
   const [pin, setPin] = useState<string>('');
@@ -28,7 +27,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setPin('');
       onClose();
     } else {
-      setError('ভুল পিন কোড! অনুগ্রহ করে সঠিক পিন দিন (মালিক: 1234, এস আর: 1234)');
+      setError('ভুল পিন কোড! অনুগ্রহ করে আপনার সঠিক পিন কোড দিন।');
     }
   };
 
@@ -52,7 +51,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 cursor-pointer"
           >
             <X className="h-5 w-5" />
           </button>
@@ -100,7 +99,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     </div>
 
                     <div className="text-right text-[11px] text-slate-400">
-                      ডিফল্ট পিন: {user.pin}
+                      {isSelected ? (
+                        <span className="font-semibold text-emerald-600">নির্বাচিত</span>
+                      ) : (
+                        <span className="text-slate-300">••••</span>
+                      )}
                     </div>
                   </label>
                 );
@@ -118,26 +121,42 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               required
               value={pin}
               onChange={(e) => setPin(e.target.value)}
-              placeholder="যেমন: 1234"
+              placeholder="••••"
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-center text-lg font-bold tracking-widest text-slate-900 focus:border-emerald-500"
             />
           </div>
 
-          <div className="pt-2 flex justify-end gap-2">
+          <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-100">
             <button
               type="button"
-              onClick={onClose}
-              className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50"
+              id="auth-modal-logout-btn"
+              onClick={() => {
+                onClose();
+                logout();
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 transition-colors cursor-pointer"
+              title="লগ আউট করুন"
             >
-              বাতিল
+              <LogOut className="h-4 w-4 text-rose-600" />
+              <span>লগ আউট</span>
             </button>
-            <button
-              type="submit"
-              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 font-bold text-white hover:bg-emerald-700 shadow-xs"
-            >
-              <Check className="h-4 w-4" />
-              <span>লগইন / সুইচ করুন</span>
-            </button>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-slate-300 px-4 py-2 font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                বাতিল
+              </button>
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-5 py-2 font-bold text-white hover:bg-emerald-700 shadow-xs cursor-pointer"
+              >
+                <Check className="h-4 w-4" />
+                <span>লগইন / সুইচ করুন</span>
+              </button>
+            </div>
           </div>
         </form>
       </div>

@@ -145,6 +145,82 @@ export const INITIAL_LESS_SETTLEMENTS: LessSettlement[] = [];
 export const INITIAL_STOCK_TRANSACTIONS: StockTransaction[] = [];
 export const INITIAL_DAILY_SHEETS: DailyAccountSheet[] = [];
 
+export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser?: User): AppDatabase {
+  const currentOwner: User = {
+    id: ownerUser?.id || 'user-owner',
+    username: ownerUser?.username || 'owner',
+    name: preservedSettings?.proprietorName
+      ? `${preservedSettings.proprietorName} (মালিক)`
+      : (ownerUser?.name || 'মালিক'),
+    role: 'owner',
+    pin: preservedSettings?.securityPin || ownerUser?.pin || '1234',
+    phone: preservedSettings?.phone || ownerUser?.phone || '',
+    active: true,
+  };
+
+  return {
+    users: [currentOwner],
+    customers: [],
+    products: [],
+    sales: [],
+    payments: [],
+    dailySheets: [],
+    customerLedgers: [],
+    stockTransactions: [],
+    expenses: [],
+    lessEntries: [],
+    lessSettlements: [],
+    salesRepresentatives: [],
+    deliveryRepresentatives: [],
+    settings: {
+      businessName: preservedSettings?.businessName || INITIAL_SETTINGS.businessName,
+      subtitle: preservedSettings?.subtitle || INITIAL_SETTINGS.subtitle,
+      address: preservedSettings?.address || INITIAL_SETTINGS.address,
+      phone: preservedSettings?.phone || INITIAL_SETTINGS.phone,
+      proprietorName: preservedSettings?.proprietorName || INITIAL_SETTINGS.proprietorName,
+      currency: preservedSettings?.currency || INITIAL_SETTINGS.currency || '৳',
+      openingCashBalance: 0,
+      tradeLicenseNo: preservedSettings?.tradeLicenseNo || '',
+      footerNote: preservedSettings?.footerNote || '',
+      securityPin: preservedSettings?.securityPin || '1234',
+      customRoutes: [],
+      dsrList: [],
+      businessPosition: {
+        stockAdjustment: 0,
+        stockNote: '',
+        damageAdjustment: 0,
+        damageNote: '',
+        dueAdjustment: 0,
+        dueNote: '',
+        cashAdjustment: 0,
+        cashNote: '',
+        undeliveredAmount: 0,
+        undeliveredNote: '',
+        campaignAmount: 0,
+        campaignNote: '',
+        appCashAmount: 0,
+        appCashNote: '',
+        doAmount: 0,
+        doNote: '',
+        vehicleStockAmount: 0,
+        vehicleStockNote: '',
+        bankBalance: 0,
+        bankNote: '',
+        lessAdjustment: 0,
+        lessNote: '',
+        others: [],
+        originalInvestment: 0,
+        supplierPayables: 0,
+        supplierNote: '',
+        loansPayables: 0,
+        loansNote: '',
+        customItems: [],
+      },
+    },
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
 export function getInitialDatabase(): AppDatabase {
   return {
     users: INITIAL_USERS,
@@ -199,9 +275,9 @@ export class StorageService {
       if (stored) {
         const parsed: AppDatabase = JSON.parse(stored);
         if (parsed && parsed.settings) {
-          parsed.settings.businessName = 'MM TRADERS';
-          parsed.settings.subtitle = 'DISTRIBUTOR';
-          parsed.settings.proprietorName = 'Mohammad Mamun';
+          if (!parsed.settings.businessName) parsed.settings.businessName = INITIAL_SETTINGS.businessName;
+          if (!parsed.settings.subtitle) parsed.settings.subtitle = INITIAL_SETTINGS.subtitle;
+          if (!parsed.settings.proprietorName) parsed.settings.proprietorName = INITIAL_SETTINGS.proprietorName;
 
           // Safe normalization of all collections to avoid undefined errors
           if (!Array.isArray(parsed.customers)) parsed.customers = [];
@@ -214,14 +290,14 @@ export class StorageService {
           if (!Array.isArray(parsed.expenses)) parsed.expenses = [];
           if (!Array.isArray(parsed.lessEntries)) parsed.lessEntries = [];
           if (!Array.isArray(parsed.lessSettlements)) parsed.lessSettlements = [];
-          if (!Array.isArray(parsed.salesRepresentatives) || parsed.salesRepresentatives.length === 0) {
-            parsed.salesRepresentatives = INITIAL_SRS;
+          if (!Array.isArray(parsed.salesRepresentatives)) {
+            parsed.salesRepresentatives = [];
           }
           if (!Array.isArray(parsed.deliveryRepresentatives)) {
             parsed.deliveryRepresentatives = [];
           }
-          if (!Array.isArray(parsed.settings.customRoutes) || parsed.settings.customRoutes.length === 0) {
-            parsed.settings.customRoutes = DEFAULT_ROUTES;
+          if (!Array.isArray(parsed.settings.customRoutes)) {
+            parsed.settings.customRoutes = [];
           }
 
           // Restore businessPosition if present in dedicated storage
@@ -306,10 +382,21 @@ export class StorageService {
     return initial;
   }
 
+  public static resetToBlank(preservedSettings?: BusinessSettings, ownerUser?: User): AppDatabase {
+    try {
+      localStorage.removeItem('mm_traders_business_position_current');
+      localStorage.removeItem('mm_traders_business_position_snapshots');
+    } catch {
+      // Ignore localStorage error
+    }
+    const blankDb = getBlankDatabase(preservedSettings, ownerUser);
+    this.saveDatabase(blankDb);
+    this.dbCache = blankDb;
+    return blankDb;
+  }
+
   public static clearAllData(): AppDatabase {
-    const emptyDb: AppDatabase = getInitialDatabase();
-    this.saveDatabase(emptyDb);
-    return emptyDb;
+    return this.resetToBlank();
   }
 }
 
@@ -439,6 +526,6 @@ export function importDatabaseJson(jsonStr: string): { success: boolean; error?:
   }
 }
 
-export function resetToInitialSeed(): AppDatabase {
-  return StorageService.resetToDemo();
+export function resetToInitialSeed(preservedSettings?: BusinessSettings, ownerUser?: User): AppDatabase {
+  return StorageService.resetToBlank(preservedSettings, ownerUser);
 }

@@ -22,10 +22,11 @@ import { SaleMemoModal } from './components/modals/SaleMemoModal';
 import { VoidModal } from './components/modals/VoidModal';
 import { QuickPaymentModal } from './components/modals/QuickPaymentModal';
 import { ExpenseModal } from './components/modals/ExpenseModal';
+import { LoginScreen } from './components/auth/LoginScreen';
 import { Customer, Sale } from './types';
 
 function MainLayout() {
-  const { currentUser, isInitialized } = useApp();
+  const { currentUser, isInitialized, isLoggedIn } = useApp();
   const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -95,6 +96,10 @@ function MainLayout() {
         </div>
       </div>
     );
+  }
+
+  if (!isLoggedIn) {
+    return <LoginScreen />;
   }
 
   return (

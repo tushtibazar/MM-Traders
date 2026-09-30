@@ -304,13 +304,17 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   });
   const [dailyExpense, setDailyExpense] = useState<number>(0);
   const [dailyLess, setDailyLess] = useState<number>(0);
+  const [dailyShort, setDailyShort] = useState<number>(0);
 
-  // Total Cash from Denominations (Subtotal of all notes + অন্যান্য amount)
+  // Total Cash from Denominations (Subtotal of all notes + all অন্যান্য amounts)
   const totalDenominationCash = useMemo(() => {
     const notesTotal = DENOMINATION_LIST.reduce((sum, denom) => {
       return sum + denom * (Number(cashDenominations[denom]) || 0);
     }, 0);
-    const otherTotal = Number(cashDenominations.other) || 0;
+    const otherEntries = cashDenominations.otherEntries;
+    const otherTotal = Array.isArray(otherEntries) && otherEntries.length > 0
+      ? otherEntries.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+      : (Number(cashDenominations.other) || 0);
     return notesTotal + otherTotal;
   }, [cashDenominations]);
 
@@ -756,7 +760,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setCashDenominations({ 1000: '', 500: '', 200: '', 100: '', 50: '', 20: '', 10: '', 5: '', other: '' });
     }
     setDailyExpense(sheet.marketExpense || 0);
-    setDailyLess(sheet.lessAmount || 0);
+    setDailyLess(sheet.lessAmount || sheet.dailyLess || 0);
+    setDailyShort(sheet.shortAmount || sheet.dailyShort || 0);
 
     setLastSavedSheet(sheet);
     setActiveTab('entry');
@@ -828,6 +833,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setDueCollectionRows([createEmptyDueRow()]);
       setDailyExpense(0);
       setDailyLess(0);
+      setDailyShort(0);
       setLastSavedSheet(null);
     }
   };
@@ -846,6 +852,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setCashDenominations({ 1000: '', 500: '', 200: '', 100: '', 50: '', 20: '', 10: '', 5: '', other: '' });
     setDailyExpense(0);
     setDailyLess(0);
+    setDailyShort(0);
     setLastSavedSheet(null);
     showNotification('নতুন দৈনিক হিসাব খাতা খোলা হয়েছে।', 'info');
   };
@@ -1801,6 +1808,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         cashCollected: totalDenominationCash > 0 ? totalDenominationCash : Math.max(0, netDailySales - totalTodayDueAmount - dailyExpense),
         marketExpense: dailyExpense,
         lessAmount: dailyLess,
+        dailyLess: dailyLess,
+        shortAmount: dailyShort,
+        dailyShort: dailyShort,
         cashDenominations: cashDenominations,
         netCashSubmitted: totalDenominationCash > 0 ? totalDenominationCash : Math.max(0, netDailySales - totalTodayDueAmount - dailyExpense),
         marketDue: totalTodayDueAmount,
@@ -1955,6 +1965,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       marketExpense: dailyExpense,
       lessAmount: dailyLess,
       dailyLess: dailyLess,
+      shortAmount: dailyShort,
+      dailyShort: dailyShort,
       cashDenominations: cashDenominations,
       netCashSubmitted: totalDenominationCash > 0 ? totalDenominationCash : Math.max(0, netDailySales - totalTodayDueAmount - dailyExpense),
       marketDue: totalTodayDueAmount,
@@ -2380,7 +2392,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
               </div>
             </div>
 
-            <div className="overflow-x-auto overflow-y-visible">
+            <div className="overflow-x-auto min-h-[380px] pb-32">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-700 font-semibold text-xs">
@@ -2396,20 +2408,29 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {computedRows.map((row, idx) => {
                     const query = row.productName.trim().toLowerCase();
+                    // Match ALL products without slice limit, so all variants are visible and navigable
                     const suggestions = query
-                      ? db.products
-                          .filter(
-                            (p) =>
-                              p.name.toLowerCase().includes(query) ||
-                              p.code.toLowerCase().includes(query)
-                          )
-                          .slice(0, 8)
+                      ? db.products.filter(
+                          (p) =>
+                            p.status !== 'inactive' &&
+                            (p.name.toLowerCase().includes(query) ||
+                              p.code.toLowerCase().includes(query))
+                        )
                       : [];
 
                     return (
-                      <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
+                      <tr
+                        key={row.id}
+                        className={`hover:bg-slate-50/70 transition-colors ${
+                          row.showSuggestions ? 'relative z-40' : 'relative z-0'
+                        }`}
+                      >
                         {/* 1. পণ্যের নাম (Product Name with keyboard arrow & Tab selection) */}
-                        <td className="py-2 px-4 relative min-w-[500px] sm:min-w-[580px] lg:min-w-[640px]">
+                        <td
+                          className={`py-2 px-4 relative min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] ${
+                            row.showSuggestions ? 'z-50' : 'z-10'
+                          }`}
+                        >
                           <div className="relative">
                             <input
                               ref={(el) => {
@@ -2464,8 +2485,12 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                     // Forward Tab:
                                     if (row.showSuggestions && suggestions.length > 0) {
                                       e.preventDefault();
+                                      const safeIdx = Math.min(
+                                        Math.max(0, highlightedSuggestionIndex),
+                                        suggestions.length - 1
+                                      );
                                       const selectedProduct =
-                                        suggestions[highlightedSuggestionIndex] || suggestions[0];
+                                        suggestions[safeIdx] || suggestions[0];
                                       handleSelectProduct(row.id, selectedProduct);
                                     } else {
                                       // No suggestions open: move directly to Quantity field of this row
@@ -2487,7 +2512,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                             {row.showSuggestions && suggestions.length > 0 && !isSalesLocked && (
                               <ProductSuggestionDropdown
                                 suggestions={suggestions}
-                                highlightedIndex={highlightedSuggestionIndex}
+                                highlightedIndex={Math.min(
+                                  Math.max(0, highlightedSuggestionIndex),
+                                  suggestions.length - 1
+                                )}
                                 currency={currency}
                                 variant="emerald"
                                 onSelect={(p) => handleSelectProduct(row.id, p)}
@@ -2853,7 +2881,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto min-h-[380px] pb-32">
               <table className="w-full text-left border-collapse text-xs sm:text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-[11px] sm:text-xs font-bold text-slate-700">
@@ -2869,17 +2897,15 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {computedDamageRows.map((row, idx) => {
-                    // Match suggestions
+                    // Match ALL suggestions without slice limit, so all variants are visible and navigable
                     const query = row.productName.trim().toLowerCase();
                     const suggestions = query
-                      ? db.products
-                          .filter(
-                            (p) =>
-                              p.status === 'active' &&
-                              (p.name.toLowerCase().includes(query) ||
-                                p.code.toLowerCase().includes(query))
-                          )
-                          .slice(0, 8)
+                      ? db.products.filter(
+                          (p) =>
+                            p.status !== 'inactive' &&
+                            (p.name.toLowerCase().includes(query) ||
+                              p.code.toLowerCase().includes(query))
+                        )
                       : [];
 
                     const isSuggestionsVisible = row.showSuggestions && suggestions.length > 0 && !isDamageLocked;
@@ -2889,7 +2915,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         key={row.id}
                         className={`transition-colors ${
                           idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                        } hover:bg-rose-50/30`}
+                        } hover:bg-rose-50/30 ${
+                          isSuggestionsVisible ? 'relative z-40' : 'relative z-0'
+                        }`}
                       >
                         {/* Index */}
                         <td className="py-2 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 sm:w-12 shrink-0">
@@ -2897,7 +2925,11 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 1. পণ্যের নাম with Tab autocomplete */}
-                        <td className="py-2 px-4 relative min-w-[500px] sm:min-w-[580px] lg:min-w-[640px]">
+                        <td
+                          className={`py-2 px-4 relative min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] ${
+                            isSuggestionsVisible ? 'z-50' : 'z-10'
+                          }`}
+                        >
                           <div className="relative">
                             <input
                               ref={(el) => {
@@ -2908,6 +2940,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               disabled={isDamageLocked}
                               onChange={(e) => handleDamageProductNameChange(row.id, e.target.value)}
                               onFocus={() => {
+                                setDamageHighlightedSuggestionIndex(0);
                                 if (row.productName.trim() && !isDamageLocked) {
                                   updateDamageRowField(row.id, 'showSuggestions', true);
                                 }
@@ -2915,28 +2948,30 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               onBlur={() => {
                                 setTimeout(() => {
                                   updateDamageRowField(row.id, 'showSuggestions', false);
-                                }, 200);
+                                }, 250);
                               }}
                               onKeyDown={(e) => {
                                 if (isSuggestionsVisible) {
                                   if (e.key === 'ArrowDown') {
                                     e.preventDefault();
-                                    setDamageHighlightedSuggestionIndex((prev) =>
-                                      prev < suggestions.length - 1 ? prev + 1 : prev
-                                    );
+                                    setDamageHighlightedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
                                     return;
                                   }
                                   if (e.key === 'ArrowUp') {
                                     e.preventDefault();
-                                    setDamageHighlightedSuggestionIndex((prev) =>
-                                      prev > 0 ? prev - 1 : 0
+                                    setDamageHighlightedSuggestionIndex(
+                                      (prev) => (prev - 1 + suggestions.length) % suggestions.length
                                     );
                                     return;
                                   }
                                   if (e.key === 'Tab' || e.key === 'Enter') {
                                     if (!e.shiftKey) {
                                       e.preventDefault();
-                                      const pickedProduct = suggestions[damageHighlightedSuggestionIndex] || suggestions[0];
+                                      const safeIdx = Math.min(
+                                        Math.max(0, damageHighlightedSuggestionIndex),
+                                        suggestions.length - 1
+                                      );
+                                      const pickedProduct = suggestions[safeIdx] || suggestions[0];
                                       if (pickedProduct) {
                                         handleDamageSelectProduct(row.id, pickedProduct);
                                       }
@@ -2966,7 +3001,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                             {isSuggestionsVisible && (
                               <ProductSuggestionDropdown
                                 suggestions={suggestions}
-                                highlightedIndex={damageHighlightedSuggestionIndex}
+                                highlightedIndex={Math.min(
+                                  Math.max(0, damageHighlightedSuggestionIndex),
+                                  suggestions.length - 1
+                                )}
                                 currency={currency}
                                 variant="rose"
                                 onSelect={(p) => handleDamageSelectProduct(row.id, p)}
@@ -3663,6 +3701,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     onExpenseChange={setDailyExpense}
                     less={dailyLess}
                     onLessChange={setDailyLess}
+                    short={dailyShort}
+                    onShortChange={setDailyShort}
+                    dsrName={selectedDSR}
                     totalCash={totalDenominationCash}
                     currency={currency}
                     disabled={isLockedForEdit}
@@ -3682,28 +3723,6 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
               >
                 <Eye className="h-4 w-4 text-sky-600" />
                 <span>প্রিন্ট প্রিভিউ</span>
-              </button>
-
-              {/* PNG Download Button (Primary) */}
-              <button
-                type="button"
-                onClick={() => handleDownloadPNG()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition-all cursor-pointer shadow-xs"
-                title="হাই-রেজোলিউশন A4 সাইজের PNG ডাউনলোড"
-              >
-                <ImageDown className="h-4 w-4 text-emerald-600" />
-                <span>PNG ডাউনলোড (A4)</span>
-              </button>
-
-              {/* PDF Download Button */}
-              <button
-                type="button"
-                onClick={() => handleDownloadPDF()}
-                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-bold text-slate-800 hover:bg-slate-50 hover:border-slate-400 transition-all cursor-pointer shadow-xs"
-                title="ইমেজ-বেসড PDF ডাউনলোড"
-              >
-                <FileDown className="h-4 w-4 text-slate-600" />
-                <span>PDF ডাউনলোড</span>
               </button>
 
               {/* STEP 1: Morning (বিতরণ সেভ করুন) */}
@@ -3890,28 +3909,6 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           >
                             <Eye className="h-3.5 w-3.5 text-sky-600" />
                             <span>প্রিভিউ</span>
-                          </button>
-
-                          {/* PNG Download Button (Primary) */}
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadPNG(s)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 transition-colors cursor-pointer"
-                            title="A4 সাইজ PNG ডাউনলোড"
-                          >
-                            <ImageDown className="h-3.5 w-3.5 text-emerald-600" />
-                            <span>PNG</span>
-                          </button>
-
-                          {/* PDF Download Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadPDF(s)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
-                            title="PDF ডাউনলোড"
-                          >
-                            <FileDown className="h-3.5 w-3.5 text-slate-600" />
-                            <span>PDF</span>
                           </button>
 
                           {/* Delete with PIN prompt */}

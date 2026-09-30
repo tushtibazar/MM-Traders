@@ -8,6 +8,9 @@ interface SalesReconciliationPanelProps {
   onExpenseChange: (expense: number) => void;
   less?: number;
   onLessChange?: (less: number) => void;
+  short?: number;
+  onShortChange?: (short: number) => void;
+  dsrName?: string;
   totalCash: number;
   currency?: string;
   disabled?: boolean;
@@ -20,13 +23,16 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
   onExpenseChange,
   less = 0,
   onLessChange,
+  short = 0,
+  onShortChange,
+  dsrName,
   totalCash,
   currency = '৳',
   disabled = false,
 }) => {
   const salesNet = Number(netDailySales) || 0;
-  // Expected Cash = Net Daily Sales - Today's New Due - Expense - Less
-  const expectedCash = Math.max(0, salesNet - newDue - expense - (less || 0));
+  // Expected Cash = Net Daily Sales - Today's New Due - Expense - Less - Short
+  const expectedCash = Math.max(0, salesNet - newDue - expense - (less || 0) - (short || 0));
   const difference = totalCash - expectedCash;
   const isMatch = Math.abs(difference) < 0.01;
   const isExcess = difference > 0.01;
@@ -43,7 +49,7 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
           <div>
             <h3 className="font-bold text-slate-900 text-sm">ক্যাশ হিসাব (Cash Reconciliation)</h3>
             <p className="text-xs text-slate-500">
-              ক্যাশ, খরচ, বাকি ও লেস সমন্বয়
+              ক্যাশ, খরচ, বাকি, লেস ও শর্ট সমন্বয়
             </p>
           </div>
         </div>
@@ -174,6 +180,44 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
           </div>
         </div>
 
+        {/* 5. শর্ট (Short / Cash Shortage) — manual number input tied to DSR */}
+        <div className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50/50 transition-colors shadow-2xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="flex items-center justify-center w-6 h-6 rounded-md bg-orange-100 text-orange-800 font-bold text-xs shrink-0">
+              ৫
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-slate-900 text-xs sm:text-sm">৫. শর্ট (Short)</span>
+                {dsrName ? (
+                  <span className="text-[10px] font-semibold text-orange-800 bg-orange-50 border border-orange-200 px-1.5 py-0.5 rounded truncate max-w-[130px]">
+                    DSR: {dsrName}
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                    DSR ঘাটতি
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] text-slate-500 block truncate">
+                {dsrName ? `${dsrName} এর ক্যাশ শর্ট / ঘাটতি টাকা` : 'DSR এর ক্যাশ শর্ট বা ঘাটতি টাকা'}
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 justify-end shrink-0 min-w-[120px]">
+            <span className="text-xs font-mono font-bold text-orange-600">{currency}</span>
+            <input
+              type="number"
+              min="0"
+              disabled={disabled}
+              value={short === 0 ? '' : short}
+              onChange={(e) => onShortChange?.(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0))}
+              placeholder="০"
+              className="w-24 sm:w-28 text-right rounded-lg border border-orange-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-orange-800 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+            />
+          </div>
+        </div>
+
         {/* Reconciliation Comparison & Match Indicator */}
         <div className="pt-3 border-t border-slate-200 space-y-2.5">
           {/* Formula Summary Line */}
@@ -183,9 +227,11 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
               <span className="font-mono font-bold text-slate-800">{currency} {salesNet.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between text-slate-600">
-              <span>বাদ: বাকি + খরচ {less > 0 ? '+ লেস' : ''}:</span>
+              <span>
+                বাদ: বাকি + খরচ {(less || 0) > 0 ? '+ লেস' : ''} {(short || 0) > 0 ? '+ শর্ট' : ''}:
+              </span>
               <span className="font-mono font-semibold text-rose-600">
-                - {currency} {(newDue + expense + (less || 0)).toLocaleString()}
+                - {currency} {(newDue + expense + (less || 0) + (short || 0)).toLocaleString()}
               </span>
             </div>
             <div className="pt-1 border-t border-slate-200 flex items-center justify-between font-bold text-slate-900 text-xs">

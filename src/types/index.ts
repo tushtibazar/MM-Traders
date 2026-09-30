@@ -342,7 +342,9 @@ export interface DailyAccountSheet {
   marketDue: number; // finalNetSalesAmount - cashCollected
   lessAmount?: number;
   dailyLess?: number;
-  cashDenominations?: { [key: string]: number | '' };
+  shortAmount?: number;
+  dailyShort?: number;
+  cashDenominations?: { [key: string]: any };
   status: 'draft' | 'confirmed' | 'pending' | 'completed';
   notes?: string;
   createdAt: string;

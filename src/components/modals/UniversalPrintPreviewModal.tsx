@@ -163,39 +163,6 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
             <span>প্রিন্ট করুন</span>
           </button>
 
-          {/* PDF Download Button */}
-          <button
-            type="button"
-            onClick={handleExportPDF}
-            disabled={isExporting}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition-colors cursor-pointer"
-            title="হাই-রেজোলিউশন ইমেজ-বেসড PDF ডাউনলোড করুন"
-          >
-            <FileDown className="h-4 w-4 text-emerald-400" />
-            <span>PDF ডাউনলোড</span>
-          </button>
-
-          {/* Primary PNG Download Button */}
-          <button
-            type="button"
-            onClick={handleExportPNG}
-            disabled={isExporting}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors cursor-pointer"
-            title="ঝকঝকে A4 সাইজের হাই-রেজোলিউশন PNG ডাউনলোড করুন"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{exportProgress || 'প্রসেসিং...'}</span>
-              </>
-            ) : (
-              <>
-                <ImageDown className="h-4 w-4" />
-                <span>PNG ডাউনলোড (A4)</span>
-              </>
-            )}
-          </button>
-
           {/* Close Button */}
           <button
             type="button"

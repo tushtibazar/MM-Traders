@@ -5,6 +5,7 @@ import {
   Filter,
   FileDown,
   Printer,
+  Eye,
   ArrowLeft,
   Store,
   Phone,
@@ -119,12 +120,13 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              id="ledger-pdf-btn"
+              id="ledger-print-btn"
               onClick={handleDownloadPDF}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2.5 text-xs sm:text-sm font-semibold text-white hover:bg-slate-800 transition-colors shadow-xs"
+              className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-4 py-2.5 text-xs sm:text-sm font-bold text-sky-900 hover:bg-sky-100 hover:border-sky-400 transition-colors shadow-xs cursor-pointer"
+              title="কাস্টমার লেজার প্রিন্ট প্রিভিউ দেখুন"
             >
-              <FileDown className="h-4 w-4 text-emerald-400" />
-              <span>লেজার PDF ডাউনলোড</span>
+              <Eye className="h-4 w-4 text-sky-600" />
+              <span>প্রিন্ট প্রিভিউ</span>
             </button>
           </div>
         </div>

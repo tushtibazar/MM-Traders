@@ -148,7 +148,7 @@ export const PinPromptModal: React.FC<PinPromptModalProps> = ({
                   setPin(val);
                   if (error) setError('');
                 }}
-                placeholder="যেমন: 1234"
+                placeholder="••••"
                 className="w-full text-center tracking-widest text-lg font-mono font-bold rounded-xl border border-slate-300 bg-white px-4 py-2.5 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 focus:outline-none"
               />
               <button

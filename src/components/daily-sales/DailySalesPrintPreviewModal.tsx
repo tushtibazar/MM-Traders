@@ -104,6 +104,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   const todayDueTotal = sheet.todayDue || 0;
   const expenseTotal = sheet.marketExpense || 0;
   const lessTotal = sheet.lessAmount || sheet.dailyLess || 0;
+  const shortTotal = sheet.shortAmount || sheet.dailyShort || 0;
 
   // Cash Denominations
   const denoms = sheet.cashDenominations || {};
@@ -115,12 +116,15 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
       subtotal: denom * count,
     };
   });
-  const otherCash = Number(denoms.other) || 0;
+  const otherEntries = (denoms as any).otherEntries;
+  const otherCash = Array.isArray(otherEntries) && otherEntries.length > 0
+    ? otherEntries.reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0)
+    : (Number(denoms.other) || 0);
   const totalCashCalculated = denomRows.reduce((sum, r) => sum + r.subtotal, 0) + otherCash;
   const actualCash = sheet.cashCollected > 0 ? sheet.cashCollected : totalCashCalculated;
 
-  // Reconciliation: Expected Cash = Net Sales - Today's New Due - Expense - Less
-  const expectedCash = Math.max(0, netSales - todayDueTotal - expenseTotal - lessTotal);
+  // Reconciliation: Expected Cash = Net Sales - Today's New Due - Expense - Less - Short
+  const expectedCash = Math.max(0, netSales - todayDueTotal - expenseTotal - lessTotal - shortTotal);
   const diff = actualCash - expectedCash;
   const isMatch = Math.abs(diff) < 1;
   const isExcess = diff >= 1;
@@ -265,39 +269,6 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
           >
             <Printer className="h-4 w-4 text-sky-400" />
             <span>প্রিন্ট করুন</span>
-          </button>
-
-          {/* PDF Download Button */}
-          <button
-            type="button"
-            onClick={handleExportPDF}
-            disabled={isExporting}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600 transition-colors cursor-pointer"
-            title="হাই-রেজোলিউশন ইমেজ-বেসড PDF ডাউনলোড করুন"
-          >
-            <FileDown className="h-4 w-4 text-emerald-400" />
-            <span>PDF ডাউনলোড</span>
-          </button>
-
-          {/* Primary PNG Download Button */}
-          <button
-            type="button"
-            onClick={handleExportPNG}
-            disabled={isExporting}
-            className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors cursor-pointer"
-            title="ঝকঝকে A4 সাইজের হাই-রেজোলিউশন PNG ডাউনলোড করুন"
-          >
-            {isExporting ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{exportProgress || 'প্রসেসিং...'}</span>
-              </>
-            ) : (
-              <>
-                <ImageDown className="h-4 w-4" />
-                <span>PNG ডাউনলোড (A4)</span>
-              </>
-            )}
           </button>
 
           {/* Close Button */}
@@ -641,12 +612,23 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               <span className="font-bold text-slate-900">{r.subtotal.toLocaleString()}</span>
                             </div>
                           ))}
-                          {otherCash > 0 && (
+                          {Array.isArray(otherEntries) && otherEntries.length > 0 ? (
+                            otherEntries.map((e: any, idx: number) => {
+                              const amt = Number(e.amount) || 0;
+                              if (amt <= 0 && otherEntries.length > 1) return null;
+                              return (
+                                <div key={e.id || idx} className="flex justify-between border-b border-slate-100 py-0.5 col-span-2">
+                                  <span className="text-slate-600">{e.label || `অন্যান্য ${idx + 1}`}:</span>
+                                  <span className="font-bold text-slate-900">{amt.toLocaleString()}</span>
+                                </div>
+                              );
+                            })
+                          ) : otherCash > 0 ? (
                             <div className="flex justify-between border-b border-slate-100 py-0.5 col-span-2">
                               <span className="text-slate-600">খুচরা / অন্যান্য:</span>
                               <span className="font-bold text-slate-900">{otherCash.toLocaleString()}</span>
                             </div>
-                          )}
+                          ) : null}
                         </div>
                       </div>
 
@@ -687,6 +669,12 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               <div className="flex justify-between text-amber-800">
                                 <span>৪. বাদ: লেস হিসাব (Less):</span>
                                 <span className="font-mono font-bold">- {currency} {lessTotal.toLocaleString()}</span>
+                              </div>
+                            )}
+                            {shortTotal > 0 && (
+                              <div className="flex justify-between text-orange-800">
+                                <span>৫. বাদ: শর্ট (Short{sheet.dsrName ? ` - ${sheet.dsrName}` : ''}):</span>
+                                <span className="font-mono font-bold">- {currency} {shortTotal.toLocaleString()}</span>
                               </div>
                             )}
                             <div className="border-t border-slate-200 pt-1 flex justify-between font-bold text-slate-800">

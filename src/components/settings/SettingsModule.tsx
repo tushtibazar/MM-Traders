@@ -43,9 +43,10 @@ import {
 import { PinPromptModal } from '../modals/PinPromptModal';
 
 export const SettingsModule: React.FC = () => {
-  const { db, currentUser, updateSettings, refreshFromStorage, importDatabase, addRoute, updateRoute, deleteRoute } = useApp();
+  const { db, currentUser, updateSettings, refreshFromStorage, importDatabase, addRoute, updateRoute, deleteRoute, resetToBlankData } = useApp();
 
   const [businessName, setBusinessName] = useState(db.settings.businessName);
+  const [proprietorName, setProprietorName] = useState(db.settings.proprietorName || '');
   const [subtitle, setSubtitle] = useState(db.settings.subtitle);
   const [phone, setPhone] = useState(db.settings.phone);
   const [address, setAddress] = useState(db.settings.address);
@@ -64,6 +65,8 @@ export const SettingsModule: React.FC = () => {
   const [restoreSuccessMsg, setRestoreSuccessMsg] = useState('');
   const [restoreErrorMsg, setRestoreErrorMsg] = useState('');
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [isResetPinModalOpen, setIsResetPinModalOpen] = useState(false);
+  const [resetSuccessMsg, setResetSuccessMsg] = useState('');
   const [pendingRestore, setPendingRestore] = useState<{
     fileContent: string;
     fileName: string;
@@ -96,7 +99,7 @@ export const SettingsModule: React.FC = () => {
   const [routeMsg, setRouteMsg] = useState('');
 
   const currentRoutes = React.useMemo(() => {
-    return db.settings.customRoutes && db.settings.customRoutes.length > 0
+    return Array.isArray(db.settings.customRoutes)
       ? db.settings.customRoutes
       : DEFAULT_ROUTES;
   }, [db.settings.customRoutes]);
@@ -106,6 +109,7 @@ export const SettingsModule: React.FC = () => {
     updateSettings({
       ...db.settings,
       businessName,
+      proprietorName: proprietorName.trim(),
       subtitle,
       phone,
       address,
@@ -274,16 +278,18 @@ export const SettingsModule: React.FC = () => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleResetData = () => {
-    if (
-      window.confirm(
-        'সতর্কতা: আপনি কি নিশ্চিত যে প্রাথমিক ডেমো ডাটাতে ফিরে যেতে চান? আপনার নতুন যোগ করা এন্ট্রিগুলো মুছে যাবে।',
-      )
-    ) {
-      resetToInitialSeed();
-      refreshFromStorage();
+  const handleOpenResetModal = () => {
+    setIsResetPinModalOpen(true);
+  };
+
+  const handleConfirmReset = () => {
+    setIsResetPinModalOpen(false);
+    resetToBlankData();
+    refreshFromStorage();
+    setResetSuccessMsg('সকল ব্যবসায়িক ডেটা সফলভাবে স্থায়ীভাবে মুছে খালি (Blank) করা হয়েছে। প্রতিষ্ঠানের নাম, মালিকের নাম ও সেটিংস অক্ষত রয়েছে।');
+    setTimeout(() => {
       window.location.reload();
-    }
+    }, 1200);
   };
 
   return (
@@ -310,6 +316,13 @@ export const SettingsModule: React.FC = () => {
           ব্যবসা ও ভাউচার হেডার তথ্য
         </h2>
 
+        {resetSuccessMsg && (
+          <div className="mb-4 rounded-lg bg-rose-50 p-3 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-rose-600 shrink-0" />
+            <span className="font-semibold">{resetSuccessMsg}</span>
+          </div>
+        )}
+
         {saveMsg && (
           <div className="mb-4 rounded-lg bg-emerald-50 p-2.5 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
@@ -332,11 +345,28 @@ export const SettingsModule: React.FC = () => {
           </div>
 
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">ট্যাগলাইন / সাব-টাইটেল</label>
+            <label className="block font-semibold text-slate-700 mb-1">
+              মালিকের নাম (Owner Name) *
+            </label>
+            <input
+              type="text"
+              required
+              value={proprietorName}
+              onChange={(e) => setProprietorName(e.target.value)}
+              placeholder="যেমন: মোঃ মামুন"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-medium"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              ডিস্ট্রিবিউটর / সাব-টাইটেল (Distributor label)
+            </label>
             <input
               type="text"
               value={subtitle}
               onChange={(e) => setSubtitle(e.target.value)}
+              placeholder="যেমন: DISTRIBUTOR"
               className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
             />
           </div>
@@ -391,7 +421,7 @@ export const SettingsModule: React.FC = () => {
                 required
                 value={securityPin}
                 onChange={(e) => setSecurityPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="যেমন: 1234"
+                placeholder="••••"
                 className="w-full rounded-lg border border-rose-300 bg-white px-3 py-2 font-mono font-bold tracking-widest text-sm text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 focus:outline-none"
               />
             </div>
@@ -852,24 +882,45 @@ export const SettingsModule: React.FC = () => {
           </div>
         </div>
 
-        {/* Reset to seed data */}
+        {/* Reset to initial data */}
         <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-          <div>
-            <h4 className="font-bold text-slate-900 font-bengali">প্রাথমিক টেস্ট ডাটা পুনরুদ্ধার (Reset to Demo)</h4>
-            <p className="text-slate-500 font-bengali text-[11px]">
-              সকল ডাটা মুছে প্রস্তুতকৃত প্রাথমিক ডেমো কাস্টমার ও প্রোডাক্টে ফিরে যাবে।
+          <div className="space-y-1">
+            <h4 className="font-bold text-rose-800 font-bengali text-sm flex items-center gap-1.5">
+              <AlertTriangle className="h-4 w-4 text-rose-600" />
+              প্রাথমিক ডেটা পুনরুদ্ধার (Reset to Initial Data)
+            </h4>
+            <p className="text-slate-600 font-bengali text-[11.5px] leading-relaxed">
+              সতর্কতা: এটি সকল ব্যবসায়িক ডেটা স্থায়ীভাবে মুছে ফেলবে এবং কোনো ব্যাকআপ ছাড়া পুনরুদ্ধারযোগ্য নয়।
+            </p>
+            <p className="text-slate-400 font-bengali text-[10.5px]">
+              দৈনিক হিসাব, বাকি/Due, কাস্টমার, স্টক, পণ্য, খরচ, লেস, ড্যামেজ, রুট, এসআর/ডিএসআর সব খালি হবে। শুধুমাত্র প্রতিষ্ঠানের নাম, ডিস্ট্রিবিউটর, ফোন, মালিকের নাম ও পিন অক্ষত থাকবে।
             </p>
           </div>
           <button
             type="button"
-            onClick={handleResetData}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-rose-50 px-3 py-1.5 font-semibold text-rose-700 hover:bg-rose-100 transition-colors font-bengali"
+            onClick={handleOpenResetModal}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-rose-600 px-4 py-2 font-bold text-white hover:bg-rose-700 transition-colors font-bengali shadow-xs cursor-pointer shrink-0"
           >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>ডেমো ডাটা রিসেট করুন</span>
+            <RotateCcw className="h-4 w-4" />
+            <span>প্রাথমিক ডেটা পুনরুদ্ধার (সকল ডাটা মুছুন)</span>
           </button>
         </div>
       </div>
+
+      {/* PIN Confirmation Modal for Reset to Blank */}
+      {isResetPinModalOpen && (
+        <PinPromptModal
+          isOpen={isResetPinModalOpen}
+          title="প্রাথমিক ডেটা পুনরুদ্ধার (সকল ডাটা মুছুন)"
+          subtitle="দৈনিক হিসাব, বাকি/Due, কাস্টমার তালিকা ও লেজার, পণ্য ও স্টক, খরচ, লেস, ড্যামেজ, রুট, এসআর/ডিএসআর এবং ব্যবসার সার্বিক হিসাবের সকল তথ্য স্থায়ীভাবে মুছে সম্পূর্ণরূপে শূন্য (খালি) করা হবে।"
+          warning="সতর্কতা: এটি সকল ব্যবসায়িক ডেটা স্থায়ীভাবে মুছে ফেলবে এবং কোনো ব্যাকআপ ছাড়া পুনরুদ্ধারযোগ্য নয়।"
+          confirmButtonText="হ্যাঁ, সকল ডাটা মুছে খালি করুন"
+          confirmButtonVariant="danger"
+          correctPin={db.settings.securityPin || currentUser?.pin || '1234'}
+          onSuccess={handleConfirmReset}
+          onClose={() => setIsResetPinModalOpen(false)}
+        />
+      )}
 
       {/* PIN Confirmation Modal for Restore */}
       {isPinModalOpen && (

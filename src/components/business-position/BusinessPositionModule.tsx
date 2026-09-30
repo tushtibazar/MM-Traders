@@ -754,26 +754,6 @@ export const BusinessPositionModule: React.FC = () => {
 
           <button
             type="button"
-            onClick={handleDownloadPNG}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition cursor-pointer shadow-xs"
-            title="A4 সাইজের PNG ডাউনলোড"
-          >
-            <ImageDown className="h-4 w-4 text-emerald-600" />
-            <span>PNG ডাউনলোড</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleDownloadPDF}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition cursor-pointer shadow-xs"
-            title="ইমেজ-বেসড PDF ডাউনলোড"
-          >
-            <FileDown className="h-4 w-4 text-emerald-400" />
-            <span>PDF ডাউনলোড</span>
-          </button>
-
-          <button
-            type="button"
             onClick={() => setShowHistoryModal(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100 transition cursor-pointer"
             title="পূর্বে সেভ করা সকল স্ন্যাপশট দেখুন"
@@ -1916,7 +1896,7 @@ export const BusinessPositionModule: React.FC = () => {
               {db.settings.businessName || 'MM TRADERS - DISTRIBUTOR'}
             </h3>
             <p className="text-xs text-slate-400">
-              প্রোপাইটর: {db.settings.proprietorName || 'Mohammad Mamun'} | তারিখ: {formattedToday}
+              প্রোপাইটর: {db.settings.proprietorName || 'মালিক'} | তারিখ: {formattedToday}
             </p>
           </div>
 

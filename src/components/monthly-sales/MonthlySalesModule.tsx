@@ -13,6 +13,8 @@ import {
   Eye,
   ImageDown,
   FileDown,
+  TrendingDown,
+  AlertOctagon,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { MonthlySalesPrintPreviewModal } from './MonthlySalesPrintPreviewModal';
@@ -269,6 +271,110 @@ export const MonthlySalesModule: React.FC = () => {
     return dailyExpenseData.reduce((sum, item) => sum + item.expenseAmount, 0);
   }, [dailyExpenseData]);
 
+  // =========================================================================
+  // COLUMN 4: DAILY SHORT (date-wise)
+  // =========================================================================
+  const dailyShortData = useMemo(() => {
+    const dateMap = new Map<
+      string,
+      { totalShort: number; count: number; dsrs: string[] }
+    >();
+
+    (db.dailySheets || []).forEach((sheet) => {
+      if (sheet.date && sheet.date.startsWith(targetMonthPrefix)) {
+        const amt = Number(sheet.shortAmount ?? sheet.dailyShort ?? 0);
+        if (amt > 0) {
+          const d = sheet.date;
+          const existing = dateMap.get(d) || { totalShort: 0, count: 0, dsrs: [] };
+          existing.totalShort += amt;
+          existing.count += 1;
+          const dsrLabel = sheet.dsrName?.trim() || sheet.routeOrVan || sheet.srName;
+          if (dsrLabel && !existing.dsrs.includes(dsrLabel)) {
+            existing.dsrs.push(dsrLabel);
+          }
+          dateMap.set(d, existing);
+        }
+      }
+    });
+
+    const list = Array.from(dateMap.entries()).map(([date, data]) => ({
+      date,
+      shortAmount: data.totalShort,
+      count: data.count,
+      dsrs: data.dsrs,
+    }));
+
+    return list.sort((a, b) => a.date.localeCompare(b.date));
+  }, [db.dailySheets, targetMonthPrefix]);
+
+  const totalMonthlyShort = useMemo(() => {
+    return dailyShortData.reduce((sum, item) => sum + item.shortAmount, 0);
+  }, [dailyShortData]);
+
+  // =========================================================================
+  // COLUMN 5: DAILY DAMAGE (date-wise)
+  // =========================================================================
+  const dailyDamageData = useMemo(() => {
+    const dateMap = new Map<
+      string,
+      { totalDamage: number; count: number; items: string[] }
+    >();
+
+    (db.dailySheets || []).forEach((sheet) => {
+      if (sheet.date && sheet.date.startsWith(targetMonthPrefix)) {
+        let sheetDamageValue = Number(sheet.totalDamageValue) || 0;
+        const itemNames: string[] = [];
+
+        if (Array.isArray(sheet.damageItems) && sheet.damageItems.length > 0) {
+          let itemsValue = 0;
+          sheet.damageItems.forEach((it) => {
+            const val =
+              Number(it.damageValue) ||
+              (Number(it.damageQty) || 0) * (Number(it.sellingPrice) || 0);
+            if (val > 0 || (Number(it.damageQty) || 0) > 0) {
+              itemsValue += val;
+              if (it.productName && !itemNames.includes(it.productName)) {
+                itemNames.push(`${it.productName} (${it.damageQty || 0}টি)`);
+              }
+            }
+          });
+          if (itemsValue > 0) {
+            sheetDamageValue = Math.max(sheetDamageValue, itemsValue);
+          }
+        }
+
+        if (sheetDamageValue > 0) {
+          const d = sheet.date;
+          const existing = dateMap.get(d) || { totalDamage: 0, count: 0, items: [] };
+          existing.totalDamage += sheetDamageValue;
+          existing.count += 1;
+          itemNames.forEach((name) => {
+            if (!existing.items.includes(name)) {
+              existing.items.push(name);
+            }
+          });
+          if (sheet.routeOrVan && existing.items.length === 0) {
+            existing.items.push(sheet.routeOrVan);
+          }
+          dateMap.set(d, existing);
+        }
+      }
+    });
+
+    const list = Array.from(dateMap.entries()).map(([date, data]) => ({
+      date,
+      damageAmount: data.totalDamage,
+      count: data.count,
+      items: data.items,
+    }));
+
+    return list.sort((a, b) => a.date.localeCompare(b.date));
+  }, [db.dailySheets, targetMonthPrefix]);
+
+  const totalMonthlyDamage = useMemo(() => {
+    return dailyDamageData.reduce((sum, item) => sum + item.damageAmount, 0);
+  }, [dailyDamageData]);
+
   // Format date helper with weekday name in Bengali
   const formatDateBn = (dateStr: string) => {
     try {
@@ -321,7 +427,7 @@ export const MonthlySalesModule: React.FC = () => {
                 মাসিক বিক্রি হিসাব (Monthly Sales & Financial Report)
               </h1>
               <p className="text-xs text-slate-500">
-                ৩ কলামের পাশাপাশি লেআউটে নির্বাচিত মাসের প্রতিদিনের বিক্রি, লেস এবং খরচ হিসাব
+                ৫ কলামের পাশাপাশি লেআউটে নির্বাচিত মাসের প্রতিদিনের বিক্রি, লেস, খরচ, শর্ট এবং ড্যামেজ হিসাব
               </p>
             </div>
           </div>
@@ -335,26 +441,6 @@ export const MonthlySalesModule: React.FC = () => {
             >
               <Eye className="h-4 w-4 text-sky-600" />
               <span>প্রিন্ট প্রিভিউ</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDownloadPNG}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition shadow-xs cursor-pointer"
-              title="A4 সাইজের PNG ডাউনলোড"
-            >
-              <ImageDown className="h-4 w-4 text-emerald-600" />
-              <span>PNG ডাউনলোড</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleDownloadPDF}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition shadow-xs cursor-pointer"
-              title="ইমেজ-বেসড PDF ডাউনলোড"
-            >
-              <FileDown className="h-4 w-4 text-emerald-400" />
-              <span>PDF ডাউনলোড</span>
             </button>
           </div>
         </div>
@@ -441,8 +527,8 @@ export const MonthlySalesModule: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. TOP METRIC SUMMARY CARDS (3 INDEPENDENT FIGURES: SALES, LESS, EXPENSE) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* 2. TOP METRIC SUMMARY CARDS (5 FIGURES: SALES, LESS, EXPENSE, SHORT, DAMAGE) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
         {/* Card 1: Total Monthly Sales */}
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-xs">
           <div className="flex items-center justify-between">
@@ -496,12 +582,48 @@ export const MonthlySalesModule: React.FC = () => {
             মোট {dailyExpenseData.length} দিনের খরচের এন্ট্রি
           </p>
         </div>
+
+        {/* Card 4: Total Monthly Short */}
+        <div className="rounded-xl border border-orange-200 bg-orange-50/60 p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-orange-950 font-bengali">
+              ৪. মোট শর্ট (Short)
+            </span>
+            <div className="rounded-lg bg-orange-200/80 p-1.5 text-orange-800">
+              <TrendingDown className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-black font-mono text-orange-900">
+            {currency} {totalMonthlyShort.toLocaleString()}
+          </p>
+          <p className="mt-1 text-[11px] text-orange-800 font-medium">
+            মোট {dailyShortData.length} দিনের শর্ট হিসাব
+          </p>
+        </div>
+
+        {/* Card 5: Total Monthly Damage */}
+        <div className="rounded-xl border border-purple-200 bg-purple-50/60 p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-purple-950 font-bengali">
+              ৫. মোট ড্যামেজ (Damage)
+            </span>
+            <div className="rounded-lg bg-purple-200/80 p-1.5 text-purple-800">
+              <AlertOctagon className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-black font-mono text-purple-900">
+            {currency} {totalMonthlyDamage.toLocaleString()}
+          </p>
+          <p className="mt-1 text-[11px] text-purple-800 font-medium">
+            মোট {dailyDamageData.length} দিনের ড্যামেজ হিসাব
+          </p>
+        </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* 3-COLUMN SIDE-BY-SIDE RESPONSIVE LAYOUT */}
+      {/* 5-COLUMN SIDE-BY-SIDE RESPONSIVE LAYOUT */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 items-start">
         {/* ----------------------------------------------------------------------- */}
         {/* COLUMN 1: প্রতিদিনের বিক্রি হিসাব (Daily Sales) */}
         {/* ----------------------------------------------------------------------- */}
@@ -726,6 +848,156 @@ export const MonthlySalesModule: React.FC = () => {
             </span>
           </div>
         </div>
+
+        {/* ----------------------------------------------------------------------- */}
+        {/* COLUMN 4: শর্ট হিসাব (Daily Short) */}
+        {/* ----------------------------------------------------------------------- */}
+        <div className="rounded-xl border border-orange-200 bg-white shadow-xs overflow-hidden flex flex-col h-full">
+          {/* Header */}
+          <div className="border-b border-orange-100 bg-orange-50/80 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-orange-600 text-white flex items-center justify-center font-bold text-xs">
+                ৪
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 font-bengali">
+                  শর্ট (Short)
+                </h2>
+                <p className="text-[10px] text-slate-500">Daily Short, Date-wise</p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-orange-800 bg-orange-100 border border-orange-200 px-2 py-0.5 rounded-md">
+              {dailyShortData.length} দিন
+            </span>
+          </div>
+
+          {/* Table Content */}
+          <div className="overflow-x-auto flex-1 max-h-[600px] overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="py-2.5 px-3 text-left">তারিখ (Date)</th>
+                  <th className="py-2.5 px-3 text-right">শর্ট (Amount)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dailyShortData.map((item) => (
+                  <tr key={item.date} className="hover:bg-orange-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-slate-900">
+                      <div className="flex items-center gap-1.5">
+                        <TrendingDown className="h-3 w-3 text-orange-500 shrink-0" />
+                        <span className="font-mono text-xs font-semibold text-slate-800">
+                          {formatDateBn(item.date)}
+                        </span>
+                      </div>
+                      {item.dsrs && item.dsrs.length > 0 && (
+                        <div className="text-[10px] text-slate-400 truncate max-w-[170px] mt-0.5">
+                          {item.dsrs.join(', ')}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-orange-900">
+                      {currency} {item.shortAmount.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+
+                {dailyShortData.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="py-12 text-center text-slate-400 text-xs">
+                      এই মাসে কোনো শর্ট রেকর্ড পাওয়া যায়নি
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Column Bottom Total */}
+          <div className="border-t-2 border-orange-300 bg-orange-50 px-4 py-3 flex items-center justify-between font-bold">
+            <span className="text-xs font-black text-orange-950 font-bengali uppercase">
+              মোট শর্ট (এই মাসে):
+            </span>
+            <span className="font-mono font-black text-base text-orange-900">
+              {currency} {totalMonthlyShort.toLocaleString()}
+            </span>
+          </div>
+        </div>
+
+        {/* ----------------------------------------------------------------------- */}
+        {/* COLUMN 5: ড্যামেজ হিসাব (Daily Damage) */}
+        {/* ----------------------------------------------------------------------- */}
+        <div className="rounded-xl border border-purple-200 bg-white shadow-xs overflow-hidden flex flex-col h-full">
+          {/* Header */}
+          <div className="border-b border-purple-100 bg-purple-50/80 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold text-xs">
+                ৫
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 font-bengali">
+                  ড্যামেজ (Damage)
+                </h2>
+                <p className="text-[10px] text-slate-500">Daily Damage, Date-wise</p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-purple-800 bg-purple-100 border border-purple-200 px-2 py-0.5 rounded-md">
+              {dailyDamageData.length} দিন
+            </span>
+          </div>
+
+          {/* Table Content */}
+          <div className="overflow-x-auto flex-1 max-h-[600px] overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="py-2.5 px-3 text-left">তারিখ (Date)</th>
+                  <th className="py-2.5 px-3 text-right">ড্যামেজ টাকা (Amount)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dailyDamageData.map((item) => (
+                  <tr key={item.date} className="hover:bg-purple-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-slate-900">
+                      <div className="flex items-center gap-1.5">
+                        <AlertOctagon className="h-3 w-3 text-purple-500 shrink-0" />
+                        <span className="font-mono text-xs font-semibold text-slate-800">
+                          {formatDateBn(item.date)}
+                        </span>
+                      </div>
+                      {item.items && item.items.length > 0 && (
+                        <div className="text-[10px] text-slate-400 truncate max-w-[170px] mt-0.5">
+                          {item.items.join(', ')}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-purple-900">
+                      {currency} {item.damageAmount.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+
+                {dailyDamageData.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="py-12 text-center text-slate-400 text-xs">
+                      এই মাসে কোনো ড্যামেজ রেকর্ড পাওয়া যায়নি
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Column Bottom Total */}
+          <div className="border-t-2 border-purple-300 bg-purple-50 px-4 py-3 flex items-center justify-between font-bold">
+            <span className="text-xs font-black text-purple-950 font-bengali uppercase">
+              মোট ড্যামেজ (এই মাসে):
+            </span>
+            <span className="font-mono font-black text-base text-purple-900">
+              {currency} {totalMonthlyDamage.toLocaleString()}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Monthly Sales Print Preview & Export Modal */}
@@ -739,9 +1011,13 @@ export const MonthlySalesModule: React.FC = () => {
         dailySales={dailySalesData}
         dailyLess={dailyLessData}
         dailyExpense={dailyExpenseData}
+        dailyShort={dailyShortData}
+        dailyDamage={dailyDamageData}
         totalSales={totalMonthlySales}
         totalLess={totalMonthlyLess}
         totalExpense={totalMonthlyExpense}
+        totalShort={totalMonthlyShort}
+        totalDamage={totalMonthlyDamage}
         initialAction={printAction}
       />
     </div>

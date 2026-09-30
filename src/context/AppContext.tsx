@@ -28,6 +28,9 @@ interface AppContextType {
   switchUser: (idOrUsername: string, pin: string) => boolean;
   isInitialized: boolean;
   refreshFromStorage: () => void;
+  isLoggedIn: boolean;
+  login: (userIdOrUsername: string, pin: string) => boolean;
+  logout: () => void;
 
   // Business Actions
   addSale: (saleInput: {
@@ -128,6 +131,7 @@ interface AppContextType {
   deleteRoute: (routeName: string) => void;
 
   resetToDemoData: () => void;
+  resetToBlankData: () => void;
   importDatabase: (importedDb: AppDatabase) => void;
 
   // Computations
@@ -151,6 +155,55 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentUser, setCurrentUser] = useState<User>(() => {
     return db.users.find((u) => u.role === 'owner') || db.users[0];
   });
+
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(() => {
+    try {
+      const stored = sessionStorage.getItem('mm_traders_session_active');
+      if (stored === 'false') return false;
+      return true;
+    } catch {
+      return true;
+    }
+  });
+
+  const logout = () => {
+    setIsLoggedIn(false);
+    try {
+      sessionStorage.setItem('mm_traders_session_active', 'false');
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const login = (userIdOrUsername: string, pin: string): boolean => {
+    const found = db.users.find(
+      (u) =>
+        u.id.toLowerCase() === userIdOrUsername.toLowerCase() ||
+        u.username.toLowerCase() === userIdOrUsername.toLowerCase()
+    );
+    if (!found) return false;
+
+    const validPins: string[] = [];
+    if (found.pin) validPins.push(found.pin);
+    if (found.role === 'owner') {
+      if (db.settings.securityPin) validPins.push(db.settings.securityPin);
+      if ((db.settings as any).ownerPin) validPins.push((db.settings as any).ownerPin);
+    }
+    if (validPins.length === 0) validPins.push('1234');
+
+    if (validPins.includes(pin.trim())) {
+      setCurrentUser(found);
+      setIsLoggedIn(true);
+      try {
+        sessionStorage.setItem('mm_traders_session_active', 'true');
+        sessionStorage.setItem('mm_traders_last_user_id', found.id);
+      } catch (e) {
+        console.error(e);
+      }
+      return true;
+    }
+    return false;
+  };
 
   const todayDateStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
 
@@ -1581,14 +1634,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateSettings = (settings: BusinessSettings) => {
-    updateDb({ ...db, settings });
+    const updatedUsers = (db.users || []).map((u) => {
+      if (u.role === 'owner' || u.id === 'user-owner') {
+        return {
+          ...u,
+          name: settings.proprietorName ? `${settings.proprietorName} (মালিক)` : u.name,
+          phone: settings.phone || u.phone,
+          pin: settings.securityPin || u.pin,
+        };
+      }
+      return u;
+    });
+
+    updateDb({ ...db, settings, users: updatedUsers });
+
+    if (currentUser?.role === 'owner') {
+      setCurrentUser((prev) => ({
+        ...prev,
+        name: settings.proprietorName ? `${settings.proprietorName} (মালিক)` : prev.name,
+        phone: settings.phone || prev.phone,
+        pin: settings.securityPin || prev.pin,
+      }));
+    }
   };
 
   const addRoute = (routeName: string) => {
     const trimmed = routeName.trim();
     if (!trimmed) return;
     const currentCustom =
-      db.settings.customRoutes && db.settings.customRoutes.length > 0
+      Array.isArray(db.settings.customRoutes)
         ? db.settings.customRoutes
         : DEFAULT_ROUTES;
     if (!currentCustom.includes(trimmed)) {
@@ -1606,7 +1680,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // 1. Update in customRoutes
     const currentCustom =
-      db.settings.customRoutes && db.settings.customRoutes.length > 0
+      Array.isArray(db.settings.customRoutes)
         ? db.settings.customRoutes
         : DEFAULT_ROUTES;
     let updatedCustom: string[];
@@ -1670,11 +1744,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const resetToDemoData = () => {
-    const fresh = StorageService.resetToDemo();
-    setDb(fresh);
-    const owner = fresh.users.find((u) => u.role === 'owner') || fresh.users[0];
+  const resetToBlankData = () => {
+    const ownerUser = db.users.find((u) => u.role === 'owner') || currentUser;
+    const blank = StorageService.resetToBlank(db.settings, ownerUser);
+    setDb(blank);
+    const owner = blank.users.find((u) => u.role === 'owner') || blank.users[0];
     setCurrentUser(owner);
+  };
+
+  const resetToDemoData = () => {
+    resetToBlankData();
   };
 
   const importDatabase = (imported: AppDatabase) => {
@@ -1767,8 +1846,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         u.id.toLowerCase() === idOrUsername.toLowerCase() ||
         u.username.toLowerCase() === idOrUsername.toLowerCase()
     );
-    if (found && (!found.pin || found.pin === pin)) {
+    if (!found) return false;
+
+    const validPins: string[] = [];
+    if (found.pin) validPins.push(found.pin);
+    if (found.role === 'owner') {
+      if (db.settings.securityPin) validPins.push(db.settings.securityPin);
+      if ((db.settings as any).ownerPin) validPins.push((db.settings as any).ownerPin);
+    }
+    if (validPins.length === 0) validPins.push('1234');
+
+    if (validPins.includes(pin.trim())) {
       setCurrentUser(found);
+      setIsLoggedIn(true);
+      try {
+        sessionStorage.setItem('mm_traders_session_active', 'true');
+        sessionStorage.setItem('mm_traders_last_user_id', found.id);
+      } catch (e) {
+        console.error(e);
+      }
       return true;
     }
     return false;
@@ -1876,6 +1972,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         switchUser,
         isInitialized: true,
         refreshFromStorage,
+        isLoggedIn,
+        login,
+        logout,
         addSale,
         voidSale,
         addPayment,
@@ -1916,6 +2015,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateRoute,
         deleteRoute,
         resetToDemoData,
+        resetToBlankData,
         importDatabase,
         todaySales,
         todayCollection,

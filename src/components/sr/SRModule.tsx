@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Clock,
   ShieldCheck,
+  Eye,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { SalesRepresentative, DeliveryRepresentative } from '../../types';
@@ -281,10 +282,11 @@ export const SRModule: React.FC = () => {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleDownloadPDF}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer transition-colors"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-100 hover:border-sky-400 cursor-pointer transition-colors shadow-xs"
+            title="SR পারফরম্যান্স রিপোর্ট প্রিন্ট প্রিভিউ দেখুন"
           >
-            <FileDown className="h-4 w-4" />
-            <span>SR রিপোর্ট PDF</span>
+            <Eye className="h-4 w-4 text-sky-600" />
+            <span>প্রিন্ট প্রিভিউ</span>
           </button>
           <button
             onClick={openAdd}
@@ -456,7 +458,7 @@ export const SRModule: React.FC = () => {
 
                   <div className="mt-4 pt-2 border-t border-slate-100 text-[10px] text-slate-400 flex justify-between">
                     <span>লগইন ইউজার: {sr.username}</span>
-                    <span>পিন: {sr.pin}</span>
+                    <span>পিন: •••• (সুরক্ষিত)</span>
                   </div>
                 </div>
               ),
@@ -705,11 +707,14 @@ export const SRModule: React.FC = () => {
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">লগইন পিন কোড *</label>
                   <input
-                    type="text"
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
                     required
                     value={pin}
-                    onChange={(e) => setPin(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none"
+                    onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+                    placeholder="••••"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-emerald-500 focus:outline-none font-mono"
                   />
                 </div>
               </div>

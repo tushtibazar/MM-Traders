@@ -1,11 +1,18 @@
 import React, { useMemo } from 'react';
-import { Banknote, Calculator } from 'lucide-react';
+import { Banknote, Calculator, Plus, Trash2 } from 'lucide-react';
 
 export const DENOMINATION_LIST = [1000, 500, 200, 100, 50, 20, 10, 5] as const;
+
+export interface OtherCashRow {
+  id: string;
+  label?: string;
+  amount: number | '';
+}
 
 export type DenominationMap = {
   [key: number]: number | '';
   other?: number | '';
+  otherEntries?: OtherCashRow[];
 };
 
 interface CashDenominationTableProps {
@@ -52,17 +59,71 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
     });
   }, [values]);
 
+  // Dynamic multiple "অন্যান্য" rows list
+  const otherRows: OtherCashRow[] = useMemo(() => {
+    if (values.otherEntries && Array.isArray(values.otherEntries) && values.otherEntries.length > 0) {
+      return values.otherEntries;
+    }
+    if (values.other !== undefined && values.other !== '' && Number(values.other) > 0) {
+      return [{ id: 'other-1', label: 'অন্যান্য ১', amount: values.other }];
+    }
+    return [{ id: 'other-1', label: 'অন্যান্য ১', amount: '' }];
+  }, [values.otherEntries, values.other]);
+
+  const handleAddOtherRow = () => {
+    if (disabled) return;
+    const nextIdx = otherRows.length + 1;
+    const newRow: OtherCashRow = {
+      id: `other-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      label: `অন্যান্য ${nextIdx}`,
+      amount: '',
+    };
+    const updated = [...otherRows, newRow];
+    const newOtherTotal = updated.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    onChange({
+      ...values,
+      other: newOtherTotal,
+      otherEntries: updated,
+    });
+  };
+
+  const handleOtherRowChange = (id: string, countStr: string) => {
+    if (disabled) return;
+    const val: number | '' = countStr === '' ? '' : Math.max(0, Number(countStr) || 0);
+    const updated: OtherCashRow[] = otherRows.map((r) => (r.id === id ? { ...r, amount: val } : r));
+    const newOtherTotal = updated.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    onChange({
+      ...values,
+      other: newOtherTotal,
+      otherEntries: updated,
+    });
+  };
+
+  const handleDeleteOtherRow = (id: string) => {
+    if (disabled) return;
+    let updated: OtherCashRow[] = otherRows.filter((r) => r.id !== id);
+    if (updated.length === 0) {
+      updated = [{ id: `other-${Date.now()}`, label: 'অন্যান্য ১', amount: '' }];
+    } else {
+      updated = updated.map((r, i): OtherCashRow => ({ ...r, label: `অন্যান্য ${i + 1}` }));
+    }
+    const newOtherTotal = updated.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+    onChange({
+      ...values,
+      other: newOtherTotal,
+      otherEntries: updated,
+    });
+  };
+
   const totalCash = useMemo(() => {
     const notesTotal = subtotals.reduce((sum, item) => sum + item.subtotal, 0);
-    const otherVal = Number(values.other) || 0;
-    return notesTotal + otherVal;
-  }, [subtotals, values.other]);
+    const otherTotal = otherRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+    return notesTotal + otherTotal;
+  }, [subtotals, otherRows]);
 
   const totalNoteCount = useMemo(() => {
     return subtotals.reduce((sum, item) => sum + item.count, 0);
   }, [subtotals]);
-
-  const otherAmount = values.other ?? '';
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
@@ -145,43 +206,65 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
               );
             })}
 
-            {/* ৪. অন্যান্য (Other - e.g. coins or odd amounts) */}
-            <tr className="border-t border-slate-200 bg-slate-50/70 hover:bg-emerald-50/30 transition-colors">
-              <td className="py-2.5 px-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono font-bold text-slate-800 bg-slate-200/90 px-2 py-0.5 rounded border border-slate-300 text-xs">
-                    অন্যান্য
-                  </span>
-                  <span className="text-slate-500 text-xs hidden sm:inline">
-                    (কয়েন / ভাংতি)
-                  </span>
-                </div>
-              </td>
-              <td className="py-2.5 px-4 text-center">
-                <span className="text-slate-400 font-mono text-xs select-none">—</span>
-              </td>
-              <td className="py-2.5 px-4 text-right">
-                <div className="flex items-center justify-end gap-1.5">
-                  <span className="text-xs font-mono font-bold text-slate-500">{currency}</span>
-                  <input
-                    type="number"
-                    min="0"
-                    disabled={disabled}
-                    value={otherAmount === 0 ? '' : otherAmount}
-                    onChange={(e) => {
-                      if (disabled) return;
-                      const val = e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0);
-                      onChange({
-                        ...values,
-                        other: val,
-                      });
-                    }}
-                    placeholder="০"
-                    className="w-24 sm:w-32 text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50 transition-colors"
-                  />
-                </div>
-              </td>
-            </tr>
+            {/* ৪. ডাইনামিক একাধিক অন্যান্য রো (Dynamic Multiple Other Rows) */}
+            {otherRows.map((row, idx) => (
+              <tr
+                key={row.id}
+                className="border-t border-slate-200 bg-slate-50/70 hover:bg-emerald-50/30 transition-colors"
+              >
+                <td className="py-2.5 px-4">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono font-bold text-slate-800 bg-slate-200/90 px-2 py-0.5 rounded border border-slate-300 text-xs">
+                      {row.label || `অন্যান্য ${idx + 1}`}
+                    </span>
+                    <span className="text-slate-500 text-xs hidden sm:inline">
+                      (কয়েন / ভাংতি)
+                    </span>
+                    {/* Small "+" (plus) button next to other row */}
+                    {idx === 0 && (
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={handleAddOtherRow}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-xs font-bold border border-emerald-300 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
+                        title="আরেকটি অন্যান্য রো যোগ করুন"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        <span>যোগ (+)</span>
+                      </button>
+                    )}
+                  </div>
+                </td>
+                <td className="py-2.5 px-4 text-center">
+                  <span className="text-slate-400 font-mono text-xs select-none">—</span>
+                </td>
+                <td className="py-2.5 px-4 text-right">
+                  <div className="flex items-center justify-end gap-1.5">
+                    <span className="text-xs font-mono font-bold text-slate-500">{currency}</span>
+                    <input
+                      type="number"
+                      min="0"
+                      disabled={disabled}
+                      value={row.amount === 0 ? '' : row.amount}
+                      onChange={(e) => handleOtherRowChange(row.id, e.target.value)}
+                      placeholder="০"
+                      className="w-24 sm:w-32 text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+                    />
+                    {otherRows.length > 1 && (
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        onClick={() => handleDeleteOtherRow(row.id)}
+                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                        title="এই রো মুছুন"
+                      >
+                        <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
 
           {/* মোট ক্যাশ ফুটার */}

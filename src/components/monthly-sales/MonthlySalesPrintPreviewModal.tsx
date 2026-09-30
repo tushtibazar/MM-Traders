@@ -9,6 +9,8 @@ interface DailySummaryRow {
   salesCount: number;
   lessAmount: number;
   expenseAmount: number;
+  shortAmount: number;
+  damageAmount: number;
 }
 
 interface MonthlySalesPrintPreviewModalProps {
@@ -21,9 +23,13 @@ interface MonthlySalesPrintPreviewModalProps {
   dailySales: { date: string; salesAmount: number; sheetCount: number }[];
   dailyLess: { date: string; lessAmount: number }[];
   dailyExpense: { date: string; expenseAmount: number }[];
+  dailyShort?: { date: string; shortAmount: number }[];
+  dailyDamage?: { date: string; damageAmount: number }[];
   totalSales: number;
   totalLess: number;
   totalExpense: number;
+  totalShort?: number;
+  totalDamage?: number;
   initialAction?: 'png' | 'pdf' | null;
 }
 
@@ -37,9 +43,13 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
   dailySales,
   dailyLess,
   dailyExpense,
+  dailyShort = [],
+  dailyDamage = [],
   totalSales,
   totalLess,
   totalExpense,
+  totalShort = 0,
+  totalDamage = 0,
   initialAction = null,
 }) => {
   // Combine all active dates in month
@@ -53,6 +63,8 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         salesCount: 0,
         lessAmount: 0,
         expenseAmount: 0,
+        shortAmount: 0,
+        damageAmount: 0,
       };
       cur.salesAmount += s.salesAmount;
       cur.salesCount += s.sheetCount;
@@ -66,6 +78,8 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         salesCount: 0,
         lessAmount: 0,
         expenseAmount: 0,
+        shortAmount: 0,
+        damageAmount: 0,
       };
       cur.lessAmount += l.lessAmount;
       map.set(l.date, cur);
@@ -78,14 +92,44 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         salesCount: 0,
         lessAmount: 0,
         expenseAmount: 0,
+        shortAmount: 0,
+        damageAmount: 0,
       };
       cur.expenseAmount += e.expenseAmount;
       map.set(e.date, cur);
     });
 
+    (dailyShort || []).forEach((sh) => {
+      const cur = map.get(sh.date) || {
+        date: sh.date,
+        salesAmount: 0,
+        salesCount: 0,
+        lessAmount: 0,
+        expenseAmount: 0,
+        shortAmount: 0,
+        damageAmount: 0,
+      };
+      cur.shortAmount += sh.shortAmount;
+      map.set(sh.date, cur);
+    });
+
+    (dailyDamage || []).forEach((dmg) => {
+      const cur = map.get(dmg.date) || {
+        date: dmg.date,
+        salesAmount: 0,
+        salesCount: 0,
+        lessAmount: 0,
+        expenseAmount: 0,
+        shortAmount: 0,
+        damageAmount: 0,
+      };
+      cur.damageAmount += dmg.damageAmount;
+      map.set(dmg.date, cur);
+    });
+
     const rows = Array.from(map.values());
     return rows.sort((a, b) => a.date.localeCompare(b.date));
-  }, [dailySales, dailyLess, dailyExpense]);
+  }, [dailySales, dailyLess, dailyExpense, dailyShort, dailyDamage]);
 
   // Paginate: 22 dates per page
   const ITEMS_PER_PAGE = 22;
@@ -157,6 +201,8 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
                           label: 'মোট ব্যয় ও খরচ',
                           value: `${currency} ${totalExpense.toLocaleString()}`,
                         },
+                        { label: 'মোট শর্ট', value: `${currency} ${totalShort.toLocaleString()}` },
+                        { label: 'মোট ড্যামেজ', value: `${currency} ${totalDamage.toLocaleString()}` },
                       ]
                     : []
                 }
@@ -167,45 +213,48 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold">
-                      <th className="py-2 px-2 text-center w-8 border-r border-slate-300">#</th>
-                      <th className="py-2 px-3 border-r border-slate-300">তারিখ ও বার</th>
-                      <th className="py-2 px-3 text-right border-r border-slate-300">মোট বিক্রয় (Sales)</th>
-                      <th className="py-2 px-3 text-right border-r border-slate-300">লেস (Less)</th>
-                      <th className="py-2 px-3 text-right border-r border-slate-300">খরচ (Expense)</th>
-                      <th className="py-2 px-3 text-right">নিট স্থিতি (Sales - Less - Exp)</th>
+                      <th className="py-2 px-1.5 text-center w-7 border-r border-slate-300">#</th>
+                      <th className="py-2 px-2.5 border-r border-slate-300">তারিখ ও বার</th>
+                      <th className="py-2 px-2.5 text-right border-r border-slate-300">বিক্রয় (Sales)</th>
+                      <th className="py-2 px-2.5 text-right border-r border-slate-300">লেস (Less)</th>
+                      <th className="py-2 px-2.5 text-right border-r border-slate-300">খরচ (Expense)</th>
+                      <th className="py-2 px-2.5 text-right border-r border-slate-300">শর্ট (Short)</th>
+                      <th className="py-2 px-2.5 text-right">ড্যামেজ (Damage)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {pageRows.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="py-8 text-center text-slate-400">
+                        <td colSpan={7} className="py-8 text-center text-slate-400">
                           এই মাসে কোনো রেকর্ড পাওয়া যায়নি
                         </td>
                       </tr>
                     ) : (
                       pageRows.map((row, idx) => {
                         const globalIdx = pageIndex * ITEMS_PER_PAGE + idx + 1;
-                        const rowNet = row.salesAmount - row.lessAmount - row.expenseAmount;
 
                         return (
                           <tr key={row.date} className="hover:bg-slate-50/50">
-                            <td className="py-1.5 px-2 text-center font-mono text-slate-500 border-r border-slate-200">
+                            <td className="py-1.5 px-1.5 text-center font-mono text-slate-500 border-r border-slate-200">
                               {globalIdx}
                             </td>
-                            <td className="py-1.5 px-3 border-r border-slate-200 font-medium">
+                            <td className="py-1.5 px-2.5 border-r border-slate-200 font-medium">
                               {formatDateBn(row.date)}
                             </td>
-                            <td className="py-1.5 px-3 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
+                            <td className="py-1.5 px-2.5 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
                               {row.salesAmount > 0 ? `${currency} ${row.salesAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1.5 px-3 text-right font-mono font-bold text-amber-700 border-r border-slate-200">
+                            <td className="py-1.5 px-2.5 text-right font-mono font-bold text-amber-700 border-r border-slate-200">
                               {row.lessAmount > 0 ? `${currency} ${row.lessAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1.5 px-3 text-right font-mono font-bold text-rose-700 border-r border-slate-200">
+                            <td className="py-1.5 px-2.5 text-right font-mono font-bold text-rose-700 border-r border-slate-200">
                               {row.expenseAmount > 0 ? `${currency} ${row.expenseAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1.5 px-3 text-right font-mono font-bold text-emerald-800">
-                              {currency} {rowNet.toLocaleString()}
+                            <td className="py-1.5 px-2.5 text-right font-mono font-bold text-orange-700 border-r border-slate-200">
+                              {row.shortAmount > 0 ? `${currency} ${row.shortAmount.toLocaleString()}` : '-'}
+                            </td>
+                            <td className="py-1.5 px-2.5 text-right font-mono font-bold text-purple-700">
+                              {row.damageAmount > 0 ? `${currency} ${row.damageAmount.toLocaleString()}` : '-'}
                             </td>
                           </tr>
                         );
@@ -215,20 +264,23 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
                   {isLastPage && (
                     <tfoot>
                       <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-xs">
-                        <td colSpan={2} className="py-2 px-3 text-right text-slate-900">
+                        <td colSpan={2} className="py-2 px-2.5 text-right text-slate-900">
                           সর্বমোট মাসিক যোগফল:
                         </td>
-                        <td className="py-2 px-3 text-right font-mono text-slate-900">
+                        <td className="py-2 px-2.5 text-right font-mono text-slate-900">
                           {currency} {totalSales.toLocaleString()}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono text-amber-700">
+                        <td className="py-2 px-2.5 text-right font-mono text-amber-700">
                           {currency} {totalLess.toLocaleString()}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono text-rose-700">
+                        <td className="py-2 px-2.5 text-right font-mono text-rose-700">
                           {currency} {totalExpense.toLocaleString()}
                         </td>
-                        <td className="py-2 px-3 text-right font-mono text-emerald-800 text-sm">
-                          {currency} {netBalance.toLocaleString()}
+                        <td className="py-2 px-2.5 text-right font-mono text-orange-700">
+                          {currency} {totalShort.toLocaleString()}
+                        </td>
+                        <td className="py-2 px-2.5 text-right font-mono text-purple-700">
+                          {currency} {totalDamage.toLocaleString()}
                         </td>
                       </tr>
                     </tfoot>

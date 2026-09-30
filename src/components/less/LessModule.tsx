@@ -14,6 +14,9 @@ import {
   ArrowDownLeft,
   History,
   AlertCircle,
+  AlertTriangle,
+  Users,
+  Filter,
   Eye,
   ImageDown,
   FileDown,
@@ -74,6 +77,10 @@ export const LessModule: React.FC = () => {
   // 6. Print & Export Modal State
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printAction, setPrintAction] = useState<'png' | 'pdf' | null>(null);
+
+  // 7. Short (ঘাটতি) Column State & Filters
+  const [shortDsrFilter, setShortDsrFilter] = useState<string>('all');
+  const [shortSearchQuery, setShortSearchQuery] = useState<string>('');
 
   const handleOpenPrintPreview = (action?: 'png' | 'pdf' | null) => {
     setPrintAction(action || null);
@@ -141,6 +148,97 @@ export const LessModule: React.FC = () => {
       .filter((s) => !selectedMonth || s.date.startsWith(selectedMonth))
       .reduce((sum, s) => sum + (Number(s.amount) || 0), 0);
   }, [db.lessSettlements, selectedMonth]);
+
+  // --- SHORT (ঘাটতি) Calculations pulled automatically from Daily হিসাব sheets ---
+  const allShortRecords = useMemo(() => {
+    const list: Array<{
+      id: string;
+      sheetId: string;
+      sheetNo?: string;
+      date: string;
+      dsrName: string;
+      dsrId?: string;
+      routeOrVan?: string;
+      srName?: string;
+      amount: number;
+    }> = [];
+
+    (db.dailySheets || []).forEach((sheet) => {
+      const amt = Number(sheet.shortAmount ?? sheet.dailyShort ?? 0);
+      if (amt > 0) {
+        list.push({
+          id: `short-${sheet.id}`,
+          sheetId: sheet.id,
+          sheetNo: sheet.sheetNo || sheet.id,
+          date: sheet.date,
+          dsrName: sheet.dsrName?.trim() || 'অনির্দিষ্ট DSR',
+          dsrId: sheet.dsrId,
+          routeOrVan: sheet.routeOrVan,
+          srName: sheet.srName,
+          amount: amt,
+        });
+      }
+    });
+
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [db.dailySheets]);
+
+  // Unique list of DSRs for filter
+  const availableDsrList = useMemo(() => {
+    const names = new Set<string>();
+    (db.deliveryRepresentatives || []).forEach((d) => {
+      if (d.name?.trim()) names.add(d.name.trim());
+    });
+    allShortRecords.forEach((r) => {
+      if (r.dsrName && r.dsrName !== 'অনির্দিষ্ট DSR') names.add(r.dsrName);
+    });
+    return Array.from(names);
+  }, [db.deliveryRepresentatives, allShortRecords]);
+
+  // Filtered Short records by selectedMonth, DSR filter, and search query
+  const filteredShortRecords = useMemo(() => {
+    return allShortRecords.filter((item) => {
+      if (selectedMonth && !item.date.startsWith(selectedMonth)) return false;
+      if (shortDsrFilter !== 'all' && item.dsrName !== shortDsrFilter) return false;
+      if (shortSearchQuery.trim()) {
+        const q = shortSearchQuery.toLowerCase();
+        const matchDate = item.date.includes(q);
+        const matchDsr = item.dsrName.toLowerCase().includes(q);
+        const matchRoute = (item.routeOrVan || '').toLowerCase().includes(q);
+        if (!matchDate && !matchDsr && !matchRoute) return false;
+      }
+      return true;
+    });
+  }, [allShortRecords, selectedMonth, shortDsrFilter, shortSearchQuery]);
+
+  // Monthly Total Short (এই মাসের মোট শর্ট)
+  const monthlyTotalShort = useMemo(() => {
+    return allShortRecords
+      .filter((item) => !selectedMonth || item.date.startsWith(selectedMonth))
+      .reduce((sum, item) => sum + item.amount, 0);
+  }, [allShortRecords, selectedMonth]);
+
+  // Filtered Total Short
+  const filteredTotalShort = useMemo(() => {
+    return filteredShortRecords.reduce((sum, item) => sum + item.amount, 0);
+  }, [filteredShortRecords]);
+
+  // DSR summaries for tracking and breakdown over time
+  const dsrShortSummaries = useMemo(() => {
+    const map: Record<string, { allTimeTotal: number; count: number; monthlyTotal: number }> = {};
+    allShortRecords.forEach((r) => {
+      const dsr = r.dsrName;
+      if (!map[dsr]) {
+        map[dsr] = { allTimeTotal: 0, count: 0, monthlyTotal: 0 };
+      }
+      map[dsr].allTimeTotal += r.amount;
+      map[dsr].count += 1;
+      if (selectedMonth && r.date.startsWith(selectedMonth)) {
+        map[dsr].monthlyTotal += r.amount;
+      }
+    });
+    return map;
+  }, [allShortRecords, selectedMonth]);
 
   // Handle Form Submit for লেস জমা
   const handleInitiateSettlement = (e: React.FormEvent) => {
@@ -238,26 +336,6 @@ export const LessModule: React.FC = () => {
           >
             <Eye className="h-4 w-4 text-sky-600" />
             <span>প্রিন্ট প্রিভিউ</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleDownloadPNG}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition shadow-xs cursor-pointer"
-            title="A4 সাইজের PNG ডাউনলোড"
-          >
-            <ImageDown className="h-4 w-4 text-emerald-600" />
-            <span>PNG ডাউনলোড</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleDownloadPDF}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800 transition shadow-xs cursor-pointer"
-            title="ইমেজ-বেসড PDF ডাউনলোড"
-          >
-            <FileDown className="h-4 w-4 text-emerald-400" />
-            <span>PDF ডাউনলোড</span>
           </button>
         </div>
       </div>
@@ -522,205 +600,428 @@ export const LessModule: React.FC = () => {
         </div>
       </div>
 
-      {/* SECTION 2: DATE-WISE LIST + MONTHLY TOTAL (AUTO-PULLED FROM DAILY HISHAB) */}
-      <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
-        {/* Table Title and Month Filter */}
-        <div className="p-4 border-b border-slate-200 bg-slate-50/60 flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
-            <h3 className="text-sm font-bold text-slate-900 font-bengali flex items-center gap-2">
-              <Receipt className="h-4 w-4 text-amber-600" />
-              <span>দৈনিক লেস তালিকা (স্বয়ংক্রিয় Daily হিসাব থেকে সংগৃহীত)</span>
-            </h3>
-            <p className="text-xs text-slate-500 font-bengali mt-0.5">
-              Daily হিসাব সংরক্ষণ করলেই তার লেস এখানে স্বয়ংক্রিয়ভাবে যুক্ত হয়
-            </p>
+      {/* SECTION 2: TWO-COLUMN LAYOUT — লেস (LEFT) + শর্ট (RIGHT) SIDE BY SIDE */}
+      <div className="space-y-4">
+        {/* Month Selector Bar Synchronized Across Both Columns */}
+        <div className="rounded-xl border border-slate-200 bg-linear-to-r from-amber-50/50 via-white to-orange-50/50 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Calendar className="h-5 w-5 text-amber-600" />
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 font-bengali">
+                মাস নির্বাচন ও সমন্বিত সারসংক্ষেপ (Monthly Filter)
+              </h3>
+              <p className="text-xs text-slate-500 font-bengali">
+                নির্বাচিত মাসের ভিত্তিতে লেস এবং শর্ট উভয় কলাম একসাথে সমন্বিত হবে
+              </p>
+            </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Month Picker */}
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700">
-              <Calendar className="h-3.5 w-3.5 text-slate-400" />
-              <span>মাস:</span>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-slate-300 shadow-2xs">
+              <span className="text-xs font-bold text-slate-700 font-bengali">মাস:</span>
               <input
                 type="month"
                 value={selectedMonth}
                 onChange={(e) => setSelectedMonth(e.target.value)}
-                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 font-bold focus:border-amber-500 focus:outline-hidden"
+                className="text-xs font-mono font-bold text-slate-900 focus:outline-none bg-transparent cursor-pointer"
               />
               {selectedMonth && (
                 <button
                   type="button"
                   onClick={() => setSelectedMonth('')}
-                  className="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
+                  className="text-[11px] text-amber-700 hover:text-amber-900 font-bold underline cursor-pointer ml-1"
                 >
                   সকল মাস
                 </button>
               )}
             </div>
 
-            {/* Status Filter */}
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => setStatusFilter('all')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  statusFilter === 'all'
-                    ? 'bg-slate-800 text-white'
-                    : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
-                }`}
-              >
-                সব
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('pending')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  statusFilter === 'pending'
-                    ? 'bg-rose-700 text-white'
-                    : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
-                }`}
-              >
-                বকেয়া
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatusFilter('reimbursed')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
-                  statusFilter === 'reimbursed'
-                    ? 'bg-emerald-700 text-white'
-                    : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
-                }`}
-              >
-                ফেরত
-              </button>
-            </div>
-
-            {/* Search Box */}
-            <div className="relative w-full sm:w-48">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="বিবরণ বা তারিখ..."
-                className="w-full rounded-lg border border-slate-300 bg-white pl-8 pr-2.5 py-1 text-xs text-slate-800 focus:border-amber-500 focus:outline-hidden"
-              />
+            {/* Quick Summary Pill for Current Month */}
+            <div className="flex items-center gap-2 text-xs font-bold">
+              <span className="bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-1 rounded-md">
+                মোট লেস: {currency} {monthlyTotalLess.toLocaleString()}
+              </span>
+              <span className="bg-orange-100 text-orange-900 border border-orange-300 px-2.5 py-1 rounded-md">
+                মোট শর্ট: {currency} {monthlyTotalShort.toLocaleString()}
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Entries Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-100/70 text-slate-700 font-bold">
-                <th className="py-2.5 px-4 w-12 text-center">#</th>
-                <th className="py-2.5 px-3">তারিখ</th>
-                <th className="py-2.5 px-3">বিবরণ / রুট রেফারেন্স</th>
-                <th className="py-2.5 px-3 text-right">টাকার পরিমাণ ({currency})</th>
-                <th className="py-2.5 px-3 text-center">স্ট্যাটাস</th>
-                <th className="py-2.5 px-3">ফেরত প্রাপ্তির তারিখ</th>
-                <th className="py-2.5 px-4 text-right">অ্যাকশন</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredEntries.map((item, idx) => (
-                <tr key={item.id} className="hover:bg-slate-50/80 transition">
-                  <td className="py-3 px-4 text-center font-mono text-slate-400">
-                    {idx + 1}
-                  </td>
-                  <td className="py-3 px-3 font-semibold text-slate-700 whitespace-nowrap">
-                    {item.date}
-                  </td>
-                  <td className="py-3 px-3">
-                    <div className="font-bold text-slate-900">{item.description}</div>
-                    {item.note && (
-                      <div className="text-[11px] text-slate-500 mt-0.5 font-bengali">{item.note}</div>
-                    )}
-                  </td>
-                  <td className="py-3 px-3 text-right font-bold text-sm whitespace-nowrap">
-                    <span className={item.status === 'pending' ? 'text-rose-700 font-mono' : 'text-emerald-700 font-mono'}>
-                      {currency} {item.amount.toLocaleString()}
-                    </span>
-                  </td>
-                  <td className="py-3 px-3 text-center">
+        {/* TWO-COLUMN GRID: Stacks on mobile/tablet, side-by-side on lg screens */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+          {/* ============================================================ */}
+          {/* LEFT COLUMN: লেস (Existing date-wise লেস list + monthly total) */}
+          {/* ============================================================ */}
+          <div className="rounded-xl border border-amber-200 bg-white shadow-xs overflow-hidden flex flex-col">
+            {/* Left Header */}
+            <div className="p-4 border-b border-amber-200 bg-amber-50/60 space-y-2.5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded-md bg-amber-100 text-amber-800">
+                    <Receipt className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 font-bengali">
+                      লেস তালিকা (Less Account)
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-bengali">
+                      Daily হিসাবের ৪ নম্বর আইটেম (লেস) থেকে সংগৃহীত
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-500 font-bengali block">মোট লেস (এই মাসে)</span>
+                  <span className="font-mono font-black text-sm text-amber-950">
+                    {currency} {monthlyTotalLess.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Status and Search Filters */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-amber-200/60">
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('all')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${
+                      statusFilter === 'all'
+                        ? 'bg-slate-800 text-white'
+                        : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-100'
+                    }`}
+                  >
+                    সব
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('pending')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${
+                      statusFilter === 'pending'
+                        ? 'bg-rose-700 text-white'
+                        : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+                    }`}
+                  >
+                    বকেয়া
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStatusFilter('reimbursed')}
+                    className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${
+                      statusFilter === 'reimbursed'
+                        ? 'bg-emerald-700 text-white'
+                        : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
+                    }`}
+                  >
+                    ফেরত
+                  </button>
+                </div>
+
+                <div className="relative flex-1 min-w-[140px] max-w-xs">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="লেস বিবরণ বা তারিখ..."
+                    className="w-full rounded-md border border-slate-300 bg-white pl-7 pr-2 py-1 text-xs text-slate-800 focus:border-amber-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Left Table: Date-wise লেস */}
+            <div className="overflow-x-auto max-h-[480px]">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 z-10">
+                  <tr>
+                    <th className="py-2.5 px-3 w-8 text-center">#</th>
+                    <th className="py-2.5 px-3">তারিখ</th>
+                    <th className="py-2.5 px-3">বিবরণ</th>
+                    <th className="py-2.5 px-3 text-right">লেস ({currency})</th>
+                    <th className="py-2.5 px-2 text-center">স্ট্যাটাস</th>
+                    <th className="py-2.5 px-2 text-right">অ্যাকশন</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredEntries.map((item, idx) => (
+                    <tr key={item.id} className="hover:bg-amber-50/30 transition">
+                      <td className="py-2.5 px-3 text-center font-mono text-slate-400">
+                        {idx + 1}
+                      </td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">
+                        {item.date}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="font-bold text-slate-900 truncate max-w-[150px] sm:max-w-xs" title={item.description}>
+                          {item.description}
+                        </div>
+                        {item.note && (
+                          <div className="text-[10px] text-slate-500 truncate max-w-[150px] font-bengali">
+                            {item.note}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-bold text-xs sm:text-sm whitespace-nowrap">
+                        <span className={item.status === 'pending' ? 'text-rose-700 font-mono' : 'text-emerald-700 font-mono'}>
+                          {currency} {item.amount.toLocaleString()}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-2 text-center whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleStatus(item)}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold transition cursor-pointer border ${
+                            item.status === 'pending'
+                              ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
+                          }`}
+                          title="স্ট্যাটাস পরিবর্তন করুন"
+                        >
+                          {item.status === 'pending' ? (
+                            <span>বকেয়া</span>
+                          ) : (
+                            <span>ফেরত</span>
+                          )}
+                        </button>
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `আপনি কি নিশ্চিতভাবে এই লেস এন্ট্রিটি (${currency} ${item.amount.toLocaleString()}) মুছে ফেলতে চান?`
+                              )
+                            ) {
+                              deleteLessEntry(item.id);
+                            }
+                          }}
+                          className="rounded p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
+                          title="মুছুন"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+
+                  {filteredEntries.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-slate-400 font-bengali">
+                        {selectedMonth
+                          ? `${selectedMonth} মাসে কোনো লেস এন্ট্রি পাওয়া যায়নি`
+                          : 'কোনো লেস এন্ট্রি পাওয়া যায়নি'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Left Footer: Monthly Total of Less */}
+            <div className="p-3 border-t-2 border-amber-200 bg-amber-50/70 flex items-center justify-between text-xs font-bold text-slate-800">
+              <span className="font-bengali">
+                {selectedMonth ? `${selectedMonth} মাসের মোট লেস:` : 'মোট লেস:'}
+              </span>
+              <span className="font-mono text-base font-black text-amber-950">
+                {currency}{' '}
+                {filteredEntries
+                  .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+                  .toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+          {/* ============================================================ */}
+          {/* RIGHT COLUMN: শর্ট (Short) — Date-wise list | তারিখ | DSR | শর্ট | */}
+          {/* ============================================================ */}
+          <div className="rounded-xl border border-orange-200 bg-white shadow-xs overflow-hidden flex flex-col">
+            {/* Right Header */}
+            <div className="p-4 border-b border-orange-200 bg-orange-50/60 space-y-2.5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded-md bg-orange-100 text-orange-800">
+                    <AlertTriangle className="h-4 w-4" />
+                  </span>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 font-bengali">
+                      শর্ট তালিকা (Shortage by DSR)
+                    </h3>
+                    <p className="text-[11px] text-slate-500 font-bengali">
+                      Daily হিসাবের ৫ নম্বর আইটেম (শর্ট) থেকে স্বয়ংক্রিয়ভাবে সংগৃহীত
+                    </p>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className="text-[11px] text-slate-500 font-bengali block">মোট শর্ট (এই মাসে)</span>
+                  <span className="font-mono font-black text-sm text-orange-950">
+                    {currency} {monthlyTotalShort.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              {/* DSR Filter Dropdown and Search */}
+              <div className="flex items-center justify-between flex-wrap gap-2 pt-1 border-t border-orange-200/60">
+                <div className="flex items-center gap-1.5">
+                  <Filter className="h-3.5 w-3.5 text-orange-600 shrink-0" />
+                  <span className="text-[11px] font-bold text-slate-700 font-bengali">DSR:</span>
+                  <select
+                    value={shortDsrFilter}
+                    onChange={(e) => setShortDsrFilter(e.target.value)}
+                    className="rounded-md border border-orange-300 bg-white px-2 py-1 text-xs font-semibold text-slate-800 focus:border-orange-500 focus:outline-none cursor-pointer"
+                  >
+                    <option value="all">সকল DSR ({allShortRecords.length} টি শর্ট)</option>
+                    {availableDsrList.map((dsrName) => {
+                      const summary = dsrShortSummaries[dsrName];
+                      const amountStr = summary ? ` (${currency} ${summary.allTimeTotal.toLocaleString()})` : '';
+                      return (
+                        <option key={dsrName} value={dsrName}>
+                          {dsrName}{amountStr}
+                        </option>
+                      );
+                    })}
+                  </select>
+                  {shortDsrFilter !== 'all' && (
                     <button
                       type="button"
-                      onClick={() => handleToggleStatus(item)}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition cursor-pointer border ${
-                        item.status === 'pending'
-                          ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100'
-                          : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'
-                      }`}
-                      title="স্ট্যাটাস পরিবর্তন করতে ক্লিক করুন"
+                      onClick={() => setShortDsrFilter('all')}
+                      className="text-[11px] text-orange-700 hover:text-orange-900 underline font-bold cursor-pointer"
                     >
-                      {item.status === 'pending' ? (
-                        <>
-                          <Clock className="h-3 w-3" />
-                          <span>বকেয়া (Pending)</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="h-3 w-3" />
-                          <span>ফেরত পেয়েছি (Reimbursed)</span>
-                        </>
-                      )}
+                      রিসেট
                     </button>
-                  </td>
-                  <td className="py-3 px-3 text-slate-500 text-[11px] whitespace-nowrap">
-                    {item.reimbursedDate || '-'}
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (
-                          confirm(
-                            `আপনি কি নিশ্চিতভাবে এই লেস এন্ট্রিটি (${currency} ${item.amount.toLocaleString()}) মুছে ফেলতে চান?`
-                          )
-                        ) {
-                          deleteLessEntry(item.id);
-                        }
-                      }}
-                      className="rounded-lg p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition cursor-pointer"
-                      title="মুছুন"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                  )}
+                </div>
 
-              {filteredEntries.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-400 font-bengali">
-                    {selectedMonth
-                      ? `${selectedMonth} মাসে কোন লেস এন্ট্রি পাওয়া যায়নি`
-                      : 'কোন লেস এন্ট্রি পাওয়া যায়নি'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
+                <div className="relative flex-1 min-w-[140px] max-w-xs">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+                  <input
+                    type="text"
+                    value={shortSearchQuery}
+                    onChange={(e) => setShortSearchQuery(e.target.value)}
+                    placeholder="তারিখ বা DSR খুঁজুন..."
+                    className="w-full rounded-md border border-slate-300 bg-white pl-7 pr-2 py-1 text-xs text-slate-800 focus:border-orange-500 focus:outline-hidden"
+                  />
+                </div>
+              </div>
+            </div>
 
-            {/* Monthly Total Footer */}
-            <tfoot>
-              <tr className="border-t-2 border-slate-300 bg-amber-50/60 font-bold text-slate-800">
-                <td colSpan={3} className="py-3 px-4 text-right font-bengali">
-                  {selectedMonth ? `${selectedMonth} মাসের মোট লেস:` : 'চলমান ফিল্টারে মোট লেস:'}
-                </td>
-                <td className="py-3 px-3 text-right font-mono text-base font-black text-amber-950">
-                  {currency}{' '}
-                  {filteredEntries
-                    .reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
-                    .toLocaleString()}
-                </td>
-                <td colSpan={3} className="py-3 px-4 text-xs text-slate-600 font-bengali">
-                  মোট এন্ট্রি সংখ্যা: {filteredEntries.length} টি
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+            {/* Right Table: Exact Columns | তারিখ (Date) | DSR | শর্ট (Amount) | */}
+            <div className="overflow-x-auto max-h-[480px]">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-slate-100 text-slate-700 font-bold border-b border-slate-200 z-10">
+                  <tr>
+                    <th className="py-2.5 px-3 w-10 text-center">#</th>
+                    <th className="py-2.5 px-3">তারিখ (Date)</th>
+                    <th className="py-2.5 px-3">DSR</th>
+                    <th className="py-2.5 px-4 text-right">শর্ট (Amount) ({currency})</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredShortRecords.map((item, idx) => (
+                    <tr key={item.id} className="hover:bg-orange-50/40 transition">
+                      <td className="py-2.5 px-3 text-center font-mono text-slate-400">
+                        {idx + 1}
+                      </td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
+                        <div className="flex items-center gap-1.5">
+                          <Calendar className="h-3 w-3 text-slate-400" />
+                          <span>{item.date}</span>
+                        </div>
+                        {item.sheetNo && (
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            শিট: {item.sheetNo}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-bold text-slate-900 bg-orange-50 border border-orange-200 text-orange-950 px-2 py-0.5 rounded text-xs">
+                            {item.dsrName}
+                          </span>
+                          {item.routeOrVan && (
+                            <span className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {item.routeOrVan}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-4 text-right font-mono font-bold text-xs sm:text-sm text-orange-800 whitespace-nowrap">
+                        {currency} {item.amount.toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {filteredShortRecords.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="py-10 text-center text-slate-400 font-bengali">
+                        {selectedMonth
+                          ? `${selectedMonth} মাসে কোনো শর্ট রেকর্ড পাওয়া যায়নি`
+                          : shortDsrFilter !== 'all'
+                          ? `DSR "${shortDsrFilter}" এর কোনো শর্ট রেকর্ড নেই`
+                          : 'কোনো শর্ট রেকর্ড নেই (Daily হিসাবের ৫ নম্বর শর্ট আইটেমে এন্ট্রি দিলে এখানে স্বয়ংক্রিয়ভাবে দেখাবে)'}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Right Footer: Monthly Total of Short */}
+            <div className="p-3 border-t-2 border-orange-200 bg-orange-50/70 flex items-center justify-between text-xs font-bold text-slate-800">
+              <span className="font-bengali">
+                {shortDsrFilter !== 'all'
+                  ? `DSR [${shortDsrFilter}] মোট শর্ট:`
+                  : selectedMonth
+                  ? `মোট শর্ট (এই মাসে):`
+                  : 'মোট শর্ট:'}
+              </span>
+              <span className="font-mono text-base font-black text-orange-950">
+                {currency} {filteredTotalShort.toLocaleString()}
+              </span>
+            </div>
+          </div>
         </div>
+
+        {/* DSR Lifetime & Monthly Short Summary Pills */}
+        {Object.keys(dsrShortSummaries).length > 0 && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-3.5 space-y-2">
+            <div className="flex items-center justify-between flex-wrap gap-2 text-xs font-bold text-slate-800">
+              <span className="flex items-center gap-1.5">
+                <Users className="h-4 w-4 text-orange-600" />
+                <span>DSR ভিত্তিক মোট শর্ট ওভারভিউ (ক্লিক করে ফিল্টার করুন):</span>
+              </span>
+              <span className="text-[11px] text-slate-500 font-normal">
+                মোট {Object.keys(dsrShortSummaries).length} জন DSR এর শর্ট রেকর্ড রয়েছে
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(dsrShortSummaries).map(([dsrName, sum]) => (
+                <button
+                  key={dsrName}
+                  type="button"
+                  onClick={() => setShortDsrFilter(shortDsrFilter === dsrName ? 'all' : dsrName)}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer border ${
+                    shortDsrFilter === dsrName
+                      ? 'bg-orange-600 text-white border-orange-600 shadow-xs'
+                      : 'bg-white text-slate-700 border-slate-300 hover:bg-orange-50 hover:border-orange-300'
+                  }`}
+                >
+                  <span className="font-bold">{dsrName}</span>
+                  <span className="font-mono text-[11px] opacity-90">
+                    সর্বমোট: {currency} {sum.allTimeTotal.toLocaleString()}
+                  </span>
+                  {selectedMonth && sum.monthlyTotal > 0 && (
+                    <span className="text-[10px] bg-white/20 px-1 rounded">
+                      এই মাসে: {currency} {sum.monthlyTotal.toLocaleString()}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* SECTION 4: FINAL NET/OUTSTANDING লেস BALANCE SUMMARY BANNER */}
