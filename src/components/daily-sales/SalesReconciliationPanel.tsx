@@ -38,6 +38,9 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
   const isExcess = difference > 0.01;
   const isShortage = difference < -0.01;
 
+  // "সর্বমোট" (Total) = ক্যাশ + খরচ + বাকি + লেস + শর্ট
+  const grandTotal = totalCash + (expense || 0) + (newDue || 0) + (less || 0) + (short || 0);
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden flex flex-col justify-between">
       {/* Header */}
@@ -215,6 +218,33 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
               placeholder="০"
               className="w-24 sm:w-28 text-right rounded-lg border border-orange-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-orange-800 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none disabled:bg-slate-50 transition-colors"
             />
+          </div>
+        </div>
+
+        {/* 6. সর্বমোট (Total) = ক্যাশ + খরচ + বাকি + লেস + শর্ট (Clearly Highlighted Total Row) */}
+        <div className="flex items-center justify-between gap-3 p-3.5 sm:p-4 rounded-xl border-2 border-emerald-500/50 bg-gradient-to-r from-emerald-50 via-teal-50/70 to-slate-50 shadow-sm transition-all mt-1">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-600 text-white font-black text-sm shrink-0 shadow-xs">
+              ∑
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-black text-slate-900 text-sm sm:text-base font-bengali">
+                  সর্বমোট (Total)
+                </span>
+                <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2 py-0.5 rounded-full">
+                  ক্যাশ + খরচ + বাকি + লেস + শর্ট
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-600 block truncate mt-0.5">
+                পাঁচটি খাতের সমন্বিত মোট যোগফল
+              </span>
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="font-mono font-black text-base sm:text-lg text-emerald-950 bg-white/90 border-2 border-emerald-500/60 px-3.5 py-1.5 rounded-xl shadow-xs min-w-[130px]">
+              {currency} {grandTotal.toLocaleString()}
+            </div>
           </div>
         </div>
 

@@ -1844,10 +1844,98 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // Get complete sheet data for Print Preview and Export (works for current state and saved records)
   const getCurrentSheetData = (sheetToUse?: DailyAccountSheet): DailyAccountSheet => {
     if (sheetToUse) {
+      let todayDueEntries = sheetToUse.todayDueEntries || [];
+      let dueCollectionEntries = sheetToUse.dueCollectionEntries || [];
+
+      // Enhance entries with customer / shop names if missing
+      todayDueEntries = todayDueEntries.map((e) => {
+        let custName = e.customerName;
+        let sName = e.shopName;
+        if (!custName || !sName) {
+          const matched = db.customers.find(
+            (c) =>
+              c.id === e.customerId ||
+              (e.description &&
+                (c.shopName.trim().toLowerCase() === e.description.trim().toLowerCase() ||
+                  c.name.trim().toLowerCase() === e.description.trim().toLowerCase()))
+          );
+          if (matched) {
+            custName = custName || matched.name;
+            sName = sName || matched.shopName;
+          }
+        }
+        return {
+          ...e,
+          customerName: custName,
+          shopName: sName,
+        };
+      });
+
+      dueCollectionEntries = dueCollectionEntries.map((e) => {
+        let custName = e.customerName;
+        let sName = e.shopName;
+        if (!custName || !sName) {
+          const matched = db.customers.find(
+            (c) =>
+              c.id === e.customerId ||
+              (e.description &&
+                (c.shopName.trim().toLowerCase() === e.description.trim().toLowerCase() ||
+                  c.name.trim().toLowerCase() === e.description.trim().toLowerCase()))
+          );
+          if (matched) {
+            custName = custName || matched.name;
+            sName = sName || matched.shopName;
+          }
+        }
+        return {
+          ...e,
+          customerName: custName,
+          shopName: sName,
+        };
+      });
+
+      // Smart fallback for older sheets where todayDueEntries wasn't saved directly on the sheet
+      if (todayDueEntries.length === 0 && (sheetToUse.todayDue || 0) > 0) {
+        const matchedLedgers = (db.customerLedgers || []).filter(
+          (l) => l.date === sheetToUse.date && l.debit > 0
+        );
+        if (matchedLedgers.length > 0) {
+          todayDueEntries = matchedLedgers.map((l) => {
+            const cust = db.customers.find((c) => c.id === l.customerId);
+            return {
+              id: l.id,
+              customerId: l.customerId,
+              customerName: cust?.name,
+              shopName: cust?.shopName,
+              description: cust?.shopName || cust?.name || l.description,
+              amount: l.debit,
+            };
+          });
+        }
+      }
+
+      if (dueCollectionEntries.length === 0 && (sheetToUse.dueCollection || 0) > 0) {
+        const matchedPayments = (db.payments || []).filter(
+          (p) => p.date === sheetToUse.date && p.amount > 0
+        );
+        if (matchedPayments.length > 0) {
+          dueCollectionEntries = matchedPayments.map((p) => ({
+            id: p.id,
+            customerId: p.customerId,
+            customerName: p.customerName,
+            shopName: p.shopName,
+            description: p.shopName || p.customerName,
+            amount: p.amount,
+          }));
+        }
+      }
+
       return {
         ...sheetToUse,
         items: sheetToUse.items || [],
         damageItems: sheetToUse.damageItems || [],
+        todayDueEntries,
+        dueCollectionEntries,
       };
     }
 
@@ -1915,27 +2003,61 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
     const validTodayDue: DailyDueEntry[] = todayDueRows
       .filter((r) => r.description.trim() || Number(r.amount) > 0)
-      .map((r) => ({
-        id: r.id,
-        dueNo: r.dueNo,
-        customerId: r.customerId,
-        customerName: r.customerName,
-        shopName: r.shopName,
-        description: r.description.trim(),
-        amount: Number(r.amount) || 0,
-      }));
+      .map((r) => {
+        let custName = r.customerName;
+        let sName = r.shopName;
+        if (!custName || !sName) {
+          const matched = db.customers.find(
+            (c) =>
+              c.id === r.customerId ||
+              (r.description &&
+                (c.shopName.trim().toLowerCase() === r.description.trim().toLowerCase() ||
+                  c.name.trim().toLowerCase() === r.description.trim().toLowerCase()))
+          );
+          if (matched) {
+            custName = custName || matched.name;
+            sName = sName || matched.shopName;
+          }
+        }
+        return {
+          id: r.id,
+          dueNo: r.dueNo,
+          customerId: r.customerId,
+          customerName: custName,
+          shopName: sName,
+          description: r.description.trim() || sName || custName || '',
+          amount: Number(r.amount) || 0,
+        };
+      });
 
     const validDueCollection: DailyDueEntry[] = dueCollectionRows
       .filter((r) => r.description.trim() || Number(r.amount) > 0)
-      .map((r) => ({
-        id: r.id,
-        dueNo: r.dueNo,
-        customerId: r.customerId,
-        customerName: r.customerName,
-        shopName: r.shopName,
-        description: r.description.trim(),
-        amount: Number(r.amount) || 0,
-      }));
+      .map((r) => {
+        let custName = r.customerName;
+        let sName = r.shopName;
+        if (!custName || !sName) {
+          const matched = db.customers.find(
+            (c) =>
+              c.id === r.customerId ||
+              (r.description &&
+                (c.shopName.trim().toLowerCase() === r.description.trim().toLowerCase() ||
+                  c.name.trim().toLowerCase() === r.description.trim().toLowerCase()))
+          );
+          if (matched) {
+            custName = custName || matched.name;
+            sName = sName || matched.shopName;
+          }
+        }
+        return {
+          id: r.id,
+          dueNo: r.dueNo,
+          customerId: r.customerId,
+          customerName: custName,
+          shopName: sName,
+          description: r.description.trim() || sName || custName || '',
+          amount: Number(r.amount) || 0,
+        };
+      });
 
     const matchedDsr = (db.deliveryRepresentatives || []).find((d) => d.name === selectedDSR);
     return {
