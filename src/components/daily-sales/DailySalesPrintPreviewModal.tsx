@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   Printer,
   ImageDown,
@@ -11,6 +11,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import { useApp } from '../../context/AppContext';
 import { BusinessSettings, DailyAccountSheet, DailyAccountItem } from '../../types';
 import { DENOMINATION_LIST } from './CashDenominationTable';
 import {
@@ -36,6 +37,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   currency,
   initialAction = null,
 }) => {
+  const { db } = useApp();
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState('');
   const printAreaRef = useRef<HTMLDivElement>(null);
@@ -58,6 +60,122 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
       lastTriggeredActionRef.current = null;
     }
   }, [isOpen, initialAction]);
+
+  // Customer-wise due entries resolution (for live sheet and historical records)
+  const validTodayDues = useMemo(() => {
+    let entries = (sheet.todayDueEntries || []).filter(
+      (e) => (e.customerName || e.shopName || e.description || '').trim() !== '' || Number(e.amount) > 0
+    );
+
+    // If empty but sheet has todayDue, fall back to customerLedgers for this date
+    if (entries.length === 0 && (sheet.todayDue || 0) > 0) {
+      const matchedLedgers = (db.customerLedgers || []).filter(
+        (l) => l.date === sheet.date && l.debit > 0
+      );
+      if (matchedLedgers.length > 0) {
+        entries = matchedLedgers.map((l) => {
+          const cust = (db.customers || []).find((c) => c.id === l.customerId);
+          return {
+            id: l.id,
+            customerId: l.customerId,
+            customerName: cust?.name,
+            shopName: cust?.shopName,
+            description: cust?.shopName || cust?.name || l.description,
+            amount: l.debit,
+          };
+        });
+      }
+    } else {
+      // Ensure customerName & shopName are resolved if only id or description was saved
+      entries = entries.map((e) => {
+        let custName = e.customerName;
+        let sName = e.shopName;
+        if (!custName || !sName) {
+          const matched = (db.customers || []).find(
+            (c) =>
+              c.id === e.customerId ||
+              (e.description &&
+                (c.shopName.trim().toLowerCase() === e.description.trim().toLowerCase() ||
+                  c.name.trim().toLowerCase() === e.description.trim().toLowerCase()))
+          );
+          if (matched) {
+            custName = custName || matched.name;
+            sName = sName || matched.shopName;
+          }
+        }
+        return {
+          ...e,
+          customerName: custName,
+          shopName: sName,
+        };
+      });
+    }
+    return entries;
+  }, [sheet.todayDueEntries, sheet.todayDue, sheet.date, db.customerLedgers, db.customers]);
+
+  const validDueCollections = useMemo(() => {
+    let entries = (sheet.dueCollectionEntries || []).filter(
+      (e) => (e.customerName || e.shopName || e.description || '').trim() !== '' || Number(e.amount) > 0
+    );
+
+    // If empty but sheet has dueCollection, fall back to payments for this date
+    if (entries.length === 0 && (sheet.dueCollection || 0) > 0) {
+      const matchedPayments = (db.payments || []).filter(
+        (p) => p.date === sheet.date && p.amount > 0
+      );
+      if (matchedPayments.length > 0) {
+        entries = matchedPayments.map((p) => ({
+          id: p.id,
+          customerId: p.customerId,
+          customerName: p.customerName,
+          shopName: p.shopName,
+          description: p.shopName || p.customerName,
+          amount: p.amount,
+        }));
+      }
+    } else {
+      // Ensure customerName & shopName are resolved if only id or description was saved
+      entries = entries.map((e) => {
+        let custName = e.customerName;
+        let sName = e.shopName;
+        if (!custName || !sName) {
+          const matched = (db.customers || []).find(
+            (c) =>
+              c.id === e.customerId ||
+              (e.description &&
+                (c.shopName.trim().toLowerCase() === e.description.trim().toLowerCase() ||
+                  c.name.trim().toLowerCase() === e.description.trim().toLowerCase()))
+          );
+          if (matched) {
+            custName = custName || matched.name;
+            sName = sName || matched.shopName;
+          }
+        }
+        return {
+          ...e,
+          customerName: custName,
+          shopName: sName,
+        };
+      });
+    }
+    return entries;
+  }, [sheet.dueCollectionEntries, sheet.dueCollection, sheet.date, db.payments, db.customers]);
+
+  // Helper to format customer / shop name clearly
+  const formatCustomerShopName = (entry: {
+    customerName?: string;
+    shopName?: string;
+    description?: string;
+  }) => {
+    const shop = (entry.shopName || '').trim();
+    const cust = (entry.customerName || '').trim();
+    const desc = (entry.description || '').trim();
+
+    if (shop && cust && shop.toLowerCase() !== cust.toLowerCase()) {
+      return `${shop} (${cust})`;
+    }
+    return shop || cust || desc || 'কাস্টমার';
+  };
 
   if (!isOpen) return null;
 
@@ -131,9 +249,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   const isShortage = diff <= -1;
 
   // Multi-page Pagination Logic:
-  // If products are <= 14 and damage items <= 3, all fit in 1 single A4 page.
-  // Otherwise split into Page 1 (products 0..18) and Page 2 (products 19..end + damage + notes + summary).
-  const MAX_ITEMS_SINGLE_PAGE = 14;
+  // If products fit within page limits and damage items <= 4, keep in 1 single A4 page.
+  // With customer-wise due & collection tables on the last page, calculate single page threshold dynamically:
+  const dueEntriesMaxCount = Math.max(validTodayDues.length, validDueCollections.length);
+  const MAX_ITEMS_SINGLE_PAGE = dueEntriesMaxCount > 0 ? (dueEntriesMaxCount > 3 ? 7 : 9) : 14;
   const MAX_ITEMS_PAGE_1_MULTI = 20;
 
   let pagesOfItems: DailyAccountItem[][] = [];
@@ -550,17 +669,130 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                     </div>
                   )}
 
-                  {/* 3. DUES & COLLECTIONS (If any) on Last Page */}
+                  {/* 3. CUSTOMER-WISE DUES & COLLECTIONS (On Last Page) */}
                   {isLastPage && (todayDueTotal > 0 || (sheet.dueCollection || 0) > 0) && (
-                    <div className="grid grid-cols-2 gap-2 mb-2.5 text-xs">
-                      <div className="border border-amber-200 bg-amber-50/50 p-1.5 rounded flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-amber-900">আজকের নতুন বাকি (Due):</span>
-                        <span className="font-mono font-black text-amber-900">{currency} {todayDueTotal.toLocaleString()}</span>
-                      </div>
-                      <div className="border border-emerald-200 bg-emerald-50/50 p-1.5 rounded flex items-center justify-between">
-                        <span className="text-[11px] font-bold text-emerald-900">আজকের বকেয়া আদায় (Collection):</span>
-                        <span className="font-mono font-black text-emerald-900">{currency} {(sheet.dueCollection || 0).toLocaleString()}</span>
-                      </div>
+                    <div
+                      className={`grid ${
+                        todayDueTotal > 0 && (sheet.dueCollection || 0) > 0
+                          ? 'grid-cols-2'
+                          : 'grid-cols-1'
+                      } gap-3 mb-2.5 text-xs`}
+                    >
+                      {/* A) আজকের বাকি (Today's New Due) */}
+                      {todayDueTotal > 0 && (
+                        <div className="border border-amber-300 rounded-md overflow-hidden bg-white">
+                          <div className="bg-amber-100/90 px-2 py-1 border-b border-amber-300 flex items-center justify-between">
+                            <span className="font-bold text-amber-950 font-bengali text-[11px] flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-600 inline-block" />
+                              আজকের বাকি (Today's New Due)
+                            </span>
+                            <span className="font-mono text-[10px] text-amber-800 font-bold">
+                              {validTodayDues.length} টি খতিয়ান
+                            </span>
+                          </div>
+                          <table className="w-full text-left border-collapse text-[10px] sm:text-[11px]">
+                            <thead>
+                              <tr className="bg-amber-50/80 border-b border-amber-200 text-amber-900 font-bold">
+                                <th className="py-1 px-2 border-r border-amber-200">
+                                  কাস্টমার/দোকানের নাম
+                                </th>
+                                <th className="py-1 px-2 text-right w-24">টাকা</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-amber-100">
+                              {validTodayDues.length > 0 ? (
+                                validTodayDues.map((due, dIdx) => (
+                                  <tr key={due.id || dIdx} className="hover:bg-amber-50/30">
+                                    <td className="py-0.5 px-2 text-slate-800 border-r border-amber-100 font-medium">
+                                      {formatCustomerShopName(due)}
+                                    </td>
+                                    <td className="py-0.5 px-2 text-right font-mono font-bold text-amber-950">
+                                      {currency} {Number(due.amount || 0).toLocaleString()}
+                                    </td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td className="py-0.5 px-2 text-slate-700 italic border-r border-amber-100">
+                                    সাধারণ বাকি খতিয়ান
+                                  </td>
+                                  <td className="py-0.5 px-2 text-right font-mono font-bold text-amber-950">
+                                    {currency} {todayDueTotal.toLocaleString()}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-amber-100/90 font-black border-t-2 border-amber-300 text-amber-950">
+                                <td className="py-1 px-2 font-bengali border-r border-amber-200">
+                                  মোট নতুন বাকি:
+                                </td>
+                                <td className="py-1 px-2 text-right font-mono font-bold">
+                                  {currency} {todayDueTotal.toLocaleString()}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
+
+                      {/* B) বাকি জমা (Due Collection Today) */}
+                      {(sheet.dueCollection || 0) > 0 && (
+                        <div className="border border-emerald-300 rounded-md overflow-hidden bg-white">
+                          <div className="bg-emerald-100/90 px-2 py-1 border-b border-emerald-300 flex items-center justify-between">
+                            <span className="font-bold text-emerald-950 font-bengali text-[11px] flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
+                              বাকি জমা (Due Collection Today)
+                            </span>
+                            <span className="font-mono text-[10px] text-emerald-800 font-bold">
+                              {validDueCollections.length} টি আদায়
+                            </span>
+                          </div>
+                          <table className="w-full text-left border-collapse text-[10px] sm:text-[11px]">
+                            <thead>
+                              <tr className="bg-emerald-50/80 border-b border-emerald-200 text-emerald-900 font-bold">
+                                <th className="py-1 px-2 border-r border-emerald-200">
+                                  কাস্টমার/দোকানের নাম
+                                </th>
+                                <th className="py-1 px-2 text-right w-24">টাকা</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-emerald-100">
+                              {validDueCollections.length > 0 ? (
+                                validDueCollections.map((col, cIdx) => (
+                                  <tr key={col.id || cIdx} className="hover:bg-emerald-50/30">
+                                    <td className="py-0.5 px-2 text-slate-800 border-r border-emerald-100 font-medium">
+                                      {formatCustomerShopName(col)}
+                                    </td>
+                                    <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-950">
+                                      {currency} {Number(col.amount || 0).toLocaleString()}
+                                    </td>
+                                  </tr>
+                                ))
+                              ) : (
+                                <tr>
+                                  <td className="py-0.5 px-2 text-slate-700 italic border-r border-emerald-100">
+                                    সাধারণ বাকি জমা
+                                  </td>
+                                  <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-950">
+                                    {currency} {(sheet.dueCollection || 0).toLocaleString()}
+                                  </td>
+                                </tr>
+                              )}
+                            </tbody>
+                            <tfoot>
+                              <tr className="bg-emerald-100/90 font-black border-t-2 border-emerald-300 text-emerald-950">
+                                <td className="py-1 px-2 font-bengali border-r border-emerald-200">
+                                  মোট বাকি জমা:
+                                </td>
+                                <td className="py-1 px-2 text-right font-mono font-bold">
+                                  {currency} {(sheet.dueCollection || 0).toLocaleString()}
+                                </td>
+                              </tr>
+                            </tfoot>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   )}
 

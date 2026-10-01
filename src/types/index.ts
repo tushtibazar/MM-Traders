@@ -42,6 +42,9 @@ export interface Product {
   currentStock: number;
   minStockAlert: number;
   status: 'active' | 'inactive';
+  freePieces?: number; // Free pieces received with purchase
+  profitMargin?: number; // Desired profit margin %
+  adjustment?: number; // Manual price adjustment amount
   deletedFromStock?: boolean;
   createdAt: string;
 }
