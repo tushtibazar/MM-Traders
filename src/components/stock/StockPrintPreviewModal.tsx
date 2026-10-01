@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { PrintHeader } from '../common/PrintHeader';
 import { BusinessSettings, Product } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface StockPrintPreviewModalProps {
   isOpen: boolean;
@@ -81,12 +82,12 @@ export const StockPrintPreviewModal: React.FC<StockPrintPreviewModalProps> = ({
               <PrintHeader
                 settings={settings}
                 reportTitle="গুদাম স্টক মূল্যায়ন বিবরণী"
-                reportSubtitle={`তারিখ: ${todayDateStr} • পৃষ্ঠা: ${pageIndex + 1}/${totalPages}`}
+                reportSubtitle={`তারিখ: ${formatDate(todayDateStr)} • পৃষ্ঠা: ${pageIndex + 1}/${totalPages}`}
                 isContinuedPage={!isFirstPage}
                 metadata={
                   isFirstPage
                     ? [
-                        { label: 'তারিখ', value: todayDateStr },
+                        { label: 'তারিখ', value: formatDate(todayDateStr) },
                         { label: 'মোট পণ্য ধরণ', value: `${products.length} টি` },
                         { label: 'মোট স্টক আইটেম', value: `${totalStockQuantity.toLocaleString()} একক` },
                         {

@@ -18,6 +18,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { Customer } from '../../types';
 import { generateCustomerLedgerPDF } from '../../services/pdfGenerator';
+import { formatDate } from '../../utils/dateUtils';
 
 interface CustomerLedgerProps {
   customer: Customer | null;
@@ -218,6 +219,11 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-1.5">
             <span className="text-slate-500">শুরুর তারিখ:</span>
+            {startDate && (
+              <span className="font-mono text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded text-[11px]">
+                {formatDate(startDate)}
+              </span>
+            )}
             <input
               type="date"
               value={startDate}
@@ -228,6 +234,11 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
           <div className="flex items-center gap-1.5">
             <span className="text-slate-500">শেষ তারিখ:</span>
+            {endDate && (
+              <span className="font-mono text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded text-[11px]">
+                {formatDate(endDate)}
+              </span>
+            )}
             <input
               type="date"
               value={endDate}
@@ -287,7 +298,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
 
                 return (
                   <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="py-2.5 px-4 font-medium text-slate-800">{entry.date}</td>
+                    <td className="py-2.5 px-4 font-mono font-medium text-slate-800">{formatDate(entry.date)}</td>
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-1.5">
                         {isSale && (

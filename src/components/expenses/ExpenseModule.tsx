@@ -9,6 +9,7 @@ import { useApp } from '../../context/AppContext';
 import { Expense } from '../../types';
 import { LessSection } from './LessSection';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { formatDate } from '../../utils/dateUtils';
 
 export const ExpenseModule: React.FC = () => {
   const { db, deleteExpense, todayExpense, todayDateStr } = useApp();
@@ -136,7 +137,7 @@ export const ExpenseModule: React.FC = () => {
               {db.expenses.map((exp) => (
                 <tr key={exp.id} className="hover:bg-slate-50 transition-colors">
                   <td className="py-3 px-4 font-mono font-medium text-slate-700 whitespace-nowrap">
-                    {exp.date}
+                    {formatDate(exp.date)}
                   </td>
                   <td className="py-3 px-3">
                     {exp.routeOrSr ? (
@@ -197,7 +198,7 @@ export const ExpenseModule: React.FC = () => {
         subtitle="এই খরচ এন্ট্রিটি তালিকা থেকে মুছে ফেলতে আপনার ৪-সংখ্যার ওনার পিন দিন। এটি মূল Daily হিসাব রেকর্ড অক্ষুণ্ণ রাখবে।"
         itemName={
           deleteTarget
-            ? `${deleteTarget.date} তারিখে ${currency} ${deleteTarget.amount.toLocaleString()} (${deleteTarget.description})`
+            ? `${formatDate(deleteTarget.date)} তারিখে ${currency} ${deleteTarget.amount.toLocaleString()} (${deleteTarget.description})`
             : ''
         }
         correctPin={ownerPin}

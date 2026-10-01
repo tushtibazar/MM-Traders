@@ -17,6 +17,7 @@ import { generateStockValuationPDF } from '../../services/pdfGenerator';
 import { Product } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
 import { StockPrintPreviewModal } from './StockPrintPreviewModal';
+import { formatDate } from '../../utils/dateUtils';
 
 export const StockModule: React.FC = () => {
   const { db, currentUser, adjustStock, deleteStockEntry, todayDateStr } = useApp();
@@ -437,7 +438,7 @@ export const StockModule: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {db.stockTransactions.slice(0, 8).map((adj) => (
                 <tr key={adj.id} className="hover:bg-slate-50">
-                  <td className="py-2 px-3 text-slate-600">{adj.date}</td>
+                  <td className="py-2 px-3 text-slate-600 font-mono">{formatDate(adj.date)}</td>
                   <td className="py-2 px-3 font-semibold text-slate-900">{adj.productName}</td>
                   <td className="py-2 px-3 text-center">
                     <span

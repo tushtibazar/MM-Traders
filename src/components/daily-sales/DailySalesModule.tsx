@@ -37,6 +37,7 @@ import { DueCollectionConfirmModal } from '../modals/DueCollectionConfirmModal';
 import { ProductSuggestionDropdown } from './ProductSuggestionDropdown';
 import { DailySalesPrintPreviewModal } from './DailySalesPrintPreviewModal';
 import { RouteDueModal } from './RouteDueModal';
+import { formatDate } from '../../utils/dateUtils';
 
 interface RowData {
   id: string;
@@ -773,7 +774,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       const sheet = (db.dailySheets || []).find((s) => s.id === initialSheetId);
       if (sheet) {
         loadSheetIntoForm(sheet);
-        showNotification(`হিসাব লোড হয়েছে: ${sheet.routeOrVan} (${sheet.date})`, 'info');
+        showNotification(`হিসাব লোড হয়েছে: ${sheet.routeOrVan} (${formatDate(sheet.date)})`, 'info');
       }
       if (onClearInitialSheetId) {
         onClearInitialSheetId();
@@ -2141,6 +2142,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       list = list.filter(
         (s) =>
           s.date.includes(q) ||
+          formatDate(s.date).includes(q) ||
           (s.routeOrVan && s.routeOrVan.toLowerCase().includes(q)) ||
           (s.srName && s.srName.toLowerCase().includes(q)) ||
           (s.dsrName && s.dsrName.toLowerCase().includes(q))
@@ -2160,7 +2162,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const handleConfirmDeleteHistorySheet = () => {
     if (!sheetToDeleteHistory) return;
     const targetId = sheetToDeleteHistory.id;
-    const targetLabel = `${sheetToDeleteHistory.date} - ${sheetToDeleteHistory.routeOrVan || 'রুট'}`;
+    const targetLabel = `${formatDate(sheetToDeleteHistory.date)} - ${sheetToDeleteHistory.routeOrVan || 'রুট'}`;
 
     try {
       deleteDailySheet(targetId);
@@ -2295,7 +2297,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     }`}
                   >
                     <span>{ps.routeOrVan}</span>
-                    <span className="text-[10px] opacity-85 font-mono">({ps.date})</span>
+                    <span className="text-[10px] opacity-85 font-mono">({formatDate(ps.date)})</span>
                     <span className="px-1.5 py-0.2 bg-amber-200/80 text-amber-900 rounded text-[10px]">
                       চলমান
                     </span>
@@ -2396,9 +2398,14 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
               {/* 2. Date */}
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="h-3.5 w-3.5 text-emerald-600" />
-                  <span>২. Date (তারিখ)</span>
+                <label className="block text-xs font-semibold text-slate-700 mb-1.5 flex items-center justify-between">
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>২. Date (তারিখ)</span>
+                  </span>
+                  <span className="text-[11px] font-bold font-mono text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    {formatDate(selectedDate)}
+                  </span>
                 </label>
                 <input
                   type="date"
@@ -3964,7 +3971,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     return (
                       <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
                         <td className="py-3 px-4 font-mono font-bold text-slate-800">
-                          {s.date}
+                          {formatDate(s.date)}
                         </td>
                         <td className="py-3 px-3 font-semibold text-slate-900">
                           {s.routeOrVan || '-'}
@@ -4315,7 +4322,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         subtitle="এই দৈনিক হিসাব খতিয়ানটি স্থায়ীভাবে মুছে ফেলতে ৪-৬ সংখ্যার নিরাপত্তা পিন কোড দিন"
         itemName={
           sheetToDeleteHistory
-            ? `${sheetToDeleteHistory.date} — ${sheetToDeleteHistory.routeOrVan || 'রুট'} (বিক্রি: ${currency} ${(Number(sheetToDeleteHistory.finalNetSalesAmount) || 0).toLocaleString()})`
+            ? `${formatDate(sheetToDeleteHistory.date)} — ${sheetToDeleteHistory.routeOrVan || 'রুট'} (বিক্রি: ${currency} ${(Number(sheetToDeleteHistory.finalNetSalesAmount) || 0).toLocaleString()})`
             : undefined
         }
         confirmButtonText="স্থায়ীভাবে মুছে ফেলুন"

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { MonthlySalesPrintPreviewModal } from './MonthlySalesPrintPreviewModal';
+import { formatDate } from '../../utils/dateUtils';
 
 const BENGALI_MONTHS = [
   { value: 1, nameBn: 'জানুয়ারি', nameEn: 'January' },
@@ -375,7 +376,7 @@ export const MonthlySalesModule: React.FC = () => {
     return dailyDamageData.reduce((sum, item) => sum + item.damageAmount, 0);
   }, [dailyDamageData]);
 
-  // Format date helper with weekday name in Bengali
+  // Format date helper with weekday name in Bengali: DD/MM/YYYY (দিন)
   const formatDateBn = (dateStr: string) => {
     try {
       const parts = dateStr.split('-');
@@ -387,9 +388,9 @@ export const MonthlySalesModule: React.FC = () => {
       const daysBn = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শুক্র', 'শনি'];
       const dayName = daysBn[dateObj.getDay()];
 
-      return `${dateStr} (${dayName})`;
+      return `${formatDate(dateStr)} (${dayName})`;
     } catch {
-      return dateStr;
+      return formatDate(dateStr);
     }
   };
 

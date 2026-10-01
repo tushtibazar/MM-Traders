@@ -20,6 +20,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { DailyAccountSheet, DailyAccountItem } from '../../types';
 import { DamagePrintPreviewModal } from './DamagePrintPreviewModal';
+import { formatDate } from '../../utils/dateUtils';
 
 interface DamageModuleProps {
   onOpenDailySheet?: (sheetId: string) => void;
@@ -426,7 +427,7 @@ export const DamageModule: React.FC<DamageModuleProps> = ({
                         {index + 1}
                       </td>
                       <td className="py-3 px-3 whitespace-nowrap">
-                        <div className="font-medium text-slate-900">{record.date}</div>
+                        <div className="font-medium text-slate-900 font-mono">{formatDate(record.date)}</div>
                         <div className="text-[10px] font-mono text-indigo-600 flex items-center gap-1 mt-0.5">
                           <span>শীট: {record.sheetNo}</span>
                         </div>

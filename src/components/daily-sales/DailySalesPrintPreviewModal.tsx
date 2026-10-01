@@ -14,6 +14,7 @@ import {
 import html2canvas from 'html2canvas';
 import { useApp } from '../../context/AppContext';
 import { BusinessSettings, DailyAccountSheet, DailyAccountItem } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 import { DENOMINATION_LIST } from './CashDenominationTable';
 import {
   downloadCanvasAsPNG,
@@ -490,7 +491,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
               দৈনিক হিসাব প্রিন্ট ও এক্সপোর্ট প্রিভিউ (A4)
             </h2>
             <p className="text-xs text-slate-300">
-              তারিখ: {sheet.date} • রুট: {sheet.routeOrVan || 'সব'} • {totalPages} পৃষ্ঠা
+              তারিখ: {formatDate(sheet.date)} • রুট: {sheet.routeOrVan || 'সব'} • {totalPages} পৃষ্ঠা
             </p>
           </div>
         </div>

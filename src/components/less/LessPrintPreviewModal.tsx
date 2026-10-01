@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { PrintHeader } from '../common/PrintHeader';
 import { BusinessSettings, LessEntry, LessSettlement } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface LessPrintPreviewModalProps {
   isOpen: boolean;
@@ -121,7 +122,7 @@ export const LessPrintPreviewModal: React.FC<LessPrintPreviewModalProps> = ({
                               {globalIdx}
                             </td>
                             <td className="py-1.5 px-3 font-mono text-slate-700 border-r border-slate-200">
-                              {item.date}
+                              {formatDate(item.date)}
                             </td>
                             <td className="py-1.5 px-3 font-semibold text-slate-900 border-r border-slate-200">
                               {item.description}

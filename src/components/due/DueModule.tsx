@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DEFAULT_ROUTES } from '../../services/storage';
+import { formatDate } from '../../utils/dateUtils';
 import { generateDueReportPDF } from '../../services/pdfGenerator';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
@@ -1410,7 +1411,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                       <tr key={p.id} className="hover:bg-slate-50/60">
                         <td className="py-2 px-3 font-mono font-bold text-slate-700">{p.receiptNo}</td>
                         <td className="py-2 px-3 font-medium text-slate-900">{p.customerName}</td>
-                        <td className="py-2 px-3 text-slate-500 font-mono">{p.date}</td>
+                        <td className="py-2 px-3 text-slate-500 font-mono">{formatDate(p.date)}</td>
                         <td className="py-2 px-3 text-right font-mono font-bold text-emerald-700">
                           {currency} {p.amount.toLocaleString()}
                         </td>
@@ -1541,7 +1542,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                       {/* Date */}
                       <td className="py-3 px-4 font-mono font-semibold text-slate-800">
-                        {p.date}
+                        {formatDate(p.date)}
                       </td>
 
                       {/* Receipt No */}
@@ -1668,7 +1669,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                       <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                         {/* Date */}
                         <td className="py-3 px-4 font-mono font-medium text-slate-700">
-                          {entry.date}
+                          {formatDate(entry.date)}
                         </td>
 
                         {/* Voucher / Ref */}
@@ -1715,7 +1716,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                           {isSettled && (
                             <div className="text-[11px]">
                               <span className="font-semibold text-emerald-700 block">
-                                তারিখ: {entry.settledDate || entry.date}
+                                তারিখ: {formatDate(entry.settledDate || entry.date)}
                               </span>
                               <span className="text-slate-500">{entry.settledNote || 'নিষ্পত্তি করা হয়েছে'}</span>
                             </div>
@@ -1723,7 +1724,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                           {isVoided && (
                             <div className="text-[11px]">
                               <span className="font-semibold text-rose-700 block">
-                                বাতিলের তারিখ: {entry.settledDate || entry.date}
+                                বাতিলের তারিখ: {formatDate(entry.settledDate || entry.date)}
                               </span>
                               <span className="text-slate-500">{entry.settledNote || 'এন্ট্রি বাতিল'}</span>
                             </div>

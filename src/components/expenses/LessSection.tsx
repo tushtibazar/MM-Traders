@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { LessEntry } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 export const LessSection: React.FC = () => {
   const {
@@ -76,7 +77,7 @@ export const LessSection: React.FC = () => {
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
           const matchDesc = item.description.toLowerCase().includes(q);
-          const matchDate = item.date.includes(q);
+          const matchDate = item.date.includes(q) || formatDate(item.date).includes(q);
           const matchNote = (item.note || '').toLowerCase().includes(q);
           if (!matchDesc && !matchDate && !matchNote) return false;
         }
@@ -323,8 +324,8 @@ export const LessSection: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {filteredEntries.map((item) => (
                 <tr key={item.id} className="hover:bg-slate-50/80 transition">
-                  <td className="py-3 px-4 font-medium text-slate-700 whitespace-nowrap">
-                    {item.date}
+                  <td className="py-3 px-4 font-mono font-medium text-slate-700 whitespace-nowrap">
+                    {formatDate(item.date)}
                   </td>
                   <td className="py-3 px-3">
                     <div className="font-semibold text-slate-900">{item.description}</div>

@@ -14,6 +14,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { TabType } from './Sidebar';
 import { generateDailyReportPDF } from '../../services/pdfGenerator';
+import { formatDate } from '../../utils/dateUtils';
 
 interface HeaderProps {
   onToggleMobileMenu: () => void;
@@ -129,7 +130,7 @@ export const Header: React.FC<HeaderProps> = ({
             </h2>
           </div>
           <p className="text-xs text-slate-500 hidden sm:block">
-            {todayDateStr} • {db.settings.businessName}
+            {formatDate(todayDateStr)} • {db.settings.businessName}
           </p>
         </div>
       </div>

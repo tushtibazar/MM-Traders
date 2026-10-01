@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { PrintHeader } from '../common/PrintHeader';
 import { BusinessSettings, Customer } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface DuePrintPreviewModalProps {
   isOpen: boolean;
@@ -77,12 +78,12 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
               <PrintHeader
                 settings={settings}
                 reportTitle="কাস্টমার বকেয়া তালিকা"
-                reportSubtitle={`তারিখ: ${todayDateStr} • পৃষ্ঠা: ${pageIndex + 1}/${totalPages}`}
+                reportSubtitle={`তারিখ: ${formatDate(todayDateStr)} • পৃষ্ঠা: ${pageIndex + 1}/${totalPages}`}
                 isContinuedPage={!isFirstPage}
                 metadata={
                   isFirstPage
                     ? [
-                        { label: 'তারিখ', value: todayDateStr },
+                        { label: 'তারিখ', value: formatDate(todayDateStr) },
                         {
                           label: 'ফিল্টারকৃত রুট',
                           value: routeFilter === 'all' ? 'সকল রুট' : routeFilter,

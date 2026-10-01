@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { PrintHeader } from '../common/PrintHeader';
 import { BusinessSettings, DailyAccountItem } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface FlattenedDamageItem {
   sheetId: string;
@@ -135,7 +136,7 @@ export const DamagePrintPreviewModal: React.FC<DamagePrintPreviewModalProps> = (
                               {globalIdx}
                             </td>
                             <td className="py-1.5 px-2.5 font-mono text-slate-700 border-r border-slate-200">
-                              {rec.date}
+                              {formatDate(rec.date)}
                             </td>
                             <td className="py-1.5 px-2.5 text-slate-700 border-r border-slate-200 truncate max-w-[100px]">
                               {rec.route}

@@ -25,6 +25,7 @@ import { useApp } from '../../context/AppContext';
 import { LessEntry, LessSettlement } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
 import { LessPrintPreviewModal } from './LessPrintPreviewModal';
+import { formatDate } from '../../utils/dateUtils';
 
 export const LessModule: React.FC = () => {
   const {
@@ -126,7 +127,7 @@ export const LessModule: React.FC = () => {
         if (searchQuery.trim()) {
           const q = searchQuery.toLowerCase();
           const matchDesc = item.description.toLowerCase().includes(q);
-          const matchDate = item.date.includes(q);
+          const matchDate = item.date.includes(q) || formatDate(item.date).includes(q);
           const matchNote = (item.note || '').toLowerCase().includes(q);
           if (!matchDesc && !matchDate && !matchNote) return false;
         }
@@ -202,7 +203,7 @@ export const LessModule: React.FC = () => {
       if (shortDsrFilter !== 'all' && item.dsrName !== shortDsrFilter) return false;
       if (shortSearchQuery.trim()) {
         const q = shortSearchQuery.toLowerCase();
-        const matchDate = item.date.includes(q);
+        const matchDate = item.date.includes(q) || formatDate(item.date).includes(q);
         const matchDsr = item.dsrName.toLowerCase().includes(q);
         const matchRoute = (item.routeOrVan || '').toLowerCase().includes(q);
         if (!matchDate && !matchDsr && !matchRoute) return false;
@@ -271,7 +272,7 @@ export const LessModule: React.FC = () => {
       });
 
       setSuccessMessage(
-        `লেস জমা সফলভাবে সম্পন্ন হয়েছে: ${currency} ${pendingSettlement.amount.toLocaleString()} (তারিখ: ${pendingSettlement.date})`
+        `লেস জমা সফলভাবে সম্পন্ন হয়েছে: ${currency} ${pendingSettlement.amount.toLocaleString()} (তারিখ: ${formatDate(pendingSettlement.date)})`
       );
       setSettlementAmount('');
       setSettlementNote('');
@@ -560,8 +561,8 @@ export const LessModule: React.FC = () => {
                   <td className="py-2.5 px-4 text-center font-mono text-slate-400">
                     {idx + 1}
                   </td>
-                  <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
-                    {item.date}
+                  <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap font-mono">
+                    {formatDate(item.date)}
                   </td>
                   <td className="py-2.5 px-3 text-slate-700">
                     {item.note || <span className="text-slate-400 italic">কোন নোট নেই</span>}
@@ -749,8 +750,8 @@ export const LessModule: React.FC = () => {
                       <td className="py-2.5 px-3 text-center font-mono text-slate-400">
                         {idx + 1}
                       </td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap">
-                        {item.date}
+                      <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap font-mono">
+                        {formatDate(item.date)}
                       </td>
                       <td className="py-2.5 px-3">
                         <div className="font-bold text-slate-900 truncate max-w-[150px] sm:max-w-xs" title={item.description}>
@@ -925,9 +926,9 @@ export const LessModule: React.FC = () => {
                         {idx + 1}
                       </td>
                       <td className="py-2.5 px-3 font-semibold text-slate-800 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1.5 font-mono">
                           <Calendar className="h-3 w-3 text-slate-400" />
-                          <span>{item.date}</span>
+                          <span>{formatDate(item.date)}</span>
                         </div>
                         {item.sheetNo && (
                           <div className="text-[10px] text-slate-400 font-mono">
@@ -1060,7 +1061,7 @@ export const LessModule: React.FC = () => {
         subtitle="কোম্পানি/ডিলারের প্রাপ্ত লেস বাবদ টাকা জমা নিশ্চিত করতে আপনার ওনার পিন (PIN) লিখুন।"
         itemName={
           pendingSettlement
-            ? `${pendingSettlement.date} তারিখে ${currency} ${pendingSettlement.amount.toLocaleString()}${
+            ? `${formatDate(pendingSettlement.date)} তারিখে ${currency} ${pendingSettlement.amount.toLocaleString()}${
                 pendingSettlement.note ? ` (${pendingSettlement.note})` : ''
               }`
             : ''
@@ -1082,7 +1083,7 @@ export const LessModule: React.FC = () => {
         subtitle="এই জমা রেকর্ডটি মুছে ফেললে নিট বকেয়া লেস সমপরিমাণ বৃদ্ধি পাবে। নিশ্চিত করতে ওনার পিন দিন।"
         itemName={
           settlementToDelete
-            ? `${settlementToDelete.date} তারিখে জমা ${currency} ${settlementToDelete.amount.toLocaleString()}`
+            ? `${formatDate(settlementToDelete.date)} তারিখে জমা ${currency} ${settlementToDelete.amount.toLocaleString()}`
             : ''
         }
         correctPin={ownerPin}

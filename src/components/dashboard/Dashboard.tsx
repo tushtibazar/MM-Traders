@@ -23,6 +23,7 @@ import { TabType } from '../layout/Sidebar';
 import { generateDailyReportPDF, generateSaleMemoPDF } from '../../services/pdfGenerator';
 import { Customer, Sale, DailyAccountSheet } from '../../types';
 import { BrandLogo } from '../brand/BrandLogo';
+import { formatDate } from '../../utils/dateUtils';
 import { PinPromptModal } from '../modals/PinPromptModal';
 
 interface DashboardProps {
@@ -80,7 +81,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (!sheetToDelete) return;
     deleteDailySheet(sheetToDelete.id);
     setDeleteSuccessNotice(
-      `চলমান খাতাটি (${sheetToDelete.routeOrVan || 'রুট'} - ${sheetToDelete.date}) সফলভাবে মুছে ফেলা হয়েছে`
+      `চলমান খাতাটি (${sheetToDelete.routeOrVan || 'রুট'} - ${formatDate(sheetToDelete.date)}) সফলভাবে মুছে ফেলা হয়েছে`
     );
     setIsDeleteSheetPinOpen(false);
     setSheetToDelete(null);
@@ -293,7 +294,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       SR: <span className="font-semibold text-slate-800">{sheet.srName || '-'}</span> • DSR:{' '}
                       <span className="font-semibold text-slate-800">{sheet.dsrName || '-'}</span>
                     </p>
-                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">তারিখ: {sheet.date}</p>
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5">তারিখ: {formatDate(sheet.date)}</p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-amber-100 text-amber-900 border border-amber-300">
@@ -750,7 +751,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                         </div>
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 text-slate-600">{tx.date}</td>
+                    <td className="py-2.5 px-3 text-slate-600 font-mono">{formatDate(tx.date)}</td>
                     <td className="py-2.5 px-3 font-medium text-slate-800">{tx.customer}</td>
                     <td className="py-2.5 px-3 text-slate-500">{tx.srName || '-'}</td>
                     <td
@@ -796,7 +797,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
         subtitle="ভুলবশত বা ডুপ্লিকেট তৈরি হওয়া এই চলমান হিসাবটি চিরতরে মুছে ফেলতে আপনার ওনার পিন (PIN) লিখুন।"
         itemName={
           sheetToDelete
-            ? `${sheetToDelete.routeOrVan || 'রুট'} (তারিখ: ${sheetToDelete.date}, মোট বিতরণ: ${sheetToDelete.totalIssuedQty} পণ্য)`
+            ? `${sheetToDelete.routeOrVan || 'রুট'} (তারিখ: ${formatDate(sheetToDelete.date)}, মোট বিতরণ: ${sheetToDelete.totalIssuedQty} পণ্য)`
             : ''
         }
         correctPin={ownerPin}

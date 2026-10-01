@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { PrintHeader } from '../common/PrintHeader';
 import { BusinessSettings } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface DailySummaryRow {
   date: string;
@@ -153,9 +154,9 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
       const d = parseInt(parts[2], 10);
       const dateObj = new Date(y, m - 1, d);
       const daysBn = ['রবি', 'সোম', 'মঙ্গল', 'বুধ', 'বৃহঃ', 'শুক্র', 'শনি'];
-      return `${dateStr} (${daysBn[dateObj.getDay()]})`;
+      return `${formatDate(dateStr)} (${daysBn[dateObj.getDay()]})`;
     } catch {
-      return dateStr;
+      return formatDate(dateStr);
     }
   };
 
