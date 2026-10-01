@@ -178,8 +178,6 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     return shop || cust || desc || 'কাস্টমার';
   };
 
-  if (!isOpen) return null;
-
   // Filter valid items
   const validItems = (sheet.items || []).filter(
     (item) => item.productName && item.productName.trim() !== ''
@@ -476,6 +474,8 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   const handlePrint = () => {
     window.print();
   };
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/80 backdrop-blur-sm">
