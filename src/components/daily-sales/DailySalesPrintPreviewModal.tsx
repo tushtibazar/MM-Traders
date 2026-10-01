@@ -9,6 +9,7 @@ import {
   XCircle,
   FileText,
   Loader2,
+  Calendar,
 } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import { useApp } from '../../context/AppContext';
@@ -187,6 +188,12 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     (item) => item.productName && item.productName.trim() !== '' && (item.damageQty > 0 || item.grossAmount > 0)
   );
 
+  // Bengali Digit Converter
+  const toBnDigits = (num: number | string) => {
+    const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
+    return String(num).replace(/\d/g, (w) => bnDigits[+w]);
+  };
+
   // Bengali Date Formatter
   const formatBengaliDate = (dateStr: string) => {
     try {
@@ -204,16 +211,126 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
         'রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'
       ];
 
-      const toBnDigits = (num: number | string) => {
-        const bnDigits = ['০', '১', '২', '৩', '৪', '৫', '৬', '৭', '৮', '৯'];
-        return String(num).replace(/\d/g, (w) => bnDigits[+w]);
-      };
-
       return `${toBnDigits(d)} ${months[m - 1]} ${toBnDigits(y)} (${weekdays[dateObj.getDay()]})`;
     } catch {
       return dateStr;
     }
   };
+
+  // Month-to-Date Calculations for the previewed record's month (1st of month up to sheet.date)
+  const monthToDateTotals = useMemo(() => {
+    if (!sheet.date) {
+      return { totalSales: 0, totalDue: 0, totalDamage: 0, totalExpense: 0, monthName: '', dayBn: '' };
+    }
+
+    const parts = sheet.date.split('-');
+    const yearStr = parts[0];
+    const monthStr = parts[1];
+    const dayStr = parts[2];
+    const targetMonthPrefix = `${yearStr}-${monthStr}`;
+    const targetDate = sheet.date;
+
+    // Combine db.dailySheets with the currently previewed sheet to ensure live values
+    const existingSheets = db.dailySheets || [];
+    const sheetIndex = existingSheets.findIndex((s) => s.id === sheet.id);
+    let allSheets: DailyAccountSheet[];
+    if (sheetIndex >= 0) {
+      allSheets = [...existingSheets];
+      allSheets[sheetIndex] = sheet;
+    } else {
+      const sameComboIndex = existingSheets.findIndex(
+        (s) =>
+          s.date === sheet.date &&
+          s.routeOrVan?.trim() === sheet.routeOrVan?.trim() &&
+          s.srName?.trim() === sheet.srName?.trim()
+      );
+      if (sameComboIndex >= 0) {
+        allSheets = [...existingSheets];
+        allSheets[sameComboIndex] = sheet;
+      } else {
+        allSheets = [...existingSheets, sheet];
+      }
+    }
+
+    // Filter sheets from 1st of the month up to sheet.date
+    const mtdSheets = allSheets.filter(
+      (s) => s.date && s.date.startsWith(targetMonthPrefix) && s.date <= targetDate
+    );
+
+    const coveredDates = new Set<string>();
+
+    let totalSales = 0;
+    let totalDue = 0;
+    let totalDamage = 0;
+    let totalExpense = 0;
+
+    mtdSheets.forEach((s) => {
+      coveredDates.add(s.date);
+      // Net Sales (or Gross - Damage)
+      const salesAmt =
+        typeof s.finalNetSalesAmount === 'number' && s.finalNetSalesAmount > 0
+          ? s.finalNetSalesAmount
+          : Math.max(0, (s.totalGrossAmount || 0) - (s.totalDamageValue || 0));
+      totalSales += salesAmt;
+
+      // Today's New Due
+      totalDue += Number(s.todayDue) || 0;
+
+      // Damage
+      totalDamage += Number(s.totalDamageValue) || 0;
+
+      // Expense
+      totalExpense += Number(s.marketExpense) || 0;
+    });
+
+    // Also include legacy direct sales if any (for dates not in daily sheets)
+    (db.sales || []).forEach((s) => {
+      if (
+        s.date &&
+        s.date.startsWith(targetMonthPrefix) &&
+        s.date <= targetDate &&
+        s.status === 'completed' &&
+        !coveredDates.has(s.date)
+      ) {
+        totalSales += s.netSales || 0;
+      }
+    });
+
+    // Also include standalone expenses (if not from daily sheet)
+    (db.expenses || []).forEach((exp) => {
+      if (
+        exp.date &&
+        exp.date.startsWith(targetMonthPrefix) &&
+        exp.date <= targetDate &&
+        (exp as any).status !== 'void'
+      ) {
+        const isFromDailySheet =
+          Boolean(exp.sheetId) ||
+          (exp as any).source === 'daily_sheet' ||
+          exp.category === 'মার্কেট খরচ (Daily Sheet)';
+        if (!isFromDailySheet) {
+          totalExpense += Number(exp.amount) || 0;
+        }
+      }
+    });
+
+    const monthNum = parseInt(monthStr, 10);
+    const months = [
+      'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
+      'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
+    ];
+    const monthName = !isNaN(monthNum) && monthNum >= 1 && monthNum <= 12 ? months[monthNum - 1] : '';
+    const dayBn = toBnDigits(parseInt(dayStr || '1', 10));
+
+    return {
+      totalSales,
+      totalDue,
+      totalDamage,
+      totalExpense,
+      monthName,
+      dayBn,
+    };
+  }, [db.dailySheets, db.sales, db.expenses, sheet]);
 
   // Calculations
   const grossSales = sheet.totalGrossAmount || 0;
@@ -241,19 +358,20 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   const totalCashCalculated = denomRows.reduce((sum, r) => sum + r.subtotal, 0) + otherCash;
   const actualCash = sheet.cashCollected > 0 ? sheet.cashCollected : totalCashCalculated;
 
-  // Reconciliation: Expected Cash = Net Sales - Today's New Due - Expense - Less - Short
-  const expectedCash = Math.max(0, netSales - todayDueTotal - expenseTotal - lessTotal - shortTotal);
-  const diff = actualCash - expectedCash;
-  const isMatch = Math.abs(diff) < 1;
-  const isExcess = diff >= 1;
-  const isShortage = diff <= -1;
+  // Reconciliation:
+  // "সর্বমোট" (Total) = ক্যাশ + খরচ + বাকি + লেস + শর্ট
+  const grandTotal = actualCash + expenseTotal + todayDueTotal + lessTotal + shortTotal;
+  const diff = grandTotal - netSales;
+  const isMatch = Math.abs(diff) < 0.01;
+  const isExcess = diff > 0.01;
+  const isShortage = diff < -0.01;
 
   // Multi-page Pagination Logic:
   // If products fit within page limits and damage items <= 4, keep in 1 single A4 page.
   // With customer-wise due & collection tables on the last page, calculate single page threshold dynamically:
   const dueEntriesMaxCount = Math.max(validTodayDues.length, validDueCollections.length);
-  const MAX_ITEMS_SINGLE_PAGE = dueEntriesMaxCount > 0 ? (dueEntriesMaxCount > 3 ? 7 : 9) : 14;
-  const MAX_ITEMS_PAGE_1_MULTI = 20;
+  const MAX_ITEMS_SINGLE_PAGE = dueEntriesMaxCount > 0 ? (dueEntriesMaxCount > 3 ? 6 : 8) : 12;
+  const MAX_ITEMS_PAGE_1_MULTI = 18;
 
   let pagesOfItems: DailyAccountItem[][] = [];
   if (validItems.length <= MAX_ITEMS_SINGLE_PAGE && validDamageItems.length <= 4) {
@@ -472,6 +590,78 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                       <span>
                         তারিখ: {formatBengaliDate(sheet.date)} • রুট: {sheet.routeOrVan}
                       </span>
+                    </div>
+                  )}
+
+                  {/* Monthly Summary Strip (Month-to-Date Totals Below Letterhead) */}
+                  {isFirstPage && (
+                    <div className="mb-3">
+                      <div className="bg-slate-50/90 border border-slate-300 rounded-md p-2 shadow-2xs">
+                        <div className="flex items-center justify-between pb-1 mb-1.5 border-b border-slate-200 text-[10px] font-bold text-slate-700">
+                          <span className="flex items-center gap-1.5 font-bengali">
+                            <Calendar className="h-3 w-3 text-slate-500" />
+                            মাসিক সারসংক্ষেপ ({monthToDateTotals.monthName || 'চলতি মাস'} — ১ তারিখ হতে {monthToDateTotals.dayBn} তারিখ পর্যন্ত)
+                          </span>
+                          <span className="text-slate-500 text-[9px] uppercase tracking-wide font-mono">
+                            Month-to-Date
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-4 gap-2 text-center">
+                          {/* ১. এই মাসের মোট বিক্রি */}
+                          <div className="bg-white border border-slate-200 rounded px-1.5 py-1">
+                            <span className="text-[10px] text-slate-600 font-semibold block truncate">
+                              এই মাসের মোট বিক্রি
+                            </span>
+                            <span className="text-[8px] text-slate-400 block truncate -mt-0.5">
+                              This Month's Total Sales
+                            </span>
+                            <span className="text-xs font-mono font-black text-slate-900 block truncate mt-0.5">
+                              {currency} {monthToDateTotals.totalSales.toLocaleString()}
+                            </span>
+                          </div>
+
+                          {/* ২. এই মাসের মোট বাকি */}
+                          <div className="bg-white border border-amber-200 rounded px-1.5 py-1">
+                            <span className="text-[10px] text-amber-800 font-semibold block truncate">
+                              এই মাসের মোট বাকি
+                            </span>
+                            <span className="text-[8px] text-amber-600/70 block truncate -mt-0.5">
+                              This Month's Total Due
+                            </span>
+                            <span className="text-xs font-mono font-black text-amber-900 block truncate mt-0.5">
+                              {currency} {monthToDateTotals.totalDue.toLocaleString()}
+                            </span>
+                          </div>
+
+                          {/* ৩. এই মাসের মোট ড্যামেজ */}
+                          <div className="bg-white border border-rose-200 rounded px-1.5 py-1">
+                            <span className="text-[10px] text-rose-800 font-semibold block truncate">
+                              এই মাসের মোট ড্যামেজ
+                            </span>
+                            <span className="text-[8px] text-rose-600/70 block truncate -mt-0.5">
+                              This Month's Total Damage
+                            </span>
+                            <span className="text-xs font-mono font-black text-rose-900 block truncate mt-0.5">
+                              {currency} {monthToDateTotals.totalDamage.toLocaleString()}
+                            </span>
+                          </div>
+
+                          {/* ৪. এই মাসের মোট খরচ */}
+                          <div className="bg-white border border-slate-200 rounded px-1.5 py-1">
+                            <span className="text-[10px] text-slate-700 font-semibold block truncate">
+                              এই মাসের মোট খরচ
+                            </span>
+                            <span className="text-[8px] text-slate-400 block truncate -mt-0.5">
+                              This Month's Total Expense
+                            </span>
+                            <span className="text-xs font-mono font-black text-slate-900 block truncate mt-0.5">
+                              {currency} {monthToDateTotals.totalExpense.toLocaleString()}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      {/* Thin divider line below summary strip separating it from Route/Date/SR/DSR section */}
+                      <div className="border-b border-slate-300 mt-2.5" />
                     </div>
                   )}
 
@@ -873,51 +1063,81 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
                                 <CheckCircle2 className="h-3 w-3 text-emerald-600" /> মিলেছে
                               </span>
-                            ) : isExcess ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                                <AlertCircle className="h-3 w-3 text-blue-600" /> +{currency} {diff.toLocaleString()} বেশি
-                              </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                                <XCircle className="h-3 w-3 text-rose-600" /> -{currency} {Math.abs(diff).toLocaleString()} ঘাটতি
+                                <XCircle className="h-3 w-3 text-rose-600" /> অমিল
                               </span>
                             )}
                           </div>
 
                           <div className="space-y-1 text-[11px]">
-                            <div className="flex justify-between">
-                              <span className="text-slate-600">১. প্রকৃত বিক্রি (Net Sales):</span>
-                              <span className="font-mono font-bold text-slate-900">{currency} {netSales.toLocaleString()}</span>
+                            {/* 1. ক্যাশ (Cash) */}
+                            <div className="flex justify-between text-slate-800">
+                              <span className="text-slate-700 font-medium">১. ক্যাশ (Cash):</span>
+                              <span className="font-mono font-bold text-slate-900">{currency} {actualCash.toLocaleString()}</span>
                             </div>
-                            <div className="flex justify-between text-amber-900">
-                              <span>২. বাদ: আজকের বাকি (New Due):</span>
-                              <span className="font-mono font-bold">- {currency} {todayDueTotal.toLocaleString()}</span>
+
+                            {/* 2. খরচ (Expense) */}
+                            <div className="flex justify-between text-slate-800">
+                              <span className="text-slate-700 font-medium">২. খরচ (Expense):</span>
+                              <span className="font-mono font-bold text-slate-900">{currency} {expenseTotal.toLocaleString()}</span>
                             </div>
-                            <div className="flex justify-between text-rose-800">
-                              <span>৩. বাদ: দৈনিক খরচ (Expense):</span>
-                              <span className="font-mono font-bold">- {currency} {expenseTotal.toLocaleString()}</span>
+
+                            {/* 3. বাকি (Due) */}
+                            <div className="flex justify-between text-slate-800">
+                              <span className="text-slate-700 font-medium">৩. বাকি (Due):</span>
+                              <span className="font-mono font-bold text-slate-900">{currency} {todayDueTotal.toLocaleString()}</span>
                             </div>
-                            {lessTotal > 0 && (
-                              <div className="flex justify-between text-amber-800">
-                                <span>৪. বাদ: লেস হিসাব (Less):</span>
-                                <span className="font-mono font-bold">- {currency} {lessTotal.toLocaleString()}</span>
-                              </div>
-                            )}
-                            {shortTotal > 0 && (
-                              <div className="flex justify-between text-orange-800">
-                                <span>৫. বাদ: শর্ট (Short{sheet.dsrName ? ` - ${sheet.dsrName}` : ''}):</span>
-                                <span className="font-mono font-bold">- {currency} {shortTotal.toLocaleString()}</span>
-                              </div>
-                            )}
-                            <div className="border-t border-slate-200 pt-1 flex justify-between font-bold text-slate-800">
-                              <span>হিসাবকৃত প্রত্যাশিত ক্যাশ:</span>
-                              <span className="font-mono">{currency} {expectedCash.toLocaleString()}</span>
+
+                            {/* 4. লেস (Less) */}
+                            <div className="flex justify-between text-slate-800">
+                              <span className="text-slate-700 font-medium">৪. লেস (Less):</span>
+                              <span className="font-mono font-bold text-slate-900">{currency} {lessTotal.toLocaleString()}</span>
                             </div>
-                            <div className="flex justify-between font-bold text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded">
-                              <span>প্রকৃত জমা ক্যাশ (নোট হিসাব):</span>
-                              <span className="font-mono">{currency} {actualCash.toLocaleString()}</span>
+
+                            {/* 5. শর্ট (Short) */}
+                            <div className="flex justify-between text-slate-800">
+                              <span className="text-slate-700 font-medium">
+                                ৫. শর্ট (Short{sheet.dsrName ? ` - ${sheet.dsrName}` : ''}):
+                              </span>
+                              <span className="font-mono font-bold text-slate-900">{currency} {shortTotal.toLocaleString()}</span>
+                            </div>
+
+                            {/* 6. সর্বমোট (Total) = ক্যাশ + খরচ + বাকি + লেস + শর্ট */}
+                            <div className="flex justify-between font-black text-slate-950 bg-emerald-50/90 border border-emerald-300 py-1 px-1.5 rounded mt-1 shadow-2xs">
+                              <span className="font-bengali">সর্বমোট (Total):</span>
+                              <span className="font-mono font-black text-emerald-950">{currency} {grandTotal.toLocaleString()}</span>
                             </div>
                           </div>
+                        </div>
+
+                        {/* তুলনা (Comparison): Net Daily Sales বনাম সর্বমোট */}
+                        <div className="mt-2 pt-1.5 border-t border-slate-200">
+                          <div className="text-[10px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                            <span>তুলনা (Comparison): Net Daily Sales বনাম সর্বমোট</span>
+                          </div>
+
+                          {isMatch ? (
+                            <div className="p-1.5 rounded bg-emerald-50 border border-emerald-300 flex items-center justify-between text-emerald-950">
+                              <div className="flex items-center gap-1 font-bold text-[11px]">
+                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                                <span>✅ হিসাব মিলেছে</span>
+                              </div>
+                              <span className="font-mono font-bold text-[10px] text-emerald-800 bg-white/90 border border-emerald-300 px-1.5 py-0.5 rounded">
+                                পার্থক্য: {currency} ০
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="p-1.5 rounded bg-rose-50 border border-rose-300 flex items-center justify-between text-rose-950">
+                              <div className="flex items-center gap-1 font-bold text-[11px]">
+                                <XCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
+                                <span>❌ হিসাব মিলছে না</span>
+                              </div>
+                              <span className="font-mono font-bold text-[10px] text-rose-800 bg-white/90 border border-rose-300 px-1.5 py-0.5 rounded">
+                                পার্থক্য: {currency} {Math.abs(diff).toLocaleString()}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
