@@ -10,6 +10,7 @@ import {
   Sale,
   SalesRepresentative,
 } from '../types';
+import { formatDate } from '../utils/dateUtils';
 
 interface PDFHeaderOptions {
   doc: jsPDF;
@@ -107,8 +108,8 @@ export function generateDailyReportPDF(
     doc,
     settings,
     title: 'Daily Business Report (দৈনিক হিসাব বিবরণী)',
-    subtitle: `Date: ${date}`,
-    dateRange: date,
+    subtitle: `Date: ${formatDate(date)}`,
+    dateRange: formatDate(date),
   });
 
   // Summary Metrics Banner
@@ -262,7 +263,7 @@ export function generateCustomerLedgerPDF(
 
   const tableData = ledgers.map((entry, idx) => [
     idx + 1,
-    entry.date,
+    formatDate(entry.date),
     entry.referenceId || '-',
     entry.description,
     entry.debit > 0 ? `${currency} ${entry.debit.toLocaleString()}` : '-',
@@ -532,7 +533,7 @@ export function generateSrReportPDF(
 
   const tableData = sales.map((s, i) => [
     i + 1,
-    s.date,
+    formatDate(s.date),
     s.memoNo,
     s.shopName ? `${s.customerName} (${s.shopName})` : s.customerName,
     `${currency} ${s.netSales.toLocaleString()}`,
@@ -610,7 +611,7 @@ export function generateSaleMemoPDF(
   doc.setTextColor(51, 65, 85);
 
   doc.text(`মেমো নং: ${sale.memoNo}`, 10, 31);
-  doc.text(`তারিখ: ${sale.date}`, pageWidth - 10, 31, { align: 'right' });
+  doc.text(`তারিখ: ${formatDate(sale.date)}`, pageWidth - 10, 31, { align: 'right' });
 
   doc.setFont('helvetica', 'bold');
   doc.text(`দোকান: ${sale.shopName || sale.customerName}`, 10, 36);
@@ -777,8 +778,8 @@ export function generateDailyAccountingSheetPDF(
     doc,
     settings,
     title: 'Daily Business Accounting Statement (দৈনিক হিসাব বিবরণী)',
-    subtitle: `Date: ${sheet.date} | Route/Van: ${sheet.routeOrVan || 'Standard Market Route'} | In-Charge: ${sheet.srName || settings.proprietorName} | Sheet #: ${sheet.sheetNo || sheet.id}`,
-    dateRange: sheet.date,
+    subtitle: `Date: ${formatDate(sheet.date)} | Route/Van: ${sheet.routeOrVan || 'Standard Market Route'} | In-Charge: ${sheet.srName || settings.proprietorName} | Sheet #: ${sheet.sheetNo || sheet.id}`,
+    dateRange: formatDate(sheet.date),
   });
 
   const tableData = sheet.items.map((item, idx) => [
@@ -1175,7 +1176,7 @@ export async function generateDailySalesPDF(
         </div>
         <div>
           <div style="font-size: 10px; color: #64748b; font-weight: 600;">২. তারিখ (Date)</div>
-          <div style="font-size: 12px; font-weight: bold; color: #0f172a; margin-top: 1px; font-family: monospace;">${escapeHtml(sheet.date)}</div>
+          <div style="font-size: 12px; font-weight: bold; color: #0f172a; margin-top: 1px; font-family: monospace;">${escapeHtml(formatDate(sheet.date))}</div>
         </div>
         <div>
           <div style="font-size: 10px; color: #64748b; font-weight: 600;">৩. এস আর (SR Name)</div>

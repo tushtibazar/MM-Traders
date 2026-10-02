@@ -1,5 +1,6 @@
 import React from 'react';
 import { BusinessSettings } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface PrintHeaderProps {
   settings: BusinessSettings;
@@ -59,7 +60,7 @@ export const PrintHeader: React.FC<PrintHeaderProps> = ({
               </p>
             )}
             <p className="text-[10px] text-slate-400 font-mono mt-0.5">
-              প্রিন্ট সময়: {new Date().toLocaleTimeString('bn-BD')}
+              প্রিন্ট: {formatDate(new Date())} • {new Date().toLocaleTimeString('bn-BD')}
             </p>
           </div>
         </div>

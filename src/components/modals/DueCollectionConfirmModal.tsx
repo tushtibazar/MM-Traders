@@ -13,6 +13,7 @@ import {
   FileText,
 } from 'lucide-react';
 import { Customer } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface DueCollectionConfirmModalProps {
   isOpen: boolean;
@@ -216,9 +217,14 @@ export const DueCollectionConfirmModal: React.FC<DueCollectionConfirmModalProps>
 
             {/* Collection Date */}
             <div>
-              <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center gap-1">
-                <Calendar className="h-3.5 w-3.5 text-emerald-600" />
-                <span>আদায়ের তারিখ *</span>
+              <label className="block text-xs font-bold text-slate-800 mb-1 flex items-center justify-between">
+                <span className="flex items-center gap-1">
+                  <Calendar className="h-3.5 w-3.5 text-emerald-600" />
+                  <span>আদায়ের তারিখ *</span>
+                </span>
+                <span className="text-[11px] font-bold font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  {formatDate(collectionDate)}
+                </span>
               </label>
               <input
                 type="date"

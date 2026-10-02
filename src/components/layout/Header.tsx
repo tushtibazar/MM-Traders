@@ -129,7 +129,7 @@ export const Header: React.FC<HeaderProps> = ({
               {todayFormatted}
             </h2>
           </div>
-          <p className="text-xs text-slate-500 hidden sm:block">
+          <p className="text-[11px] sm:text-xs text-slate-500">
             {formatDate(todayDateStr)} • {db.settings.businessName}
           </p>
         </div>

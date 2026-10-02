@@ -366,11 +366,12 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   const isShortage = diff < -0.01;
 
   // Multi-page Pagination Logic:
-  // If products fit within page limits and damage items <= 4, keep in 1 single A4 page.
-  // With customer-wise due & collection tables on the last page, calculate single page threshold dynamically:
+  // With the redesigned compact layout, typical daily usage (7-10 products, damage entries, dues & reconciliation)
+  // fits comfortably on a SINGLE A4 page.
   const dueEntriesMaxCount = Math.max(validTodayDues.length, validDueCollections.length);
-  const MAX_ITEMS_SINGLE_PAGE = dueEntriesMaxCount > 0 ? (dueEntriesMaxCount > 3 ? 6 : 8) : 12;
-  const MAX_ITEMS_PAGE_1_MULTI = 18;
+  // Allow at least 11 products on a single page, or 10 if there are several due/collection entries
+  const MAX_ITEMS_SINGLE_PAGE = dueEntriesMaxCount > 4 ? 10 : 12;
+  const MAX_ITEMS_PAGE_1_MULTI = 20;
 
   let pagesOfItems: DailyAccountItem[][] = [];
   if (validItems.length <= MAX_ITEMS_SINGLE_PAGE && validDamageItems.length <= 4) {
@@ -382,7 +383,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     // Remaining pages
     let remaining = validItems.slice(MAX_ITEMS_PAGE_1_MULTI);
     while (remaining.length > 0) {
-      const chunkSize = 22;
+      const chunkSize = 24;
       pagesOfItems.push(remaining.slice(0, chunkSize));
       remaining = remaining.slice(chunkSize);
     }
@@ -541,181 +542,138 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                 style={{
                   width: '794px',
                   minHeight: '1123px',
-                  padding: '24px 28px',
+                  padding: '12px 18px 8px 18px',
                   boxSizing: 'border-box',
                   pageBreakAfter: isLastPage ? 'auto' : 'always',
                   breakAfter: isLastPage ? 'auto' : 'page',
                 }}
               >
                 <div>
-                  {/* Top Letterhead (On First Page) */}
+                  {/* Top Letterhead (On First Page) - Compact */}
                   {isFirstPage ? (
-                    <div className="border-b-2 border-slate-900 pb-2 mb-3">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1">
-                          <h1 className="text-xl sm:text-2xl font-black tracking-tight text-slate-950 font-bengali">
-                            {settings.businessName || 'MM TRADERS'}
-                          </h1>
-                          <p className="text-xs font-bold text-slate-700 mt-0.5">
-                            {settings.subtitle || 'ডিস্ট্রিবিউটর ও পাইকারি বিক্রেতা'}
-                          </p>
-                          {settings.proprietorName && (
-                            <p className="text-[11px] font-semibold text-slate-600">
-                              স্বত্বাধিকারী: {settings.proprietorName}
-                            </p>
-                          )}
-                          <p className="text-[11px] text-slate-500 mt-0.5">
-                            ঠিকানা: {settings.address} {settings.phone ? `• মোবাইল: ${settings.phone}` : ''}
+                    <div className="border-b border-slate-900 pb-0.5 mb-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-baseline gap-1.5">
+                            <h1 className="text-base sm:text-[15px] font-black tracking-tight text-slate-950 font-bengali leading-none">
+                              {settings.businessName || 'MM TRADERS'}
+                            </h1>
+                            <span className="text-[9px] font-bold text-slate-700 font-bengali">
+                              {settings.subtitle || 'ডিস্ট্রিবিউটর ও পাইকারি বিক্রেতা'}
+                            </span>
+                          </div>
+                          <p className="text-[8.5px] text-slate-600 mt-0.5 font-bengali leading-none">
+                            {settings.proprietorName ? `স্বত্বাধিকারী: ${settings.proprietorName} • ` : ''}ঠিকানা: {settings.address} {settings.phone ? `• মোবাইল: ${settings.phone}` : ''}
                           </p>
                         </div>
 
                         <div className="text-right shrink-0">
-                          <span className="inline-block px-2.5 py-1 bg-slate-900 text-white text-xs font-bold rounded">
+                          <span className="inline-block px-1.5 py-0.5 bg-slate-900 text-white text-[8.5px] font-bold rounded">
                             দৈনিক বিক্রয় ও হিসাব খতিয়ান
                           </span>
-                          <p className="text-[10px] font-mono text-slate-500 mt-1">
-                            আইডি: {sheet.sheetNo || sheet.id}
-                          </p>
-                          <p className="text-[10px] font-semibold text-slate-600">
-                            অবস্থা: {sheet.status === 'completed' ? 'চূড়ান্ত হিসাব (সন্ধ্যা)' : 'চলমান বিতরণ (সকাল)'}
+                          <p className="text-[8px] font-mono text-slate-500 mt-0.5 leading-none">
+                            আইডি: {sheet.sheetNo || sheet.id} • {sheet.status === 'completed' ? 'চূড়ান্ত হিসাব' : 'চলমান বিতরণ'}
                           </p>
                         </div>
                       </div>
                     </div>
                   ) : (
                     /* Continued Page Header */
-                    <div className="border-b border-slate-300 pb-1.5 mb-3 flex items-center justify-between text-xs font-semibold text-slate-600">
+                    <div className="border-b border-slate-300 pb-0.5 mb-1 flex items-center justify-between text-[10px] font-semibold text-slate-600">
                       <span className="font-bold text-slate-900">
                         {settings.businessName} — দৈনিক বিক্রয় খতিয়ান (চলমান)
                       </span>
                       <span>
-                        তারিখ: {formatBengaliDate(sheet.date)} • রুট: {sheet.routeOrVan}
+                        তারিখ: {formatDate(sheet.date)} • রুট: {sheet.routeOrVan}
                       </span>
                     </div>
                   )}
 
-                  {/* Monthly Summary Strip (Month-to-Date Totals Below Letterhead) */}
+                  {/* Monthly Summary Strip (Compact Single Line / Bengali Only) */}
                   {isFirstPage && (
-                    <div className="mb-3">
-                      <div className="bg-slate-50/90 border border-slate-300 rounded-md p-2 shadow-2xs">
-                        <div className="flex items-center justify-between pb-1 mb-1.5 border-b border-slate-200 text-[10px] font-bold text-slate-700">
-                          <span className="flex items-center gap-1.5 font-bengali">
-                            <Calendar className="h-3 w-3 text-slate-500" />
-                            মাসিক সারসংক্ষেপ ({monthToDateTotals.monthName || 'চলতি মাস'} — ১ তারিখ হতে {monthToDateTotals.dayBn} তারিখ পর্যন্ত)
-                          </span>
-                          <span className="text-slate-500 text-[9px] uppercase tracking-wide font-mono">
-                            Month-to-Date
-                          </span>
+                    <div className="mb-1">
+                      <div className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 flex items-center justify-between text-[8.5px] leading-tight">
+                        <div className="flex items-center gap-1 font-bold text-slate-700 shrink-0">
+                          <Calendar className="h-2.5 w-2.5 text-emerald-600 shrink-0" />
+                          <span>চলতি মাসের হিসাব ({monthToDateTotals.monthName || 'চলতি মাস'} ১–{monthToDateTotals.dayBn} তারিখ):</span>
                         </div>
-                        <div className="grid grid-cols-4 gap-2 text-center">
-                          {/* ১. এই মাসের মোট বিক্রি */}
-                          <div className="bg-white border border-slate-200 rounded px-1.5 py-1">
-                            <span className="text-[10px] text-slate-600 font-semibold block truncate">
-                              এই মাসের মোট বিক্রি
-                            </span>
-                            <span className="text-[8px] text-slate-400 block truncate -mt-0.5">
-                              This Month's Total Sales
-                            </span>
-                            <span className="text-xs font-mono font-black text-slate-900 block truncate mt-0.5">
-                              {currency} {monthToDateTotals.totalSales.toLocaleString()}
-                            </span>
+                        <div className="flex items-center gap-2 sm:gap-3 font-bengali">
+                          <div className="flex items-center gap-0.5">
+                            <span className="text-slate-600">মোট বিক্রি:</span>
+                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{currency} {monthToDateTotals.totalSales.toLocaleString()}</strong>
                           </div>
-
-                          {/* ২. এই মাসের মোট বাকি */}
-                          <div className="bg-white border border-amber-200 rounded px-1.5 py-1">
-                            <span className="text-[10px] text-amber-800 font-semibold block truncate">
-                              এই মাসের মোট বাকি
-                            </span>
-                            <span className="text-[8px] text-amber-600/70 block truncate -mt-0.5">
-                              This Month's Total Due
-                            </span>
-                            <span className="text-xs font-mono font-black text-amber-900 block truncate mt-0.5">
-                              {currency} {monthToDateTotals.totalDue.toLocaleString()}
-                            </span>
+                          <span className="text-slate-300">•</span>
+                          <div className="flex items-center gap-0.5">
+                            <span className="text-amber-800">মোট বাকি:</span>
+                            <strong className="font-mono font-bold text-amber-900 text-[9px]">{currency} {monthToDateTotals.totalDue.toLocaleString()}</strong>
                           </div>
-
-                          {/* ৩. এই মাসের মোট ড্যামেজ */}
-                          <div className="bg-white border border-rose-200 rounded px-1.5 py-1">
-                            <span className="text-[10px] text-rose-800 font-semibold block truncate">
-                              এই মাসের মোট ড্যামেজ
-                            </span>
-                            <span className="text-[8px] text-rose-600/70 block truncate -mt-0.5">
-                              This Month's Total Damage
-                            </span>
-                            <span className="text-xs font-mono font-black text-rose-900 block truncate mt-0.5">
-                              {currency} {monthToDateTotals.totalDamage.toLocaleString()}
-                            </span>
+                          <span className="text-slate-300">•</span>
+                          <div className="flex items-center gap-0.5">
+                            <span className="text-rose-800">মোট ড্যামেজ:</span>
+                            <strong className="font-mono font-bold text-rose-900 text-[9px]">{currency} {monthToDateTotals.totalDamage.toLocaleString()}</strong>
                           </div>
-
-                          {/* ৪. এই মাসের মোট খরচ */}
-                          <div className="bg-white border border-slate-200 rounded px-1.5 py-1">
-                            <span className="text-[10px] text-slate-700 font-semibold block truncate">
-                              এই মাসের মোট খরচ
-                            </span>
-                            <span className="text-[8px] text-slate-400 block truncate -mt-0.5">
-                              This Month's Total Expense
-                            </span>
-                            <span className="text-xs font-mono font-black text-slate-900 block truncate mt-0.5">
-                              {currency} {monthToDateTotals.totalExpense.toLocaleString()}
-                            </span>
+                          <span className="text-slate-300">•</span>
+                          <div className="flex items-center gap-0.5">
+                            <span className="text-slate-700">মোট খরচ:</span>
+                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{currency} {monthToDateTotals.totalExpense.toLocaleString()}</strong>
                           </div>
                         </div>
-                      </div>
-                      {/* Thin divider line below summary strip separating it from Route/Date/SR/DSR section */}
-                      <div className="border-b border-slate-300 mt-2.5" />
-                    </div>
-                  )}
-
-                  {/* Metadata Row (On First Page) */}
-                  {isFirstPage && (
-                    <div className="grid grid-cols-4 gap-2 bg-slate-50 border border-slate-200 rounded-md p-2 mb-3 text-xs">
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">তারিখ:</span>
-                        <span className="font-bold text-slate-900">{formatBengaliDate(sheet.date)}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">রুট / ডেলিভারি ভ্যান:</span>
-                        <span className="font-bold text-slate-900">{sheet.routeOrVan || 'নির্ধারিত নয়'}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">বিক্রয় প্রতিনিধি (SR):</span>
-                        <span className="font-bold text-slate-900">{sheet.srName || '—'}</span>
-                      </div>
-                      <div>
-                        <span className="text-[10px] text-slate-500 block">ডেলিভারি প্রতিনিধি (DSR):</span>
-                        <span className="font-bold text-slate-900">{sheet.dsrName || '—'}</span>
                       </div>
                     </div>
                   )}
 
-                  {/* 1. PRODUCT SALES TABLE */}
-                  <div className="mb-3">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-black text-slate-900 flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-600" />
+                  {/* Metadata Row (On First Page) - Compact */}
+                  {isFirstPage && (
+                    <div className="grid grid-cols-4 gap-1.5 bg-slate-50 border border-slate-200 rounded px-2 py-0.5 mb-1 text-[8.5px]">
+                      <div>
+                        <span className="text-[7.5px] text-slate-500 block leading-tight">তারিখ:</span>
+                        <span className="font-bold text-slate-900 font-mono text-[9px] leading-tight block">
+                          {formatDate(sheet.date)} <span className="font-normal text-[8px] text-slate-500 font-bengali">({formatBengaliDate(sheet.date)})</span>
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-[7.5px] text-slate-500 block leading-tight">রুট / ডেলিভারি ভ্যান:</span>
+                        <span className="font-bold text-slate-900 truncate block leading-tight">{sheet.routeOrVan || 'নির্ধারিত নয়'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7.5px] text-slate-500 block leading-tight">বিক্রয় প্রতিনিধি (SR):</span>
+                        <span className="font-bold text-slate-900 truncate block leading-tight">{sheet.srName || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-[7.5px] text-slate-500 block leading-tight">ডেলিভারি প্রতিনিধি (DSR):</span>
+                        <span className="font-bold text-slate-900 truncate block leading-tight">{sheet.dsrName || '—'}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 1. PRODUCT SALES TABLE - Compact */}
+                  <div className="mb-1">
+                    <div className="flex items-center justify-between mb-0.5">
+                      <span className="text-[9.5px] font-black text-slate-900 flex items-center gap-1 leading-none">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
                         ১. দৈনিক পণ্য বিক্রয় হিসাব {totalPages > 1 ? `(পৃষ্ঠা ${pageIndex + 1})` : ''}
                       </span>
-                      <span className="text-[11px] text-slate-500">
+                      <span className="text-[8px] text-slate-500 leading-none">
                         দর ও পরিমাণ (কার্টন / পিস)
                       </span>
                     </div>
 
-                    <table className="w-full border-collapse text-[11px]">
+                    <table className="w-full border-collapse text-[8.5px]">
                       <thead>
-                        <tr className="bg-slate-100 border-y border-slate-300 text-slate-800 font-bold">
-                          <th className="py-1 px-1.5 text-center w-7 border-r border-slate-200">#</th>
-                          <th className="py-1 px-2 text-left border-r border-slate-200">পণ্যের নাম ও বিবরণ</th>
-                          <th className="py-1 px-2 text-center w-16 border-r border-slate-200">দর ({currency})</th>
-                          <th className="py-1 px-2 text-center w-24 border-r border-slate-200">দেওয়া মাল</th>
-                          <th className="py-1 px-2 text-center w-24 border-r border-slate-200">ফেরত মাল</th>
-                          <th className="py-1 px-2 text-center w-16 border-r border-slate-200">বিক্রি পিস</th>
-                          <th className="py-1 px-2 text-right w-24">মোট টাকা ({currency})</th>
+                        <tr className="bg-slate-100 border-y border-slate-300 text-slate-800 font-bold leading-tight">
+                          <th className="py-[2px] px-1 text-center w-6 border-r border-slate-200">#</th>
+                          <th className="py-[2px] px-1.5 text-left border-r border-slate-200">পণ্যের নাম ও বিবরণ</th>
+                          <th className="py-[2px] px-1 text-center w-14 border-r border-slate-200">দর ({currency})</th>
+                          <th className="py-[2px] px-1.5 text-center w-16 border-r border-slate-200">দেওয়া মাল</th>
+                          <th className="py-[2px] px-1.5 text-center w-16 border-r border-slate-200">ফেরত মাল</th>
+                          <th className="py-[2px] px-1.5 text-center w-16 border-r border-slate-200">বিক্রি পিস</th>
+                          <th className="py-[2px] px-1.5 text-right w-20">মোট টাকা ({currency})</th>
                         </tr>
                       </thead>
                       <tbody>
                         {pageItems.length === 0 && (
                           <tr>
-                            <td colSpan={7} className="py-6 text-center text-slate-400 font-bengali text-xs border-b border-slate-200">
+                            <td colSpan={7} className="py-2 text-center text-slate-400 font-bengali text-xs border-b border-slate-200">
                               কোনো পণ্যের এন্ট্রি যুক্ত করা হয়নি (খালি খতিয়ান পাতা)
                             </td>
                           </tr>
@@ -734,30 +692,30 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                 idx % 2 === 1 ? 'bg-slate-50/50' : 'bg-white'
                               }`}
                             >
-                              <td className="py-1 px-1.5 text-center font-mono text-slate-500 border-r border-slate-200">
+                              <td className="py-[2px] px-1 text-center font-mono text-slate-500 border-r border-slate-200">
                                 {globalIdx}
                               </td>
-                              <td className="py-1 px-2 border-r border-slate-200">
+                              <td className="py-[2px] px-1.5 border-r border-slate-200">
                                 <span className="font-bold text-slate-900">{item.productName}</span>
                                 {item.packSize && (
-                                  <span className="text-[10px] text-slate-500 ml-1">
+                                  <span className="text-[8px] text-slate-500 ml-1">
                                     ({item.packSize})
                                   </span>
                                 )}
                               </td>
-                              <td className="py-1 px-2 text-center font-mono font-semibold border-r border-slate-200">
+                              <td className="py-[2px] px-1 text-center font-mono font-semibold border-r border-slate-200">
                                 {item.sellingPrice}
                               </td>
-                              <td className="py-1 px-2 text-center font-mono border-r border-slate-200">
+                              <td className="py-[2px] px-1.5 text-center font-mono border-r border-slate-200">
                                 {rawIssued} {issuedUnit === 'C' ? 'কা.' : 'পিস'}
                               </td>
-                              <td className="py-1 px-2 text-center font-mono border-r border-slate-200 text-amber-900">
+                              <td className="py-[2px] px-1.5 text-center font-mono border-r border-slate-200 text-amber-900">
                                 {rawRet} {returnUnit === 'C' ? 'কা.' : 'পিস'}
                               </td>
-                              <td className="py-1 px-2 text-center font-mono font-bold text-emerald-800 border-r border-slate-200">
+                              <td className="py-[2px] px-1.5 text-center font-mono font-bold text-emerald-800 border-r border-slate-200">
                                 {item.netSoldQty} {issuedUnit === 'C' ? 'কা.' : 'পিস'}
                               </td>
-                              <td className="py-1 px-2 text-right font-mono font-bold text-slate-900">
+                              <td className="py-[2px] px-1.5 text-right font-mono font-bold text-slate-900">
                                 {Number(item.grossAmount || 0).toLocaleString()}
                               </td>
                             </tr>
@@ -766,20 +724,20 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
 
                         {/* If last page, show product table total */}
                         {isLastPage && (
-                          <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-slate-900">
-                            <td colSpan={3} className="py-1.5 px-2 text-right border-r border-slate-200">
-                              মোট মূল বিক্রয় (Gross Sales):
+                          <tr className="bg-slate-100 font-bold border-t border-slate-400 text-slate-900 leading-tight">
+                            <td colSpan={3} className="py-[2px] px-1.5 text-right border-r border-slate-200 text-[8.5px]">
+                              মোট মূল বিক্রয়:
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono border-r border-slate-200">
+                            <td className="py-[2px] px-1.5 text-center font-mono border-r border-slate-200 text-[8.5px]">
                               {sheet.totalIssuedQty} পিস
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono border-r border-slate-200 text-amber-900">
+                            <td className="py-[2px] px-1.5 text-center font-mono border-r border-slate-200 text-amber-900 text-[8.5px]">
                               {sheet.totalReturnQty} পিস
                             </td>
-                            <td className="py-1.5 px-2 text-center font-mono text-emerald-800 border-r border-slate-200">
+                            <td className="py-[2px] px-1.5 text-center font-mono text-emerald-800 border-r border-slate-200 text-[8.5px]">
                               {sheet.totalNetSoldQty} পিস
                             </td>
-                            <td className="py-1.5 px-2 text-right font-mono text-emerald-900 text-xs">
+                            <td className="py-[2px] px-1.5 text-right font-mono text-emerald-900 text-[9px] font-black">
                               {currency} {grossSales.toLocaleString()}
                             </td>
                           </tr>
@@ -788,28 +746,28 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                     </table>
                   </div>
 
-                  {/* 2. DAMAGE TABLE (If on last page and damage items exist) */}
+                  {/* 2. DAMAGE TABLE (If on last page and damage items exist) - Compact */}
                   {isLastPage && validDamageItems.length > 0 && (
-                    <div className="mb-3">
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-black text-rose-900 flex items-center gap-1.5">
-                          <span className="w-2 h-2 rounded-full bg-rose-600" />
+                    <div className="mb-1">
+                      <div className="flex items-center justify-between mb-0.5">
+                        <span className="text-[9.5px] font-black text-rose-900 flex items-center gap-1 leading-none">
+                          <span className="w-1.5 h-1.5 rounded-full bg-rose-600 inline-block" />
                           ২. ফেরত / ড্যামেজ পণ্যের হিসাব
                         </span>
-                        <span className="text-[11px] font-mono font-bold text-rose-800">
+                        <span className="text-[8px] font-mono font-bold text-rose-800 leading-none">
                           মোট ড্যামেজ: {currency} {damageTotal.toLocaleString()}
                         </span>
                       </div>
 
-                      <table className="w-full border-collapse text-[11px]">
+                      <table className="w-full border-collapse text-[8.5px]">
                         <thead>
-                          <tr className="bg-rose-50 border-y border-rose-200 text-rose-950 font-bold">
-                            <th className="py-1 px-1.5 text-center w-7 border-r border-rose-200">#</th>
-                            <th className="py-1 px-2 text-left border-r border-rose-200">পণ্যের নাম</th>
-                            <th className="py-1 px-2 text-center w-16 border-r border-rose-200">দর ({currency})</th>
-                            <th className="py-1 px-2 text-center w-24 border-r border-rose-200">পরিমাণ</th>
-                            <th className="py-1 px-2 text-center w-20 border-r border-rose-200">মোট পিস</th>
-                            <th className="py-1 px-2 text-right w-24">মোট টাকা ({currency})</th>
+                          <tr className="bg-rose-50 border-y border-rose-200 text-rose-950 font-bold leading-tight">
+                            <th className="py-[2px] px-1 text-center w-6 border-r border-rose-200">#</th>
+                            <th className="py-[2px] px-1.5 text-left border-r border-rose-200">পণ্যের নাম</th>
+                            <th className="py-[2px] px-1 text-center w-14 border-r border-rose-200">দর ({currency})</th>
+                            <th className="py-[2px] px-1.5 text-center w-16 border-r border-rose-200">পরিমাণ</th>
+                            <th className="py-[2px] px-1.5 text-center w-16 border-r border-rose-200">মোট পিস</th>
+                            <th className="py-[2px] px-1.5 text-right w-20">মোট টাকা ({currency})</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -823,35 +781,35 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                   dIdx % 2 === 1 ? 'bg-rose-50/30' : 'bg-white'
                                 }`}
                               >
-                                <td className="py-1 px-1.5 text-center font-mono text-slate-500 border-r border-rose-100">
+                                <td className="py-[2px] px-1 text-center font-mono text-slate-500 border-r border-rose-100">
                                   {dIdx + 1}
                                 </td>
-                                <td className="py-1 px-2 font-bold text-slate-900 border-r border-rose-100">
+                                <td className="py-[2px] px-1.5 font-bold text-slate-900 border-r border-rose-100">
                                   {dItem.productName}
                                 </td>
-                                <td className="py-1 px-2 text-center font-mono border-r border-rose-100">
+                                <td className="py-[2px] px-1 text-center font-mono border-r border-rose-100">
                                   {dItem.sellingPrice}
                                 </td>
-                                <td className="py-1 px-2 text-center font-mono border-r border-rose-100">
+                                <td className="py-[2px] px-1.5 text-center font-mono border-r border-rose-100">
                                   {rawDamage} {dUnit === 'C' ? 'কা.' : 'পিস'}
                                 </td>
-                                <td className="py-1 px-2 text-center font-mono font-bold text-rose-800 border-r border-rose-100">
+                                <td className="py-[2px] px-1.5 text-center font-mono font-bold text-rose-800 border-r border-rose-100">
                                   {dItem.rawDamageQty !== undefined ? dItem.rawDamageQty : dItem.damageQty} {dUnit === 'C' ? 'কা.' : 'পিস'}
                                 </td>
-                                <td className="py-1 px-2 text-right font-mono font-bold text-rose-800">
+                                <td className="py-[2px] px-1.5 text-right font-mono font-bold text-rose-800">
                                   {Number(dItem.grossAmount || dItem.damageValue || 0).toLocaleString()}
                                 </td>
                               </tr>
                             );
                           })}
-                          <tr className="bg-rose-50 font-bold border-t border-rose-300 text-rose-950">
-                            <td colSpan={4} className="py-1 px-2 text-right border-r border-rose-200">
+                          <tr className="bg-rose-50 font-bold border-t border-rose-300 text-rose-950 leading-tight">
+                            <td colSpan={4} className="py-[2px] px-1.5 text-right border-r border-rose-200 text-[8.5px]">
                               মোট ড্যামেজ:
                             </td>
-                            <td className="py-1 px-2 text-center font-mono border-r border-rose-200">
+                            <td className="py-[2px] px-1.5 text-center font-mono border-r border-rose-200 text-[8.5px]">
                               {sheet.totalDamageQty} পিস
                             </td>
-                            <td className="py-1 px-2 text-right font-mono text-rose-900">
+                            <td className="py-[2px] px-1.5 text-right font-mono text-rose-900 font-bold text-[8.5px]">
                               {currency} {damageTotal.toLocaleString()}
                             </td>
                           </tr>
@@ -860,65 +818,65 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                     </div>
                   )}
 
-                  {/* 3. CUSTOMER-WISE DUES & COLLECTIONS (On Last Page) */}
+                  {/* 3. CUSTOMER-WISE DUES & COLLECTIONS (On Last Page) - Compact */}
                   {isLastPage && (todayDueTotal > 0 || (sheet.dueCollection || 0) > 0) && (
                     <div
                       className={`grid ${
                         todayDueTotal > 0 && (sheet.dueCollection || 0) > 0
                           ? 'grid-cols-2'
                           : 'grid-cols-1'
-                      } gap-3 mb-2.5 text-xs`}
+                      } gap-1.5 mb-1 text-[8.5px]`}
                     >
-                      {/* A) আজকের বাকি (Today's New Due) */}
+                      {/* A) আজকের বাকি */}
                       {todayDueTotal > 0 && (
-                        <div className="border border-amber-300 rounded-md overflow-hidden bg-white">
-                          <div className="bg-amber-100/90 px-2 py-1 border-b border-amber-300 flex items-center justify-between">
-                            <span className="font-bold text-amber-950 font-bengali text-[11px] flex items-center gap-1.5">
+                        <div className="border border-amber-300 rounded overflow-hidden bg-white">
+                          <div className="bg-amber-100/90 px-1.5 py-0.5 border-b border-amber-300 flex items-center justify-between">
+                            <span className="font-bold text-amber-950 font-bengali text-[9px] flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-600 inline-block" />
-                              আজকের বাকি (Today's New Due)
+                              আজকের বাকি
                             </span>
-                            <span className="font-mono text-[10px] text-amber-800 font-bold">
+                            <span className="font-mono text-[8px] text-amber-800 font-bold">
                               {validTodayDues.length} টি খতিয়ান
                             </span>
                           </div>
-                          <table className="w-full text-left border-collapse text-[10px] sm:text-[11px]">
+                          <table className="w-full text-left border-collapse text-[8.5px]">
                             <thead>
-                              <tr className="bg-amber-50/80 border-b border-amber-200 text-amber-900 font-bold">
-                                <th className="py-1 px-2 border-r border-amber-200">
+                              <tr className="bg-amber-50/80 border-b border-amber-200 text-amber-900 font-bold leading-tight">
+                                <th className="py-[2px] px-1.5 border-r border-amber-200">
                                   কাস্টমার/দোকানের নাম
                                 </th>
-                                <th className="py-1 px-2 text-right w-24">টাকা</th>
+                                <th className="py-[2px] px-1.5 text-right w-16">টাকা</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-amber-100">
                               {validTodayDues.length > 0 ? (
                                 validTodayDues.map((due, dIdx) => (
                                   <tr key={due.id || dIdx} className="hover:bg-amber-50/30">
-                                    <td className="py-0.5 px-2 text-slate-800 border-r border-amber-100 font-medium">
+                                    <td className="py-[1.5px] px-1.5 text-slate-800 border-r border-amber-100 font-medium">
                                       {formatCustomerShopName(due)}
                                     </td>
-                                    <td className="py-0.5 px-2 text-right font-mono font-bold text-amber-950">
+                                    <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-amber-950">
                                       {currency} {Number(due.amount || 0).toLocaleString()}
                                     </td>
                                   </tr>
                                 ))
                               ) : (
                                 <tr>
-                                  <td className="py-0.5 px-2 text-slate-700 italic border-r border-amber-100">
+                                  <td className="py-[1.5px] px-1.5 text-slate-700 italic border-r border-amber-100">
                                     সাধারণ বাকি খতিয়ান
                                   </td>
-                                  <td className="py-0.5 px-2 text-right font-mono font-bold text-amber-950">
+                                  <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-amber-950">
                                     {currency} {todayDueTotal.toLocaleString()}
                                   </td>
                                 </tr>
                               )}
                             </tbody>
                             <tfoot>
-                              <tr className="bg-amber-100/90 font-black border-t-2 border-amber-300 text-amber-950">
-                                <td className="py-1 px-2 font-bengali border-r border-amber-200">
+                              <tr className="bg-amber-100/90 font-black border-t border-amber-300 text-amber-950 leading-tight">
+                                <td className="py-[2px] px-1.5 font-bengali border-r border-amber-200">
                                   মোট নতুন বাকি:
                                 </td>
-                                <td className="py-1 px-2 text-right font-mono font-bold">
+                                <td className="py-[2px] px-1.5 text-right font-mono font-bold">
                                   {currency} {todayDueTotal.toLocaleString()}
                                 </td>
                               </tr>
@@ -927,56 +885,56 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                         </div>
                       )}
 
-                      {/* B) বাকি জমা (Due Collection Today) */}
+                      {/* B) বাকি জমা */}
                       {(sheet.dueCollection || 0) > 0 && (
-                        <div className="border border-emerald-300 rounded-md overflow-hidden bg-white">
-                          <div className="bg-emerald-100/90 px-2 py-1 border-b border-emerald-300 flex items-center justify-between">
-                            <span className="font-bold text-emerald-950 font-bengali text-[11px] flex items-center gap-1.5">
+                        <div className="border border-emerald-300 rounded overflow-hidden bg-white">
+                          <div className="bg-emerald-100/90 px-1.5 py-0.5 border-b border-emerald-300 flex items-center justify-between">
+                            <span className="font-bold text-emerald-950 font-bengali text-[9px] flex items-center gap-1">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 inline-block" />
-                              বাকি জমা (Due Collection Today)
+                              বাকি জমা
                             </span>
-                            <span className="font-mono text-[10px] text-emerald-800 font-bold">
+                            <span className="font-mono text-[8px] text-emerald-800 font-bold">
                               {validDueCollections.length} টি আদায়
                             </span>
                           </div>
-                          <table className="w-full text-left border-collapse text-[10px] sm:text-[11px]">
+                          <table className="w-full text-left border-collapse text-[8.5px]">
                             <thead>
-                              <tr className="bg-emerald-50/80 border-b border-emerald-200 text-emerald-900 font-bold">
-                                <th className="py-1 px-2 border-r border-emerald-200">
+                              <tr className="bg-emerald-50/80 border-b border-emerald-200 text-emerald-900 font-bold leading-tight">
+                                <th className="py-[2px] px-1.5 border-r border-emerald-200">
                                   কাস্টমার/দোকানের নাম
                                 </th>
-                                <th className="py-1 px-2 text-right w-24">টাকা</th>
+                                <th className="py-[2px] px-1.5 text-right w-16">টাকা</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-emerald-100">
                               {validDueCollections.length > 0 ? (
                                 validDueCollections.map((col, cIdx) => (
                                   <tr key={col.id || cIdx} className="hover:bg-emerald-50/30">
-                                    <td className="py-0.5 px-2 text-slate-800 border-r border-emerald-100 font-medium">
+                                    <td className="py-[1.5px] px-1.5 text-slate-800 border-r border-emerald-100 font-medium">
                                       {formatCustomerShopName(col)}
                                     </td>
-                                    <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-950">
+                                    <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-emerald-950">
                                       {currency} {Number(col.amount || 0).toLocaleString()}
                                     </td>
                                   </tr>
                                 ))
                               ) : (
                                 <tr>
-                                  <td className="py-0.5 px-2 text-slate-700 italic border-r border-emerald-100">
+                                  <td className="py-[1.5px] px-1.5 text-slate-700 italic border-r border-emerald-100">
                                     সাধারণ বাকি জমা
                                   </td>
-                                  <td className="py-0.5 px-2 text-right font-mono font-bold text-emerald-950">
+                                  <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-emerald-950">
                                     {currency} {(sheet.dueCollection || 0).toLocaleString()}
                                   </td>
                                 </tr>
                               )}
                             </tbody>
                             <tfoot>
-                              <tr className="bg-emerald-100/90 font-black border-t-2 border-emerald-300 text-emerald-950">
-                                <td className="py-1 px-2 font-bengali border-r border-emerald-200">
+                              <tr className="bg-emerald-100/90 font-black border-t border-emerald-300 text-emerald-950 leading-tight">
+                                <td className="py-[2px] px-1.5 font-bengali border-r border-emerald-200">
                                   মোট বাকি জমা:
                                 </td>
-                                <td className="py-1 px-2 text-right font-mono font-bold">
+                                <td className="py-[2px] px-1.5 text-right font-mono font-bold">
                                   {currency} {(sheet.dueCollection || 0).toLocaleString()}
                                 </td>
                               </tr>
@@ -987,50 +945,50 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                     </div>
                   )}
 
-                  {/* 4. SALES SUMMARY (3 Cards) on Last Page */}
+                  {/* 4. SALES SUMMARY (3 Cards) on Last Page - Compact */}
                   {isLastPage && (
-                    <div className="grid grid-cols-3 gap-2 mb-3">
-                      <div className="border border-slate-300 bg-slate-50 p-2 rounded text-center">
-                        <span className="text-[10px] text-slate-500 font-bold uppercase block">
-                          ১. মূল বিক্রি (Gross)
+                    <div className="grid grid-cols-3 gap-1 mb-1">
+                      <div className="border border-slate-300 bg-slate-50 py-0.5 px-1 rounded text-center">
+                        <span className="text-[8px] text-slate-600 font-bold block leading-none">
+                          ১. মূল বিক্রি
                         </span>
-                        <span className="text-sm font-mono font-black text-slate-900">
+                        <span className="text-[11px] font-mono font-black text-slate-900 leading-tight">
                           {currency} {grossSales.toLocaleString()}
                         </span>
                       </div>
-                      <div className="border border-rose-200 bg-rose-50/60 p-2 rounded text-center">
-                        <span className="text-[10px] text-rose-700 font-bold uppercase block">
-                          ২. মোট ড্যামেজ (Damage)
+                      <div className="border border-rose-200 bg-rose-50/60 py-0.5 px-1 rounded text-center">
+                        <span className="text-[8px] text-rose-700 font-bold block leading-none">
+                          ২. মোট ড্যামেজ
                         </span>
-                        <span className="text-sm font-mono font-black text-rose-800">
+                        <span className="text-[11px] font-mono font-black text-rose-800 leading-tight">
                           - {currency} {damageTotal.toLocaleString()}
                         </span>
                       </div>
-                      <div className="border border-emerald-300 bg-emerald-50 p-2 rounded text-center">
-                        <span className="text-[10px] text-emerald-800 font-bold uppercase block">
-                          ৩. চূড়ান্ত প্রকৃত বিক্রি (Net)
+                      <div className="border border-emerald-300 bg-emerald-50 py-0.5 px-1 rounded text-center">
+                        <span className="text-[8px] text-emerald-800 font-bold block leading-none">
+                          ৩. চূড়ান্ত প্রকৃত বিক্রি
                         </span>
-                        <span className="text-sm font-mono font-black text-emerald-800">
+                        <span className="text-[11px] font-mono font-black text-emerald-800 leading-tight">
                           {currency} {netSales.toLocaleString()}
                         </span>
                       </div>
                     </div>
                   )}
 
-                  {/* 4 & 5. TWO-COLUMN: নোট হিসাব (Left) & ক্যাশ ও রিকনসিলিয়েশন (Right) on Last Page */}
+                  {/* 4 & 5. TWO-COLUMN: নোট হিসাব (Left) & ক্যাশ ও রিকনসিলিয়েশন (Right) on Last Page - Compact */}
                   {isLastPage && (
-                    <div className="grid grid-cols-2 gap-3 mb-3 text-xs">
+                    <div className="grid grid-cols-2 gap-1.5 mb-1 text-[8.5px]">
                       {/* Left: নোট হিসাব (Cash Denominations) */}
-                      <div className="border border-slate-300 rounded p-2 bg-white">
-                        <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-1.5 font-bold text-slate-900">
-                          <span>নোট হিসাব (Denomination)</span>
-                          <span className="font-mono text-emerald-800">
+                      <div className="border border-slate-300 rounded p-1 bg-white">
+                        <div className="flex items-center justify-between border-b border-slate-200 pb-0.5 mb-0.5 font-bold text-slate-900 text-[9px] leading-tight">
+                          <span>নোট হিসাব</span>
+                          <span className="font-mono text-emerald-800 font-bold">
                             মোট: {currency} {actualCash.toLocaleString()}
                           </span>
                         </div>
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px] font-mono">
+                        <div className="grid grid-cols-2 gap-x-2 gap-y-[1px] text-[8px] font-mono">
                           {denomRows.map((r) => (
-                            <div key={r.denom} className="flex justify-between border-b border-slate-100 py-0.5">
+                            <div key={r.denom} className="flex justify-between border-b border-slate-100 py-[1px]">
                               <span className="text-slate-600">{r.denom} × {r.count}</span>
                               <span className="font-bold text-slate-900">{r.subtotal.toLocaleString()}</span>
                             </div>
@@ -1040,14 +998,14 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               const amt = Number(e.amount) || 0;
                               if (amt <= 0 && otherEntries.length > 1) return null;
                               return (
-                                <div key={e.id || idx} className="flex justify-between border-b border-slate-100 py-0.5 col-span-2">
+                                <div key={e.id || idx} className="flex justify-between border-b border-slate-100 py-[1px] col-span-2">
                                   <span className="text-slate-600">{e.label || `অন্যান্য ${idx + 1}`}:</span>
                                   <span className="font-bold text-slate-900">{amt.toLocaleString()}</span>
                                 </div>
                               );
                             })
                           ) : otherCash > 0 ? (
-                            <div className="flex justify-between border-b border-slate-100 py-0.5 col-span-2">
+                            <div className="flex justify-between border-b border-slate-100 py-[1px] col-span-2">
                               <span className="text-slate-600">খুচরা / অন্যান্য:</span>
                               <span className="font-bold text-slate-900">{otherCash.toLocaleString()}</span>
                             </div>
@@ -1056,85 +1014,85 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                       </div>
 
                       {/* Right: ক্যাশ রিকনসিলিয়েশন হিসাব */}
-                      <div className="border border-slate-300 rounded p-2 bg-white flex flex-col justify-between">
+                      <div className="border border-slate-300 rounded p-1 bg-white flex flex-col justify-between">
                         <div>
-                          <div className="flex items-center justify-between border-b border-slate-200 pb-1 mb-1.5 font-bold text-slate-900">
-                            <span>ক্যাশ ও খরচ সমন্বয় (Reconciliation)</span>
+                          <div className="flex items-center justify-between border-b border-slate-200 pb-0.5 mb-0.5 font-bold text-slate-900 text-[9px] leading-tight">
+                            <span>ক্যাশ ও খরচ সমন্বয়</span>
                             {isMatch ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
-                                <CheckCircle2 className="h-3 w-3 text-emerald-600" /> মিলেছে
+                              <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-emerald-700 bg-emerald-50 px-1 py-0.2 rounded border border-emerald-200">
+                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600" /> মিলেছে
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
-                                <XCircle className="h-3 w-3 text-rose-600" /> অমিল
+                              <span className="inline-flex items-center gap-0.5 text-[8px] font-bold text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200">
+                                <XCircle className="h-2.5 w-2.5 text-rose-600" /> অমিল
                               </span>
                             )}
                           </div>
 
-                          <div className="space-y-1 text-[11px]">
-                            {/* 1. ক্যাশ (Cash) */}
+                          <div className="space-y-[1px] text-[8.5px] leading-tight">
+                            {/* 1. ক্যাশ */}
                             <div className="flex justify-between text-slate-800">
-                              <span className="text-slate-700 font-medium">১. ক্যাশ (Cash):</span>
+                              <span className="text-slate-700 font-medium">১. মোট ক্যাশ:</span>
                               <span className="font-mono font-bold text-slate-900">{currency} {actualCash.toLocaleString()}</span>
                             </div>
 
-                            {/* 2. খরচ (Expense) */}
+                            {/* 2. খরচ */}
                             <div className="flex justify-between text-slate-800">
-                              <span className="text-slate-700 font-medium">২. খরচ (Expense):</span>
+                              <span className="text-slate-700 font-medium">২. খরচ:</span>
                               <span className="font-mono font-bold text-slate-900">{currency} {expenseTotal.toLocaleString()}</span>
                             </div>
 
-                            {/* 3. বাকি (Due) */}
+                            {/* 3. বাকি */}
                             <div className="flex justify-between text-slate-800">
-                              <span className="text-slate-700 font-medium">৩. বাকি (Due):</span>
+                              <span className="text-slate-700 font-medium">৩. নতুন বাকি:</span>
                               <span className="font-mono font-bold text-slate-900">{currency} {todayDueTotal.toLocaleString()}</span>
                             </div>
 
-                            {/* 4. লেস (Less) */}
+                            {/* 4. লেস */}
                             <div className="flex justify-between text-slate-800">
-                              <span className="text-slate-700 font-medium">৪. লেস (Less):</span>
+                              <span className="text-slate-700 font-medium">৪. লেস:</span>
                               <span className="font-mono font-bold text-slate-900">{currency} {lessTotal.toLocaleString()}</span>
                             </div>
 
-                            {/* 5. শর্ট (Short) */}
+                            {/* 5. শর্ট */}
                             <div className="flex justify-between text-slate-800">
                               <span className="text-slate-700 font-medium">
-                                ৫. শর্ট (Short{sheet.dsrName ? ` - ${sheet.dsrName}` : ''}):
+                                ৫. শর্ট {sheet.dsrName ? `(${sheet.dsrName})` : ''}:
                               </span>
                               <span className="font-mono font-bold text-slate-900">{currency} {shortTotal.toLocaleString()}</span>
                             </div>
 
-                            {/* 6. সর্বমোট (Total) = ক্যাশ + খরচ + বাকি + লেস + শর্ট */}
-                            <div className="flex justify-between font-black text-slate-950 bg-emerald-50/90 border border-emerald-300 py-1 px-1.5 rounded mt-1 shadow-2xs">
-                              <span className="font-bengali">সর্বমোট (Total):</span>
+                            {/* 6. সর্বমোট = ক্যাশ + খরচ + বাকি + লেস + শর্ট */}
+                            <div className="flex justify-between font-black text-slate-950 bg-emerald-50/90 border border-emerald-300 py-0.5 px-1 rounded mt-0.5 text-[9px]">
+                              <span className="font-bengali">সর্বমোট:</span>
                               <span className="font-mono font-black text-emerald-950">{currency} {grandTotal.toLocaleString()}</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* তুলনা (Comparison): Net Daily Sales বনাম সর্বমোট */}
-                        <div className="mt-2 pt-1.5 border-t border-slate-200">
-                          <div className="text-[10px] font-bold text-slate-700 mb-1 flex items-center justify-between">
-                            <span>তুলনা (Comparison): Net Daily Sales বনাম সর্বমোট</span>
+                        {/* তুলনা: প্রকৃত বিক্রি বনাম সর্বমোট */}
+                        <div className="mt-0.5 pt-0.5 border-t border-slate-200">
+                          <div className="text-[8px] font-bold text-slate-700 mb-0.5 flex items-center justify-between leading-none">
+                            <span>তুলনা: প্রকৃত বিক্রি বনাম সর্বমোট</span>
                           </div>
 
                           {isMatch ? (
-                            <div className="p-1.5 rounded bg-emerald-50 border border-emerald-300 flex items-center justify-between text-emerald-950">
-                              <div className="flex items-center gap-1 font-bold text-[11px]">
-                                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                                <span>✅ হিসাব মিলেছে</span>
+                            <div className="py-0.5 px-1 rounded bg-emerald-50 border border-emerald-300 flex items-center justify-between text-emerald-950 text-[8.5px]">
+                              <div className="flex items-center gap-1 font-bold">
+                                <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600 shrink-0" />
+                                <span>হিসাব মিলেছে</span>
                               </div>
-                              <span className="font-mono font-bold text-[10px] text-emerald-800 bg-white/90 border border-emerald-300 px-1.5 py-0.5 rounded">
+                              <span className="font-mono font-bold text-[8px] text-emerald-800 bg-white/90 border border-emerald-300 px-1 py-0.2 rounded">
                                 পার্থক্য: {currency} ০
                               </span>
                             </div>
                           ) : (
-                            <div className="p-1.5 rounded bg-rose-50 border border-rose-300 flex items-center justify-between text-rose-950">
-                              <div className="flex items-center gap-1 font-bold text-[11px]">
-                                <XCircle className="h-3.5 w-3.5 text-rose-600 shrink-0" />
-                                <span>❌ হিসাব মিলছে না</span>
+                            <div className="py-0.5 px-1 rounded bg-rose-50 border border-rose-300 flex items-center justify-between text-rose-950 text-[8.5px]">
+                              <div className="flex items-center gap-1 font-bold">
+                                <XCircle className="h-2.5 w-2.5 text-rose-600 shrink-0" />
+                                <span>হিসাব মিলছে না</span>
                               </div>
-                              <span className="font-mono font-bold text-[10px] text-rose-800 bg-white/90 border border-rose-300 px-1.5 py-0.5 rounded">
+                              <span className="font-mono font-bold text-[8px] text-rose-800 bg-white/90 border border-rose-300 px-1 py-0.2 rounded">
                                 পার্থক্য: {currency} {Math.abs(diff).toLocaleString()}
                               </span>
                             </div>
@@ -1144,35 +1102,35 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                     </div>
                   )}
 
-                  {/* 6. SIGNATURES (On Last Page) */}
+                  {/* 6. SIGNATURES (On Last Page) - Compact */}
                   {isLastPage && (
-                    <div className="pt-6 mt-4 border-t border-slate-300 grid grid-cols-3 gap-6 text-center text-xs">
+                    <div className="pt-1 mt-0.5 border-t border-slate-300 grid grid-cols-3 gap-3 text-center text-[8.5px]">
                       <div>
-                        <div className="border-t border-dashed border-slate-400 pt-1">
+                        <div className="border-t border-dashed border-slate-400 pt-0.5">
                           <p className="font-bold text-slate-800">বিক্রয় প্রতিনিধি (SR)</p>
-                          <p className="text-[10px] text-slate-500">{sheet.srName || 'স্বাক্ষর'}</p>
+                          <p className="text-[8px] text-slate-500">{sheet.srName || 'স্বাক্ষর'}</p>
                         </div>
                       </div>
                       <div>
-                        <div className="border-t border-dashed border-slate-400 pt-1">
+                        <div className="border-t border-dashed border-slate-400 pt-0.5">
                           <p className="font-bold text-slate-800">ক্যাশিয়ার / ডিএসআর</p>
-                          <p className="text-[10px] text-slate-500">{sheet.dsrName || 'স্বাক্ষর'}</p>
+                          <p className="text-[8px] text-slate-500">{sheet.dsrName || 'স্বাক্ষর'}</p>
                         </div>
                       </div>
                       <div>
-                        <div className="border-t border-dashed border-slate-400 pt-1">
+                        <div className="border-t border-dashed border-slate-400 pt-0.5">
                           <p className="font-bold text-slate-800">মালিক / হিসাবরক্ষক</p>
-                          <p className="text-[10px] text-slate-500">{settings.proprietorName || 'অনুমোদিত স্বাক্ষর'}</p>
+                          <p className="text-[8px] text-slate-500">{settings.proprietorName || 'অনুমোদিত স্বাক্ষর'}</p>
                         </div>
                       </div>
                     </div>
                   )}
                 </div>
 
-                {/* Page Footer */}
-                <div className="border-t border-slate-200 pt-1 text-[10px] text-slate-400 flex items-center justify-between mt-2">
+                {/* Page Footer - Compact */}
+                <div className="border-t border-slate-200 pt-0.5 text-[8px] text-slate-400 flex items-center justify-between mt-0.5 leading-none">
                   <span>
-                    {settings.businessName} • সফটওয়্যার প্রস্তুতকৃত রিপোর্ট
+                    {settings.businessName} • প্রস্তুতকৃত: {formatDate(new Date())} {new Date().toLocaleTimeString('bn-BD')}
                   </span>
                   <span>
                     পৃষ্ঠা {pageIndex + 1} / {totalPages}

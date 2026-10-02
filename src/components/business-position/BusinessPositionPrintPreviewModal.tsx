@@ -2,6 +2,7 @@ import React from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { PrintHeader } from '../common/PrintHeader';
 import { BusinessSettings } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface PositionLineItem {
   id: string;
@@ -63,9 +64,9 @@ export const BusinessPositionPrintPreviewModal: React.FC<BusinessPositionPrintPr
           <PrintHeader
             settings={settings}
             reportTitle="ব্যবসার সার্বিক হিসাব ও পজিশন"
-            reportSubtitle={`বিবরণী তারিখ: ${todayDateStr}`}
+            reportSubtitle={`বিবরণী তারিখ: ${formatDate(todayDateStr)}`}
             metadata={[
-              { label: 'তারিখ', value: todayDateStr },
+              { label: 'তারিখ', value: formatDate(todayDateStr) },
               {
                 label: 'সর্বমোট সম্পদ (পজিশন)',
                 value: `${currency} ${totalPosition.toLocaleString()}`,

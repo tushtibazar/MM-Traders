@@ -42,7 +42,7 @@ export const ProductModule: React.FC = () => {
   const [unit, setUnit] = useState('কার্টুন');
   const [piecesPerCarton, setPiecesPerCarton] = useState<number>(24);
   const [purchasePrice, setPurchasePrice] = useState<number>(0);
-  const [freePieces, setFreePieces] = useState<number>(0);
+  const [freePieces, setFreePieces] = useState<number | string>(0);
   const [profitMargin, setProfitMargin] = useState<number>(6);
   const [adjustment, setAdjustment] = useState<number>(0);
   const [salePrice, setSalePrice] = useState<number>(0);
@@ -56,7 +56,7 @@ export const ProductModule: React.FC = () => {
   // Calculation Chain values
   const stdPcs = Math.max(1, Number(piecesPerCarton) || 1);
   const buyCost = Math.max(0, Number(purchasePrice) || 0);
-  const freePcs = Math.max(0, Number(freePieces) || 0);
+  const freePcs = Math.max(0, parseFloat(String(freePieces)) || 0);
   const marginPct = Number(profitMargin) || 0;
   const adjAmt = Number(adjustment) || 0;
 
@@ -77,32 +77,32 @@ export const ProductModule: React.FC = () => {
 
   const handleCalcFieldChange = (
     field: 'purchasePrice' | 'piecesPerCarton' | 'freePieces' | 'profitMargin' | 'adjustment',
-    val: number
+    val: number | string
   ) => {
-    let newBuy = purchasePrice;
-    let newStd = piecesPerCarton;
-    let newFree = freePieces;
-    let newMarg = profitMargin;
-    let newAdj = adjustment;
+    let newBuy = Number(purchasePrice) || 0;
+    let newStd = Number(piecesPerCarton) || 24;
+    let newFree = parseFloat(String(freePieces)) || 0;
+    let newMarg = Number(profitMargin) || 0;
+    let newAdj = Number(adjustment) || 0;
 
     if (field === 'purchasePrice') {
-      newBuy = val;
-      setPurchasePrice(val);
+      newBuy = Number(val) || 0;
+      setPurchasePrice(newBuy);
     }
     if (field === 'piecesPerCarton') {
-      newStd = Math.max(1, val || 1);
+      newStd = Math.max(1, Number(val) || 1);
       setPiecesPerCarton(newStd);
     }
     if (field === 'freePieces') {
-      newFree = Math.max(0, val || 0);
-      setFreePieces(newFree);
+      setFreePieces(val);
+      newFree = Math.max(0, parseFloat(String(val)) || 0);
     }
     if (field === 'profitMargin') {
-      newMarg = val || 0;
+      newMarg = Number(val) || 0;
       setProfitMargin(newMarg);
     }
     if (field === 'adjustment') {
-      newAdj = val || 0;
+      newAdj = Number(val) || 0;
       setAdjustment(newAdj);
     }
 
@@ -146,7 +146,7 @@ export const ProductModule: React.FC = () => {
     setUnit(p.unit);
     setPiecesPerCarton(p.piecesPerCarton || p.cartonQty || 24);
     setPurchasePrice(p.purchasePrice || 0);
-    setFreePieces(p.freePieces || 0);
+    setFreePieces(p.freePieces !== undefined ? p.freePieces : 0);
     setProfitMargin(p.profitMargin !== undefined ? p.profitMargin : 6);
     setAdjustment(p.adjustment || 0);
     setSalePrice(p.salePrice || 0);
@@ -171,6 +171,7 @@ export const ProductModule: React.FC = () => {
     const ratio = Math.max(1, Number(piecesPerCarton) || 1);
     const finalPrice = Number(salePrice) || 0;
     const calculatedPerPiecePrice = ratio > 0 ? finalPrice / ratio : finalPrice;
+    const freePieceNum = parseFloat(String(freePieces)) || 0;
 
     if (editingProduct) {
       updateProduct({
@@ -185,7 +186,7 @@ export const ProductModule: React.FC = () => {
         perPiecePrice: calculatedPerPiecePrice,
         purchasePrice: isOwner ? Number(purchasePrice) || 0 : editingProduct.purchasePrice,
         salePrice: finalPrice,
-        freePieces: isOwner ? Number(freePieces) || 0 : editingProduct.freePieces,
+        freePieces: isOwner ? freePieceNum : (editingProduct.freePieces ?? 0),
         profitMargin: isOwner ? Number(profitMargin) || 0 : editingProduct.profitMargin,
         adjustment: isOwner ? Number(adjustment) || 0 : editingProduct.adjustment,
         currentStock: isOwner ? Number(currentStock) || 0 : editingProduct.currentStock,
@@ -204,7 +205,7 @@ export const ProductModule: React.FC = () => {
         openingStock: Number(currentStock) || 0,
         purchasePrice: Number(purchasePrice) || 0,
         salePrice: finalPrice,
-        freePieces: Number(freePieces) || 0,
+        freePieces: freePieceNum,
         profitMargin: Number(profitMargin) || 0,
         adjustment: Number(adjustment) || 0,
         minStockAlert: Number(minStockAlert) || 5,
@@ -578,15 +579,16 @@ export const ProductModule: React.FC = () => {
                           <input
                             type="number"
                             min="0"
-                            value={freePieces || ''}
+                            step="0.1"
+                            value={freePieces === '' ? '' : freePieces}
                             onChange={(e) =>
-                              handleCalcFieldChange('freePieces', Math.max(0, Number(e.target.value) || 0))
+                              handleCalcFieldChange('freePieces', e.target.value)
                             }
-                            placeholder="যেমন: 3 (না থাকলে 0)"
+                            placeholder="যেমন: 0.5 বা 3 (না থাকলে 0)"
                             className="w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-bold font-mono text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
                           />
                           <p className="text-[9px] text-slate-500 mt-0.5">
-                            অতিরিক্ত প্রাপ্ত ফ্রি পিস
+                            অতিরিক্ত প্রাপ্ত ফ্রি পিস (যেমন: 0.5 বা 3)
                           </p>
                         </div>
 
@@ -657,7 +659,7 @@ export const ProductModule: React.FC = () => {
                             </span>
                           </span>
                           <span className="font-mono font-bold text-slate-900 text-xs">
-                            {stepA} পিস
+                            {Number(stepA.toFixed(2))} পিস
                           </span>
                         </div>
 
@@ -666,7 +668,7 @@ export const ProductModule: React.FC = () => {
                           <span className="text-slate-600">
                             <strong>Step B</strong> — প্রকৃত ক্রয়মূল্য/পিস (Cost per Piece):
                             <span className="text-slate-400 block text-[10px]">
-                              ক্রয়মূল্য ({currency}{buyCost}) ÷ মোট প্রাপ্ত পিস ({stepA})
+                              ক্রয়মূল্য ({currency}{buyCost}) ÷ মোট প্রাপ্ত পিস ({Number(stepA.toFixed(2))})
                             </span>
                           </span>
                           <span className="font-mono font-bold text-slate-900 text-xs">

@@ -41,6 +41,7 @@ import {
   writeBackupToFolder,
 } from '../../services/localBackupFolder';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { formatDate } from '../../utils/dateUtils';
 
 export const SettingsModule: React.FC = () => {
   const { db, currentUser, updateSettings, refreshFromStorage, importDatabase, addRoute, updateRoute, deleteRoute, resetToBlankData } = useApp();
@@ -929,7 +930,7 @@ export const SettingsModule: React.FC = () => {
           title="ব্যাকআপ থেকে ডাটাবেজ পুনরুদ্ধার করুন"
           subtitle={
             pendingRestore?.fileName
-              ? `ফাইল: ${pendingRestore.fileName} (${pendingRestore.validation.summary?.date ? `তারিখ: ${pendingRestore.validation.summary.date}` : 'তারিখ অপ্রাপ্য'})`
+              ? `ফাইল: ${pendingRestore.fileName} (${pendingRestore.validation.summary?.date ? `তারিখ: ${formatDate(pendingRestore.validation.summary.date)}` : 'তারিখ অপ্রাপ্য'})`
               : 'বর্তমান ডাটাবেজের সকল তথ্য ব্যাকআপ ফাইলের ডাটা দিয়ে প্রতিস্থাপন করা হবে'
           }
           itemName={

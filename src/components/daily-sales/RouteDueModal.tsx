@@ -13,6 +13,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Customer, CustomerLedgerEntry } from '../../types';
+import { formatDate } from '../../utils/dateUtils';
 
 interface RouteDueModalProps {
   isOpen: boolean;
@@ -185,7 +186,7 @@ export const RouteDueModal: React.FC<RouteDueModalProps> = ({
                     {lastDate && (
                       <span className="inline-flex items-center gap-1 text-slate-400 font-bengali">
                         <Calendar className="h-3 w-3 text-slate-400" />
-                        সর্বশেষ লেনদেন: <strong className="font-mono text-slate-600">{lastDate}</strong>
+                        সর্বশেষ লেনদেন: <strong className="font-mono text-slate-600">{formatDate(lastDate)}</strong>
                       </span>
                     )}
                   </div>

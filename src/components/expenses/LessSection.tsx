@@ -161,9 +161,14 @@ export const LessSection: React.FC = () => {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 text-xs">
           <div>
-            <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
-              <Calendar className="h-3.5 w-3.5 text-slate-400" />
-              <span>তারিখ</span>
+            <label className="block font-semibold text-slate-700 mb-1 flex items-center justify-between">
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3.5 w-3.5 text-slate-400" />
+                <span>তারিখ</span>
+              </span>
+              <span className="text-[11px] font-bold font-mono text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                {formatDate(date)}
+              </span>
             </label>
             <input
               type="date"

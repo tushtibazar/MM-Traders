@@ -444,9 +444,14 @@ export const LessModule: React.FC = () => {
         <form onSubmit={handleInitiateSettlement} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
           {/* তারিখ (Date) */}
           <div className="sm:col-span-3">
-            <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
-              তারিখ (Date) *
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold text-slate-700 font-bengali">
+                তারিখ (Date) *
+              </label>
+              <span className="text-[11px] font-bold font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                {formatDate(settlementDate)}
+              </span>
+            </div>
             <input
               type="date"
               value={settlementDate}

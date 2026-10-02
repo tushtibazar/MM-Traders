@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Receipt, X, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { formatDate } from '../../utils/dateUtils';
 
 interface ExpenseModalProps {
   isOpen: boolean;
@@ -73,7 +74,12 @@ export const ExpenseModal: React.FC<ExpenseModalProps> = ({ isOpen, onClose }) =
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-3 text-xs">
           <div>
-            <label className="block font-semibold text-slate-700 mb-1">তারিখ</label>
+            <label className="block font-semibold text-slate-700 mb-1 flex items-center justify-between">
+              <span>তারিখ</span>
+              <span className="text-[11px] font-bold font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                {formatDate(date)}
+              </span>
+            </label>
             <input
               type="date"
               required

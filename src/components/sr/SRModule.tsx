@@ -22,6 +22,7 @@ import { useApp } from '../../context/AppContext';
 import { SalesRepresentative, DeliveryRepresentative } from '../../types';
 import { generateSRPerformancePDF } from '../../services/pdfGenerator';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { formatDate } from '../../utils/dateUtils';
 
 export const SRModule: React.FC = () => {
   const {
@@ -606,7 +607,7 @@ export const SRModule: React.FC = () => {
                   <div className="mt-4 pt-2 border-t border-slate-100 text-[10px] text-slate-400 flex items-center justify-between">
                     <span className="flex items-center gap-1">
                       <Clock className="h-3 w-3" />
-                      সর্বশেষ চালান: {latestDate || 'এখনো কোন চালান নেই'}
+                      সর্বশেষ চালান: {latestDate ? formatDate(latestDate) : 'এখনো কোন চালান নেই'}
                     </span>
                     <span className="font-mono text-slate-400">ID: {dsr.id}</span>
                   </div>

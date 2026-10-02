@@ -229,8 +229,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 <Calendar className="h-3.5 w-3.5" />
                 <span>দৈনিক হিসাব বিবরণী ও ড্যাশবোর্ড</span>
               </div>
-              <h2 className="text-base sm:text-lg font-bold text-slate-900 font-bengali">
-                {formattedDate}
+              <h2 className="text-base sm:text-lg font-bold text-slate-900 font-bengali flex items-center gap-2 flex-wrap">
+                <span>{formattedDate}</span>
+                <span className="text-xs sm:text-sm font-mono font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                  ({formatDate(todayDateStr)})
+                </span>
               </h2>
               <p className="text-xs text-slate-500">
                 মালিক: {db.settings.proprietorName || 'মালিক'} • ফোন: {db.settings.phone}

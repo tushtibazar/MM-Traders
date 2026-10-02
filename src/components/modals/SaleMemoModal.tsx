@@ -3,6 +3,7 @@ import { Printer, X, CheckCircle, Ban, Store, User, Calendar } from 'lucide-reac
 import { useApp } from '../../context/AppContext';
 import { Sale } from '../../types';
 import { generateSaleMemoPDF } from '../../services/pdfGenerator';
+import { formatDate } from '../../utils/dateUtils';
 
 interface SaleMemoModalProps {
   sale: Sale | null;
@@ -81,7 +82,7 @@ export const SaleMemoModal: React.FC<SaleMemoModalProps> = ({ sale, onClose }) =
             <div className="text-right">
               <p className="text-slate-500">মেমো নং:</p>
               <p className="font-bold text-slate-900 font-mono text-sm">{sale.memoNo}</p>
-              <p className="text-slate-700 mt-1">তারিখ: <strong>{sale.date}</strong></p>
+              <p className="text-slate-700 mt-1">তারিখ: <strong>{formatDate(sale.date)}</strong></p>
               <p className="text-slate-600">SR: <strong>{sale.srName}</strong></p>
             </div>
           </div>

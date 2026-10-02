@@ -38,6 +38,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { BusinessPositionSettings, CustomPositionItem, OtherPositionItem } from '../../types';
 import { BusinessPositionPrintPreviewModal } from './BusinessPositionPrintPreviewModal';
+import { formatDate } from '../../utils/dateUtils';
 
 export const BusinessPositionModule: React.FC = () => {
   const {
@@ -1111,7 +1112,7 @@ export const BusinessPositionModule: React.FC = () => {
                                 className="flex items-center justify-between text-[11px] text-slate-700"
                               >
                                 <span>
-                                  {s.date} (শীট: {s.sheetNo || s.id})
+                                  {formatDate(s.date)} (শীট: {s.sheetNo || s.id})
                                 </span>
                                 <span className="font-mono font-bold text-rose-700">
                                   {currency} {(s.totalDamageValue || 0).toLocaleString()}

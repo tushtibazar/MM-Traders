@@ -1317,9 +1317,14 @@ export const DueModule: React.FC<DueModuleProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Explicit Collection Date */}
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5 text-emerald-600" />
-                      <span>আদায়ের তারিখ (Collection Date) *</span>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3.5 w-3.5 text-emerald-600" />
+                        <span>আদায়ের তারিখ (Collection Date) *</span>
+                      </span>
+                      <span className="text-[11px] font-bold font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                        {formatDate(collectDate)}
+                      </span>
                     </label>
                     <input
                       type="date"
@@ -1461,6 +1466,11 @@ export const DueModule: React.FC<DueModuleProps> = ({
                     }}
                     className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs text-slate-900 focus:border-blue-500 focus:outline-hidden disabled:bg-slate-100 disabled:text-slate-400"
                   />
+                  {!historyShowAllDates && historyDateFilter && (
+                    <span className="text-[11px] font-bold font-mono text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                      {formatDate(historyDateFilter)}
+                    </span>
+                  )}
                 </div>
 
                 {/* Quick Date Buttons */}
@@ -2126,9 +2136,14 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                 {/* Date */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
-                    তারিখ (Date) *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-xs font-bold text-slate-700 font-bengali">
+                      তারিখ (Date) *
+                    </label>
+                    <span className="text-[11px] font-bold font-mono text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                      {formatDate(addDueDate)}
+                    </span>
+                  </div>
                   <input
                     type="date"
                     required

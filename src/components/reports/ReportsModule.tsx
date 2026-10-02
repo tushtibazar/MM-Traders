@@ -18,6 +18,7 @@ import {
   generateStockValuationPDF,
   generateSRPerformancePDF,
 } from '../../services/pdfGenerator';
+import { formatDate } from '../../utils/dateUtils';
 
 export const ReportsModule: React.FC = () => {
   const {
@@ -198,7 +199,12 @@ export const ReportsModule: React.FC = () => {
             </p>
 
             <div className="mb-4">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">তারিখ নির্বাচন:</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1 flex items-center justify-between">
+                <span>তারিখ নির্বাচন:</span>
+                <span className="text-[11px] font-bold font-mono text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                  {formatDate(reportDate)}
+                </span>
+              </label>
               <input
                 type="date"
                 value={reportDate}
