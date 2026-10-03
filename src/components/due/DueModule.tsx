@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DEFAULT_ROUTES } from '../../services/storage';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
 import { generateDueReportPDF } from '../../services/pdfGenerator';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
@@ -1021,6 +1021,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
+                    <th className="py-3 px-2 text-center w-10 shrink-0">#</th>
                     <th className="py-3 px-4">কাস্টমার / দোকান</th>
                     <th className="py-3 px-3">যোগাযোগ ও ঠিকানা</th>
                     <th className="py-3 px-3">এসআর</th>
@@ -1030,7 +1031,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredCustomers.map((cust) => {
+                  {filteredCustomers.map((cust, idx) => {
                     const hasDue = cust.currentDue > 0;
                     const isHighDue = cust.currentDue > 10000;
                     const custRoutes = Array.from(customerRouteMap.get(cust.id) || []);
@@ -1042,6 +1043,11 @@ export const DueModule: React.FC<DueModuleProps> = ({
                           hasDue ? 'bg-white' : 'bg-slate-50/30'
                         }`}
                       >
+                        {/* Index */}
+                        <td className="py-3 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 shrink-0">
+                          {toBengaliDigits(idx + 1)}
+                        </td>
+
                         {/* Customer / Shop */}
                         <td className="py-3 px-4">
                           <div className="font-bold text-slate-900 flex items-center gap-1.5">
@@ -1149,7 +1155,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                   {filteredCustomers.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-500 text-xs">
+                      <td colSpan={7} className="py-12 text-center text-slate-500 text-xs">
                         <div className="flex flex-col items-center justify-center gap-2 max-w-sm mx-auto">
                           <div className="h-10 w-10 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mb-1">
                             <Wallet className="h-5 w-5" />
@@ -1402,6 +1408,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/50 text-slate-600 font-semibold">
+                    <th className="py-2.5 px-2 text-center w-10">#</th>
                     <th className="py-2.5 px-3">রশিদ নং</th>
                     <th className="py-2.5 px-3">দোকান / কাস্টমার</th>
                     <th className="py-2.5 px-3">তারিখ</th>
@@ -1412,8 +1419,11 @@ export const DueModule: React.FC<DueModuleProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {(db.payments || [])
                     .filter((p) => p.date === todayDateStr)
-                    .map((p) => (
+                    .map((p, idx) => (
                       <tr key={p.id} className="hover:bg-slate-50/60">
+                        <td className="py-2 px-2 text-center font-mono font-medium text-slate-400 text-xs">
+                          {toBengaliDigits(idx + 1)}
+                        </td>
                         <td className="py-2 px-3 font-mono font-bold text-slate-700">{p.receiptNo}</td>
                         <td className="py-2 px-3 font-medium text-slate-900">{p.customerName}</td>
                         <td className="py-2 px-3 text-slate-500 font-mono">{formatDate(p.date)}</td>
@@ -1431,7 +1441,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                   {!(db.payments || []).some((p) => p.date === todayDateStr) && (
                     <tr>
-                      <td colSpan={5} className="py-6 text-center text-slate-400 text-xs">
+                      <td colSpan={6} className="py-6 text-center text-slate-400 text-xs">
                         আজকের তারিখে এখনো কোনো বাকি আদায় এন্ট্রি নেই
                       </td>
                     </tr>
@@ -1539,6 +1549,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
+                    <th className="py-3 px-2 text-center w-10">#</th>
                     <th className="py-3 px-4">আদায়ের তারিখ</th>
                     <th className="py-3 px-3">রসিদ নং / ভাউচার</th>
                     <th className="py-3 px-3">কাস্টমার ও দোকান</th>
@@ -1548,8 +1559,12 @@ export const DueModule: React.FC<DueModuleProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {dateWisePayments.map((p) => (
+                  {dateWisePayments.map((p, idx) => (
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-3 px-2 text-center font-mono font-medium text-slate-400 text-xs">
+                        {toBengaliDigits(idx + 1)}
+                      </td>
+
                       {/* Date */}
                       <td className="py-3 px-4 font-mono font-semibold text-slate-800">
                         {formatDate(p.date)}
@@ -1590,7 +1605,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                   {dateWisePayments.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-slate-400 text-xs">
+                      <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
                         নির্বাচিত তারিখে কোনো আদায়ের তথ্য পাওয়া যায়নি
                       </td>
                     </tr>
@@ -1659,6 +1674,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
                   <tr>
+                    <th className="py-3 px-2 text-center w-10">#</th>
                     <th className="py-3 px-4">তারিখ</th>
                     <th className="py-3 px-3">ভাউচার নং / রেফারেন্স</th>
                     <th className="py-3 px-3">কাস্টমার ও দোকান</th>
@@ -1669,7 +1685,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {dueVoucherEntries.map((entry) => {
+                  {dueVoucherEntries.map((entry, idx) => {
                     const cust = db.customers.find((c) => c.id === entry.customerId);
                     const isSettled = entry.status === 'settled';
                     const isVoided = entry.status === 'voided';
@@ -1677,6 +1693,10 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                     return (
                       <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-3 px-2 text-center font-mono font-medium text-slate-400 text-xs">
+                          {toBengaliDigits(idx + 1)}
+                        </td>
+
                         {/* Date */}
                         <td className="py-3 px-4 font-mono font-medium text-slate-700">
                           {formatDate(entry.date)}
@@ -1784,7 +1804,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                   {dueVoucherEntries.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
+                      <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
                         কোনো বাকি ভাউচার পাওয়া যায়নি
                       </td>
                     </tr>

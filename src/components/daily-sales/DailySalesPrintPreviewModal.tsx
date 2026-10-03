@@ -14,7 +14,7 @@ import {
 import html2canvas from 'html2canvas';
 import { useApp } from '../../context/AppContext';
 import { BusinessSettings, DailyAccountSheet, DailyAccountItem } from '../../types';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
 import { DENOMINATION_LIST } from './CashDenominationTable';
 import {
   downloadCanvasAsPNG,
@@ -193,13 +193,54 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     return String(num).replace(/\d/g, (w) => bnDigits[+w]);
   };
 
+  // Safe numeric extraction and currency formatting (guards against NaN, undefined, empty, or Infinity values)
+  const safeNumber = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    const n = Number(val);
+    return isNaN(n) || !isFinite(n) ? 0 : n;
+  };
+
+  const formatMoney = (val: any): string => {
+    const n = safeNumber(val);
+    const curr = currency || '৳';
+    return `${curr} ${n.toLocaleString()}`;
+  };
+
+  const formatAmount = (val: any): string => {
+    const n = safeNumber(val);
+    return n.toLocaleString();
+  };
+
   // Bengali Date Formatter
   const formatBengaliDate = (dateStr: string) => {
+    if (!dateStr) return '';
     try {
-      const parts = dateStr.split('-');
-      const y = parseInt(parts[0], 10);
-      const m = parseInt(parts[1], 10);
-      const d = parseInt(parts[2], 10);
+      let y = NaN, m = NaN, d = NaN;
+      const clean = String(dateStr).split('T')[0].trim();
+      if (clean.includes('-')) {
+        const parts = clean.split('-');
+        if (parts.length === 3) {
+          y = parseInt(parts[0], 10);
+          m = parseInt(parts[1], 10);
+          d = parseInt(parts[2], 10);
+        }
+      } else if (clean.includes('/')) {
+        const parts = clean.split('/');
+        if (parts.length === 3) {
+          d = parseInt(parts[0], 10);
+          m = parseInt(parts[1], 10);
+          y = parseInt(parts[2], 10);
+        }
+      } else {
+        const dateObj = new Date(dateStr);
+        if (!isNaN(dateObj.getTime())) {
+          y = dateObj.getFullYear();
+          m = dateObj.getMonth() + 1;
+          d = dateObj.getDate();
+        }
+      }
+
+      if (isNaN(y) || isNaN(m) || isNaN(d)) return dateStr;
       const dateObj = new Date(y, m - 1, d);
 
       const months = [
@@ -210,7 +251,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
         'রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'
       ];
 
-      return `${toBnDigits(d)} ${months[m - 1]} ${toBnDigits(y)} (${weekdays[dateObj.getDay()]})`;
+      return `${toBnDigits(d)} ${months[m - 1] || ''} ${toBnDigits(y)} (${weekdays[dateObj.getDay()] || ''})`;
     } catch {
       return dateStr;
     }
@@ -222,12 +263,33 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
       return { totalSales: 0, totalDue: 0, totalDamage: 0, totalExpense: 0, monthName: '', dayBn: '' };
     }
 
-    const parts = sheet.date.split('-');
-    const yearStr = parts[0];
-    const monthStr = parts[1];
-    const dayStr = parts[2];
-    const targetMonthPrefix = `${yearStr}-${monthStr}`;
-    const targetDate = sheet.date;
+    let y = NaN, m = NaN, d = NaN;
+    const cleanDate = String(sheet.date).split('T')[0].trim();
+    if (cleanDate.includes('-')) {
+      const parts = cleanDate.split('-');
+      if (parts.length === 3) {
+        y = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
+        d = parseInt(parts[2], 10);
+      }
+    } else if (cleanDate.includes('/')) {
+      const parts = cleanDate.split('/');
+      if (parts.length === 3) {
+        d = parseInt(parts[0], 10);
+        m = parseInt(parts[1], 10);
+        y = parseInt(parts[2], 10);
+      }
+    } else {
+      const dt = new Date(sheet.date);
+      if (!isNaN(dt.getTime())) {
+        y = dt.getFullYear();
+        m = dt.getMonth() + 1;
+        d = dt.getDate();
+      }
+    }
+
+    const targetMonthPrefix = !isNaN(y) && !isNaN(m) ? `${y}-${String(m).padStart(2, '0')}` : '';
+    const targetDate = cleanDate;
 
     // Combine db.dailySheets with the currently previewed sheet to ensure live values
     const existingSheets = db.dailySheets || [];
@@ -253,7 +315,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
 
     // Filter sheets from 1st of the month up to sheet.date
     const mtdSheets = allSheets.filter(
-      (s) => s.date && s.date.startsWith(targetMonthPrefix) && s.date <= targetDate
+      (s) => s.date && (targetMonthPrefix ? s.date.startsWith(targetMonthPrefix) : true) && s.date <= targetDate
     );
 
     const coveredDates = new Set<string>();
@@ -266,32 +328,34 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     mtdSheets.forEach((s) => {
       coveredDates.add(s.date);
       // Net Sales (or Gross - Damage)
+      const sGross = safeNumber(s.totalGrossAmount);
+      const sDamage = safeNumber(s.totalDamageValue);
       const salesAmt =
-        typeof s.finalNetSalesAmount === 'number' && s.finalNetSalesAmount > 0
-          ? s.finalNetSalesAmount
-          : Math.max(0, (s.totalGrossAmount || 0) - (s.totalDamageValue || 0));
+        s.finalNetSalesAmount !== undefined && !isNaN(Number(s.finalNetSalesAmount)) && Number(s.finalNetSalesAmount) > 0
+          ? safeNumber(s.finalNetSalesAmount)
+          : Math.max(0, sGross - sDamage);
       totalSales += salesAmt;
 
       // Today's New Due
-      totalDue += Number(s.todayDue) || 0;
+      totalDue += safeNumber(s.todayDue);
 
       // Damage
-      totalDamage += Number(s.totalDamageValue) || 0;
+      totalDamage += sDamage;
 
       // Expense
-      totalExpense += Number(s.marketExpense) || 0;
+      totalExpense += safeNumber(s.marketExpense);
     });
 
     // Also include legacy direct sales if any (for dates not in daily sheets)
     (db.sales || []).forEach((s) => {
       if (
         s.date &&
-        s.date.startsWith(targetMonthPrefix) &&
+        (targetMonthPrefix ? s.date.startsWith(targetMonthPrefix) : true) &&
         s.date <= targetDate &&
         s.status === 'completed' &&
         !coveredDates.has(s.date)
       ) {
-        totalSales += s.netSales || 0;
+        totalSales += safeNumber(s.netSales);
       }
     });
 
@@ -299,7 +363,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     (db.expenses || []).forEach((exp) => {
       if (
         exp.date &&
-        exp.date.startsWith(targetMonthPrefix) &&
+        (targetMonthPrefix ? exp.date.startsWith(targetMonthPrefix) : true) &&
         exp.date <= targetDate &&
         (exp as any).status !== 'void'
       ) {
@@ -308,42 +372,43 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
           (exp as any).source === 'daily_sheet' ||
           exp.category === 'মার্কেট খরচ (Daily Sheet)';
         if (!isFromDailySheet) {
-          totalExpense += Number(exp.amount) || 0;
+          totalExpense += safeNumber(exp.amount);
         }
       }
     });
 
-    const monthNum = parseInt(monthStr, 10);
     const months = [
       'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
       'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
     ];
-    const monthName = !isNaN(monthNum) && monthNum >= 1 && monthNum <= 12 ? months[monthNum - 1] : '';
-    const dayBn = toBnDigits(parseInt(dayStr || '1', 10));
+    const monthName = !isNaN(m) && m >= 1 && m <= 12 ? months[m - 1] : '';
+    const dayBn = !isNaN(d) && d >= 1 && d <= 31 ? toBnDigits(d) : '';
 
     return {
-      totalSales,
-      totalDue,
-      totalDamage,
-      totalExpense,
+      totalSales: safeNumber(totalSales),
+      totalDue: safeNumber(totalDue),
+      totalDamage: safeNumber(totalDamage),
+      totalExpense: safeNumber(totalExpense),
       monthName,
       dayBn,
     };
   }, [db.dailySheets, db.sales, db.expenses, sheet]);
 
-  // Calculations
-  const grossSales = sheet.totalGrossAmount || 0;
-  const damageTotal = sheet.totalDamageValue || 0;
-  const netSales = sheet.finalNetSalesAmount || Math.max(0, grossSales - damageTotal);
-  const todayDueTotal = sheet.todayDue || 0;
-  const expenseTotal = sheet.marketExpense || 0;
-  const lessTotal = sheet.lessAmount || sheet.dailyLess || 0;
-  const shortTotal = sheet.shortAmount || sheet.dailyShort || 0;
+  // Calculations with safe fallbacks
+  const grossSales = safeNumber(sheet.totalGrossAmount);
+  const damageTotal = safeNumber(sheet.totalDamageValue);
+  const netSales = sheet.finalNetSalesAmount !== undefined && !isNaN(Number(sheet.finalNetSalesAmount))
+    ? safeNumber(sheet.finalNetSalesAmount)
+    : Math.max(0, grossSales - damageTotal);
+  const todayDueTotal = safeNumber(sheet.todayDue);
+  const expenseTotal = safeNumber(sheet.marketExpense);
+  const lessTotal = safeNumber(sheet.lessAmount || sheet.dailyLess);
+  const shortTotal = safeNumber(sheet.shortAmount || sheet.dailyShort);
 
   // Cash Denominations
   const denoms = sheet.cashDenominations || {};
   const denomRows = DENOMINATION_LIST.map((denom) => {
-    const count = Number(denoms[denom]) || 0;
+    const count = safeNumber(denoms[denom]);
     return {
       denom,
       count,
@@ -352,10 +417,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   });
   const otherEntries = (denoms as any).otherEntries;
   const otherCash = Array.isArray(otherEntries) && otherEntries.length > 0
-    ? otherEntries.reduce((sum: number, r: any) => sum + (Number(r.amount) || 0), 0)
-    : (Number(denoms.other) || 0);
+    ? otherEntries.reduce((sum: number, r: any) => sum + safeNumber(r.amount), 0)
+    : safeNumber(denoms.other);
   const totalCashCalculated = denomRows.reduce((sum, r) => sum + r.subtotal, 0) + otherCash;
-  const actualCash = sheet.cashCollected > 0 ? sheet.cashCollected : totalCashCalculated;
+  const actualCash = safeNumber(sheet.cashCollected) > 0 ? safeNumber(sheet.cashCollected) : totalCashCalculated;
 
   // Reconciliation:
   // "সর্বমোট" (Total) = ক্যাশ + খরচ + বাকি + লেস + শর্ট
@@ -595,27 +660,27 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                       <div className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 flex items-center justify-between text-[8.5px] leading-tight">
                         <div className="flex items-center gap-1 font-bold text-slate-700 shrink-0">
                           <Calendar className="h-2.5 w-2.5 text-emerald-600 shrink-0" />
-                          <span>চলতি মাসের হিসাব ({monthToDateTotals.monthName || 'চলতি মাস'} ১–{monthToDateTotals.dayBn} তারিখ):</span>
+                          <span>চলতি মাসের হিসাব {monthToDateTotals.dayBn ? `(${monthToDateTotals.monthName || 'চলতি মাস'} ১–${monthToDateTotals.dayBn} তারিখ)` : ''}:</span>
                         </div>
                         <div className="flex items-center gap-2 sm:gap-3 font-bengali">
                           <div className="flex items-center gap-0.5">
                             <span className="text-slate-600">মোট বিক্রি:</span>
-                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{currency} {monthToDateTotals.totalSales.toLocaleString()}</strong>
+                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{formatMoney(monthToDateTotals.totalSales)}</strong>
                           </div>
                           <span className="text-slate-300">•</span>
                           <div className="flex items-center gap-0.5">
                             <span className="text-amber-800">মোট বাকি:</span>
-                            <strong className="font-mono font-bold text-amber-900 text-[9px]">{currency} {monthToDateTotals.totalDue.toLocaleString()}</strong>
+                            <strong className="font-mono font-bold text-amber-900 text-[9px]">{formatMoney(monthToDateTotals.totalDue)}</strong>
                           </div>
                           <span className="text-slate-300">•</span>
                           <div className="flex items-center gap-0.5">
                             <span className="text-rose-800">মোট ড্যামেজ:</span>
-                            <strong className="font-mono font-bold text-rose-900 text-[9px]">{currency} {monthToDateTotals.totalDamage.toLocaleString()}</strong>
+                            <strong className="font-mono font-bold text-rose-900 text-[9px]">{formatMoney(monthToDateTotals.totalDamage)}</strong>
                           </div>
                           <span className="text-slate-300">•</span>
                           <div className="flex items-center gap-0.5">
                             <span className="text-slate-700">মোট খরচ:</span>
-                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{currency} {monthToDateTotals.totalExpense.toLocaleString()}</strong>
+                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{formatMoney(monthToDateTotals.totalExpense)}</strong>
                           </div>
                         </div>
                       </div>
@@ -680,8 +745,8 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                         )}
                         {pageItems.map((item, idx) => {
                           const globalIdx = (pageIndex === 0 ? 0 : MAX_ITEMS_PAGE_1_MULTI) + idx + 1;
-                          const rawIssued = item.rawIssuedQty ?? item.issuedQty ?? 0;
-                          const rawRet = item.rawReturnQty ?? item.returnQty ?? 0;
+                          const rawIssued = safeNumber(item.rawIssuedQty ?? item.issuedQty);
+                          const rawRet = safeNumber(item.rawReturnQty ?? item.returnQty);
                           const issuedUnit = item.issuedUnit || 'P';
                           const returnUnit = item.returnUnit || 'P';
 
@@ -693,10 +758,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               }`}
                             >
                               <td className="py-[2px] px-1 text-center font-mono text-slate-500 border-r border-slate-200">
-                                {globalIdx}
+                                {toBengaliDigits(globalIdx)}
                               </td>
                               <td className="py-[2px] px-1.5 border-r border-slate-200">
-                                <span className="font-bold text-slate-900">{item.productName}</span>
+                                <span className="font-bold text-slate-900">{item.productName || 'অজানা পণ্য'}</span>
                                 {item.packSize && (
                                   <span className="text-[8px] text-slate-500 ml-1">
                                     ({item.packSize})
@@ -704,7 +769,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                 )}
                               </td>
                               <td className="py-[2px] px-1 text-center font-mono font-semibold border-r border-slate-200">
-                                {item.sellingPrice}
+                                {formatAmount(item.sellingPrice)}
                               </td>
                               <td className="py-[2px] px-1.5 text-center font-mono border-r border-slate-200">
                                 {rawIssued} {issuedUnit === 'C' ? 'কা.' : 'পিস'}
@@ -713,10 +778,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                 {rawRet} {returnUnit === 'C' ? 'কা.' : 'পিস'}
                               </td>
                               <td className="py-[2px] px-1.5 text-center font-mono font-bold text-emerald-800 border-r border-slate-200">
-                                {item.netSoldQty} {issuedUnit === 'C' ? 'কা.' : 'পিস'}
+                                {safeNumber(item.netSoldQty)} {issuedUnit === 'C' ? 'কা.' : 'পিস'}
                               </td>
                               <td className="py-[2px] px-1.5 text-right font-mono font-bold text-slate-900">
-                                {Number(item.grossAmount || 0).toLocaleString()}
+                                {formatAmount(item.grossAmount || item.finalNetAmount)}
                               </td>
                             </tr>
                           );
@@ -729,16 +794,16 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               মোট মূল বিক্রয়:
                             </td>
                             <td className="py-[2px] px-1.5 text-center font-mono border-r border-slate-200 text-[8.5px]">
-                              {sheet.totalIssuedQty} পিস
+                              {safeNumber(sheet.totalIssuedQty)} পিস
                             </td>
                             <td className="py-[2px] px-1.5 text-center font-mono border-r border-slate-200 text-amber-900 text-[8.5px]">
-                              {sheet.totalReturnQty} পিস
+                              {safeNumber(sheet.totalReturnQty)} পিস
                             </td>
                             <td className="py-[2px] px-1.5 text-center font-mono text-emerald-800 border-r border-slate-200 text-[8.5px]">
-                              {sheet.totalNetSoldQty} পিস
+                              {safeNumber(sheet.totalNetSoldQty)} পিস
                             </td>
                             <td className="py-[2px] px-1.5 text-right font-mono text-emerald-900 text-[9px] font-black">
-                              {currency} {grossSales.toLocaleString()}
+                              {formatMoney(grossSales)}
                             </td>
                           </tr>
                         )}
@@ -755,7 +820,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                           ২. ফেরত / ড্যামেজ পণ্যের হিসাব
                         </span>
                         <span className="text-[8px] font-mono font-bold text-rose-800 leading-none">
-                          মোট ড্যামেজ: {currency} {damageTotal.toLocaleString()}
+                          মোট ড্যামেজ: {formatMoney(damageTotal)}
                         </span>
                       </div>
 
@@ -772,8 +837,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                         </thead>
                         <tbody>
                           {validDamageItems.map((dItem, dIdx) => {
-                            const rawDamage = dItem.rawDamageQty ?? dItem.damageQty ?? 0;
+                            const rawDamage = safeNumber(dItem.rawDamageQty ?? dItem.damageQty);
                             const dUnit = dItem.damageUnit || 'P';
+                            const dRate = safeNumber(dItem.sellingPrice || (dItem as any).rate);
+                            const dAmount = safeNumber(dItem.grossAmount || dItem.damageValue);
                             return (
                               <tr
                                 key={dItem.id || dIdx}
@@ -782,22 +849,22 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                 }`}
                               >
                                 <td className="py-[2px] px-1 text-center font-mono text-slate-500 border-r border-rose-100">
-                                  {dIdx + 1}
+                                  {toBengaliDigits(dIdx + 1)}
                                 </td>
                                 <td className="py-[2px] px-1.5 font-bold text-slate-900 border-r border-rose-100">
-                                  {dItem.productName}
+                                  {dItem.productName || 'অজানা পণ্য'}
                                 </td>
                                 <td className="py-[2px] px-1 text-center font-mono border-r border-rose-100">
-                                  {dItem.sellingPrice}
+                                  {formatAmount(dRate)}
                                 </td>
                                 <td className="py-[2px] px-1.5 text-center font-mono border-r border-rose-100">
                                   {rawDamage} {dUnit === 'C' ? 'কা.' : 'পিস'}
                                 </td>
                                 <td className="py-[2px] px-1.5 text-center font-mono font-bold text-rose-800 border-r border-rose-100">
-                                  {dItem.rawDamageQty !== undefined ? dItem.rawDamageQty : dItem.damageQty} {dUnit === 'C' ? 'কা.' : 'পিস'}
+                                  {safeNumber(dItem.damageQty || rawDamage)} {dUnit === 'C' ? 'কা.' : 'পিস'}
                                 </td>
                                 <td className="py-[2px] px-1.5 text-right font-mono font-bold text-rose-800">
-                                  {Number(dItem.grossAmount || dItem.damageValue || 0).toLocaleString()}
+                                  {formatAmount(dAmount)}
                                 </td>
                               </tr>
                             );
@@ -807,10 +874,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               মোট ড্যামেজ:
                             </td>
                             <td className="py-[2px] px-1.5 text-center font-mono border-r border-rose-200 text-[8.5px]">
-                              {sheet.totalDamageQty} পিস
+                              {safeNumber(sheet.totalDamageQty)} পিস
                             </td>
                             <td className="py-[2px] px-1.5 text-right font-mono text-rose-900 font-bold text-[8.5px]">
-                              {currency} {damageTotal.toLocaleString()}
+                              {formatMoney(damageTotal)}
                             </td>
                           </tr>
                         </tbody>
@@ -819,10 +886,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                   )}
 
                   {/* 3. CUSTOMER-WISE DUES & COLLECTIONS (On Last Page) - Compact */}
-                  {isLastPage && (todayDueTotal > 0 || (sheet.dueCollection || 0) > 0) && (
+                  {isLastPage && (todayDueTotal > 0 || safeNumber(sheet.dueCollection) > 0) && (
                     <div
                       className={`grid ${
-                        todayDueTotal > 0 && (sheet.dueCollection || 0) > 0
+                        todayDueTotal > 0 && safeNumber(sheet.dueCollection) > 0
                           ? 'grid-cols-2'
                           : 'grid-cols-1'
                       } gap-1.5 mb-1 text-[8.5px]`}
@@ -842,6 +909,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                           <table className="w-full text-left border-collapse text-[8.5px]">
                             <thead>
                               <tr className="bg-amber-50/80 border-b border-amber-200 text-amber-900 font-bold leading-tight">
+                                <th className="py-[2px] px-1 text-center w-5 border-r border-amber-200">#</th>
                                 <th className="py-[2px] px-1.5 border-r border-amber-200">
                                   কাস্টমার/দোকানের নাম
                                 </th>
@@ -852,32 +920,36 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               {validTodayDues.length > 0 ? (
                                 validTodayDues.map((due, dIdx) => (
                                   <tr key={due.id || dIdx} className="hover:bg-amber-50/30">
+                                    <td className="py-[1.5px] px-1 text-center font-mono text-slate-500 border-r border-amber-100">
+                                      {toBengaliDigits(dIdx + 1)}
+                                    </td>
                                     <td className="py-[1.5px] px-1.5 text-slate-800 border-r border-amber-100 font-medium">
                                       {formatCustomerShopName(due)}
                                     </td>
                                     <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-amber-950">
-                                      {currency} {Number(due.amount || 0).toLocaleString()}
+                                      {formatMoney(due.amount)}
                                     </td>
                                   </tr>
                                 ))
                               ) : (
                                 <tr>
+                                  <td className="py-[1.5px] px-1 text-center font-mono text-slate-400 border-r border-amber-100">১</td>
                                   <td className="py-[1.5px] px-1.5 text-slate-700 italic border-r border-amber-100">
                                     সাধারণ বাকি খতিয়ান
                                   </td>
                                   <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-amber-950">
-                                    {currency} {todayDueTotal.toLocaleString()}
+                                    {formatMoney(todayDueTotal)}
                                   </td>
                                 </tr>
                               )}
                             </tbody>
                             <tfoot>
                               <tr className="bg-amber-100/90 font-black border-t border-amber-300 text-amber-950 leading-tight">
-                                <td className="py-[2px] px-1.5 font-bengali border-r border-amber-200">
+                                <td colSpan={2} className="py-[2px] px-1.5 font-bengali border-r border-amber-200">
                                   মোট নতুন বাকি:
                                 </td>
                                 <td className="py-[2px] px-1.5 text-right font-mono font-bold">
-                                  {currency} {todayDueTotal.toLocaleString()}
+                                  {formatMoney(todayDueTotal)}
                                 </td>
                               </tr>
                             </tfoot>
@@ -886,7 +958,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                       )}
 
                       {/* B) বাকি জমা */}
-                      {(sheet.dueCollection || 0) > 0 && (
+                      {safeNumber(sheet.dueCollection) > 0 && (
                         <div className="border border-emerald-300 rounded overflow-hidden bg-white">
                           <div className="bg-emerald-100/90 px-1.5 py-0.5 border-b border-emerald-300 flex items-center justify-between">
                             <span className="font-bold text-emerald-950 font-bengali text-[9px] flex items-center gap-1">
@@ -900,6 +972,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                           <table className="w-full text-left border-collapse text-[8.5px]">
                             <thead>
                               <tr className="bg-emerald-50/80 border-b border-emerald-200 text-emerald-900 font-bold leading-tight">
+                                <th className="py-[2px] px-1 text-center w-5 border-r border-emerald-200">#</th>
                                 <th className="py-[2px] px-1.5 border-r border-emerald-200">
                                   কাস্টমার/দোকানের নাম
                                 </th>
@@ -910,32 +983,36 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               {validDueCollections.length > 0 ? (
                                 validDueCollections.map((col, cIdx) => (
                                   <tr key={col.id || cIdx} className="hover:bg-emerald-50/30">
+                                    <td className="py-[1.5px] px-1 text-center font-mono text-slate-500 border-r border-emerald-100">
+                                      {toBengaliDigits(cIdx + 1)}
+                                    </td>
                                     <td className="py-[1.5px] px-1.5 text-slate-800 border-r border-emerald-100 font-medium">
                                       {formatCustomerShopName(col)}
                                     </td>
                                     <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-emerald-950">
-                                      {currency} {Number(col.amount || 0).toLocaleString()}
+                                      {formatMoney(col.amount)}
                                     </td>
                                   </tr>
                                 ))
                               ) : (
                                 <tr>
+                                  <td className="py-[1.5px] px-1 text-center font-mono text-slate-400 border-r border-emerald-100">১</td>
                                   <td className="py-[1.5px] px-1.5 text-slate-700 italic border-r border-emerald-100">
                                     সাধারণ বাকি জমা
                                   </td>
                                   <td className="py-[1.5px] px-1.5 text-right font-mono font-bold text-emerald-950">
-                                    {currency} {(sheet.dueCollection || 0).toLocaleString()}
+                                    {formatMoney(sheet.dueCollection)}
                                   </td>
                                 </tr>
                               )}
                             </tbody>
                             <tfoot>
                               <tr className="bg-emerald-100/90 font-black border-t border-emerald-300 text-emerald-950 leading-tight">
-                                <td className="py-[2px] px-1.5 font-bengali border-r border-emerald-200">
+                                <td colSpan={2} className="py-[2px] px-1.5 font-bengali border-r border-emerald-200">
                                   মোট বাকি জমা:
                                 </td>
                                 <td className="py-[2px] px-1.5 text-right font-mono font-bold">
-                                  {currency} {(sheet.dueCollection || 0).toLocaleString()}
+                                  {formatMoney(sheet.dueCollection)}
                                 </td>
                               </tr>
                             </tfoot>
@@ -953,7 +1030,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                           ১. মূল বিক্রি
                         </span>
                         <span className="text-[11px] font-mono font-black text-slate-900 leading-tight">
-                          {currency} {grossSales.toLocaleString()}
+                          {formatMoney(grossSales)}
                         </span>
                       </div>
                       <div className="border border-rose-200 bg-rose-50/60 py-0.5 px-1 rounded text-center">
@@ -961,7 +1038,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                           ২. মোট ড্যামেজ
                         </span>
                         <span className="text-[11px] font-mono font-black text-rose-800 leading-tight">
-                          - {currency} {damageTotal.toLocaleString()}
+                          - {formatMoney(damageTotal)}
                         </span>
                       </div>
                       <div className="border border-emerald-300 bg-emerald-50 py-0.5 px-1 rounded text-center">
@@ -969,7 +1046,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                           ৩. চূড়ান্ত প্রকৃত বিক্রি
                         </span>
                         <span className="text-[11px] font-mono font-black text-emerald-800 leading-tight">
-                          {currency} {netSales.toLocaleString()}
+                          {formatMoney(netSales)}
                         </span>
                       </div>
                     </div>
@@ -983,31 +1060,31 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                         <div className="flex items-center justify-between border-b border-slate-200 pb-0.5 mb-0.5 font-bold text-slate-900 text-[9px] leading-tight">
                           <span>নোট হিসাব</span>
                           <span className="font-mono text-emerald-800 font-bold">
-                            মোট: {currency} {actualCash.toLocaleString()}
+                            মোট: {formatMoney(actualCash)}
                           </span>
                         </div>
                         <div className="grid grid-cols-2 gap-x-2 gap-y-[1px] text-[8px] font-mono">
                           {denomRows.map((r) => (
                             <div key={r.denom} className="flex justify-between border-b border-slate-100 py-[1px]">
                               <span className="text-slate-600">{r.denom} × {r.count}</span>
-                              <span className="font-bold text-slate-900">{r.subtotal.toLocaleString()}</span>
+                              <span className="font-bold text-slate-900">{formatAmount(r.subtotal)}</span>
                             </div>
                           ))}
                           {Array.isArray(otherEntries) && otherEntries.length > 0 ? (
                             otherEntries.map((e: any, idx: number) => {
-                              const amt = Number(e.amount) || 0;
+                              const amt = safeNumber(e.amount);
                               if (amt <= 0 && otherEntries.length > 1) return null;
                               return (
                                 <div key={e.id || idx} className="flex justify-between border-b border-slate-100 py-[1px] col-span-2">
-                                  <span className="text-slate-600">{e.label || `অন্যান্য ${idx + 1}`}:</span>
-                                  <span className="font-bold text-slate-900">{amt.toLocaleString()}</span>
+                                  <span className="text-slate-600">{e.label || `অন্যান্য ${toBengaliDigits(idx + 1)}`}:</span>
+                                  <span className="font-bold text-slate-900">{formatAmount(amt)}</span>
                                 </div>
                               );
                             })
                           ) : otherCash > 0 ? (
                             <div className="flex justify-between border-b border-slate-100 py-[1px] col-span-2">
                               <span className="text-slate-600">খুচরা / অন্যান্য:</span>
-                              <span className="font-bold text-slate-900">{otherCash.toLocaleString()}</span>
+                              <span className="font-bold text-slate-900">{formatAmount(otherCash)}</span>
                             </div>
                           ) : null}
                         </div>
@@ -1033,25 +1110,25 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                             {/* 1. ক্যাশ */}
                             <div className="flex justify-between text-slate-800">
                               <span className="text-slate-700 font-medium">১. মোট ক্যাশ:</span>
-                              <span className="font-mono font-bold text-slate-900">{currency} {actualCash.toLocaleString()}</span>
+                              <span className="font-mono font-bold text-slate-900">{formatMoney(actualCash)}</span>
                             </div>
 
                             {/* 2. খরচ */}
                             <div className="flex justify-between text-slate-800">
                               <span className="text-slate-700 font-medium">২. খরচ:</span>
-                              <span className="font-mono font-bold text-slate-900">{currency} {expenseTotal.toLocaleString()}</span>
+                              <span className="font-mono font-bold text-slate-900">{formatMoney(expenseTotal)}</span>
                             </div>
 
                             {/* 3. বাকি */}
                             <div className="flex justify-between text-slate-800">
                               <span className="text-slate-700 font-medium">৩. নতুন বাকি:</span>
-                              <span className="font-mono font-bold text-slate-900">{currency} {todayDueTotal.toLocaleString()}</span>
+                              <span className="font-mono font-bold text-slate-900">{formatMoney(todayDueTotal)}</span>
                             </div>
 
                             {/* 4. লেস */}
                             <div className="flex justify-between text-slate-800">
                               <span className="text-slate-700 font-medium">৪. লেস:</span>
-                              <span className="font-mono font-bold text-slate-900">{currency} {lessTotal.toLocaleString()}</span>
+                              <span className="font-mono font-bold text-slate-900">{formatMoney(lessTotal)}</span>
                             </div>
 
                             {/* 5. শর্ট */}
@@ -1059,13 +1136,13 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               <span className="text-slate-700 font-medium">
                                 ৫. শর্ট {sheet.dsrName ? `(${sheet.dsrName})` : ''}:
                               </span>
-                              <span className="font-mono font-bold text-slate-900">{currency} {shortTotal.toLocaleString()}</span>
+                              <span className="font-mono font-bold text-slate-900">{formatMoney(shortTotal)}</span>
                             </div>
 
                             {/* 6. সর্বমোট = ক্যাশ + খরচ + বাকি + লেস + শর্ট */}
                             <div className="flex justify-between font-black text-slate-950 bg-emerald-50/90 border border-emerald-300 py-0.5 px-1 rounded mt-0.5 text-[9px]">
                               <span className="font-bengali">সর্বমোট:</span>
-                              <span className="font-mono font-black text-emerald-950">{currency} {grandTotal.toLocaleString()}</span>
+                              <span className="font-mono font-black text-emerald-950">{formatMoney(grandTotal)}</span>
                             </div>
                           </div>
                         </div>
@@ -1083,7 +1160,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                 <span>হিসাব মিলেছে</span>
                               </div>
                               <span className="font-mono font-bold text-[8px] text-emerald-800 bg-white/90 border border-emerald-300 px-1 py-0.2 rounded">
-                                পার্থক্য: {currency} ০
+                                পার্থক্য: {formatMoney(0)}
                               </span>
                             </div>
                           ) : (
@@ -1093,7 +1170,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                 <span>হিসাব মিলছে না</span>
                               </div>
                               <span className="font-mono font-bold text-[8px] text-rose-800 bg-white/90 border border-rose-300 px-1 py-0.2 rounded">
-                                পার্থক্য: {currency} {Math.abs(diff).toLocaleString()}
+                                পার্থক্য: {formatMoney(Math.abs(diff))}
                               </span>
                             </div>
                           )}

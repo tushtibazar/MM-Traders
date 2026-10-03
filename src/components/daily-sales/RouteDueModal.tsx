@@ -13,7 +13,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { Customer, CustomerLedgerEntry } from '../../types';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
 
 interface RouteDueModalProps {
   isOpen: boolean;
@@ -150,7 +150,7 @@ export const RouteDueModal: React.FC<RouteDueModalProps> = ({
 
         {/* Customer List */}
         <div className="flex-1 overflow-y-auto p-3 sm:p-4 divide-y divide-slate-100 space-y-2">
-          {filteredList.map((customer) => {
+          {filteredList.map((customer, idx) => {
             const lastDate = lastTxDateMap.get(customer.id) || (customer.updatedAt ? customer.updatedAt.split('T')[0] : null);
 
             return (
@@ -162,6 +162,9 @@ export const RouteDueModal: React.FC<RouteDueModalProps> = ({
                 {/* Left: Customer Info */}
                 <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
+                    <span className="w-5 text-center font-mono font-bold text-slate-400 text-xs shrink-0">
+                      {toBengaliDigits(idx + 1)}.
+                    </span>
                     <span className="font-bold text-sm text-slate-900 group-hover:text-emerald-900 transition-colors font-bengali">
                       {customer.shopName}
                     </span>

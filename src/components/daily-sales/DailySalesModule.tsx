@@ -37,7 +37,7 @@ import { DueCollectionConfirmModal } from '../modals/DueCollectionConfirmModal';
 import { ProductSuggestionDropdown } from './ProductSuggestionDropdown';
 import { DailySalesPrintPreviewModal } from './DailySalesPrintPreviewModal';
 import { RouteDueModal } from './RouteDueModal';
-import { formatDate } from '../../utils/dateUtils';
+import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
 
 interface RowData {
   id: string;
@@ -451,7 +451,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // Product conversion ratio & default unit helper
   const getProductInfo = (productId: string) => {
     const p = db.products.find((prod) => prod.id === productId);
-    const ratio = p?.piecesPerCarton || p?.cartonQty || 1;
+    const pRatio = Number(p?.piecesPerCarton || p?.cartonQty);
+    const ratio = !isNaN(pRatio) && isFinite(pRatio) && pRatio > 0 ? pRatio : 1;
     const isCarton = p?.unit === 'কার্টন' || p?.unit === 'কার্টুন' || ratio > 1;
     const defaultUnit: 'C' | 'P' = isCarton ? 'C' : 'P';
     return { product: p, ratio, defaultUnit, isCarton };
@@ -2525,6 +2526,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-700 font-semibold text-xs">
+                    <th className="py-3 px-2 text-center w-10 sm:w-12 shrink-0">#</th>
                     <th className="py-3 px-4 min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] w-auto">১. পণ্যের নাম (Product Name)</th>
                     <th className="py-3 px-1 text-center w-20 sm:w-22 shrink-0">২. পরিমাণ (Issue)</th>
                     <th className="py-3 px-1 text-center w-20 sm:w-22 shrink-0">৩. ফেরত (Return)</th>
@@ -2554,6 +2556,11 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           row.showSuggestions ? 'relative z-40' : 'relative z-0'
                         }`}
                       >
+                        {/* Index */}
+                        <td className="py-2 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 sm:w-12 shrink-0">
+                          {toBengaliDigits(idx + 1)}
+                        </td>
+
                         {/* 1. পণ্যের নাম (Product Name with keyboard arrow & Tab selection) */}
                         <td
                           className={`py-2 px-4 relative min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] ${
@@ -2922,6 +2929,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 {/* Total Row */}
                 <tfoot>
                   <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-xs sm:text-sm text-slate-900">
+                    <td className="w-10 sm:w-12 shrink-0"></td>
                     <td className="py-3 px-4 text-left font-bold text-slate-800 min-w-[500px] sm:min-w-[580px] lg:min-w-[640px]">
                       সর্বমোট ({computedRows.filter((r) => r.productName.trim()).length} টি পণ্য)
                     </td>
@@ -3050,7 +3058,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                       >
                         {/* Index */}
                         <td className="py-2 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 sm:w-12 shrink-0">
-                          {idx + 1}
+                          {toBengaliDigits(idx + 1)}
                         </td>
 
                         {/* 1. পণ্যের নাম with Tab autocomplete */}
@@ -3420,7 +3428,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 <div className="p-3 space-y-2.5">
                   {/* Table Header (Desktop/Tablet) */}
                   <div className="hidden sm:flex items-center gap-3 px-2 text-[11px] font-bold text-slate-600 border-b border-slate-100 pb-2">
-                    <span className="w-5 text-center shrink-0">#</span>
+                    <span className="w-7 text-center shrink-0">#</span>
                     <span className="flex-1">দোকান / কাস্টমার নাম</span>
                     <span className="w-28 sm:w-32 text-right shrink-0">বাকি টাকা ({currency})</span>
                     <span className="w-20 text-center shrink-0">লেজার এন্ট্রি</span>
@@ -3442,13 +3450,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         className="p-3 sm:p-1.5 rounded-xl sm:rounded-none bg-slate-50/70 sm:bg-transparent border border-slate-200/80 sm:border-0 space-y-2.5 sm:space-y-0 sm:flex sm:items-center sm:gap-3 text-xs"
                       >
                         {/* Row Index (Desktop) */}
-                        <span className="hidden sm:block w-5 text-center font-mono text-slate-400 shrink-0">
-                          {idx + 1}
+                        <span className="hidden sm:block w-7 text-center font-mono font-semibold text-slate-500 shrink-0">
+                          {toBengaliDigits(idx + 1)}
                         </span>
 
                         {/* Mobile Header: Index & Delete button */}
                         <div className="flex sm:hidden items-center justify-between text-xs text-slate-500 font-medium">
-                          <span className="font-bold text-slate-700">বাকি এন্ট্রি #{idx + 1}</span>
+                          <span className="font-bold text-slate-700">বাকি এন্ট্রি #{toBengaliDigits(idx + 1)}</span>
                           {!isLockedForEdit && todayDueRows.length > 1 && (
                             <button
                               type="button"
@@ -3607,8 +3615,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
                     return (
                       <div key={row.id} className="grid grid-cols-12 gap-2 items-center text-xs py-1 border-b border-slate-50 last:border-0">
-                        <span className="col-span-1 text-center font-mono text-slate-400">
-                          {idx + 1}
+                        <span className="col-span-1 text-center font-mono font-semibold text-slate-500">
+                          {toBengaliDigits(idx + 1)}
                         </span>
 
                         {/* Customer Autocomplete & Phone */}
