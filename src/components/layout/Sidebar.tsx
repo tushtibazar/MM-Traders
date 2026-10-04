@@ -18,6 +18,8 @@ import {
   ChevronRight,
   Coins,
   AlertOctagon,
+  TrendingUp,
+  FileCheck,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { BrandLogo } from '../brand/BrandLogo';
@@ -27,6 +29,7 @@ export type TabType =
   | 'daily-sale'
   | 'due'
   | 'products'
+  | 'challan-check'
   | 'stock'
   | 'business-position'
   | 'monthly-sales'
@@ -37,6 +40,7 @@ export type TabType =
   | 'customers'
   | 'ledger'
   | 'reports'
+  | 'product-sales-analysis'
   | 'settings';
 
 interface SidebarProps {
@@ -91,6 +95,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       labelBn: 'পণ্য ও মূল্য',
       labelEn: 'Products & Price',
       icon: Package,
+    },
+    {
+      id: 'challan-check',
+      labelBn: 'চালান চেক',
+      labelEn: 'Invoice/Batch Check',
+      icon: FileCheck,
     },
     {
       id: 'stock',
@@ -160,6 +170,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
       labelBn: 'রিপোর্ট ও পিডিএফ',
       labelEn: 'Reports & Export',
       icon: FileBarChart,
+    },
+    {
+      id: 'product-sales-analysis',
+      labelBn: 'পণ্য বিক্রয় বিশ্লেষণ',
+      labelEn: 'Product Sales Analysis',
+      icon: TrendingUp,
     },
     {
       id: 'settings',

@@ -13,9 +13,11 @@ import { CustomerList } from './components/customers/CustomerList';
 import { CustomerLedger } from './components/customers/CustomerLedger';
 import { SRModule } from './components/sr/SRModule';
 import { ProductModule } from './components/products/ProductModule';
+import { ChallanCheckModule } from './components/challan-check/ChallanCheckModule';
 import { StockModule } from './components/stock/StockModule';
 import { ExpenseModule } from './components/expenses/ExpenseModule';
 import { ReportsModule } from './components/reports/ReportsModule';
+import { ProductSalesAnalysisModule } from './components/product-sales-analysis/ProductSalesAnalysisModule';
 import { SettingsModule } from './components/settings/SettingsModule';
 import { AuthModal } from './components/modals/AuthModal';
 import { SaleMemoModal } from './components/modals/SaleMemoModal';
@@ -197,11 +199,22 @@ function MainLayout() {
 
             {currentTab === 'products' && <ProductModule />}
 
+            {currentTab === 'challan-check' && <ChallanCheckModule />}
+
             {currentTab === 'stock' && <StockModule />}
 
             {currentTab === 'expenses' && currentUser.role === 'owner' && <ExpenseModule />}
 
             {currentTab === 'reports' && <ReportsModule />}
+
+            {currentTab === 'product-sales-analysis' && (
+              <ProductSalesAnalysisModule
+                onOpenDailySheet={(sheetId) => {
+                  setSelectedDailySheetId(sheetId);
+                  setCurrentTab('daily-sale');
+                }}
+              />
+            )}
 
             {currentTab === 'settings' && currentUser.role === 'owner' && <SettingsModule />}
           </div>
