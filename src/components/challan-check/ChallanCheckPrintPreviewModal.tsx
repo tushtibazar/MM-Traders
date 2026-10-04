@@ -62,11 +62,16 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
     return toBengaliDigits(numStr);
   };
 
+  const undeliveredCartonCount =
+    piecesPerCarton > 0 && columnTotals.sumUndelivered > 0
+      ? columnTotals.sumUndelivered / piecesPerCarton
+      : 0;
+
   const metadata = [
     { label: 'তারিখ', value: formatDate(todayDateStr) },
     { label: 'পণ্যের নাম', value: productName.trim() || 'সাধারণ চালান হিসাব' },
-    { label: 'মোট প্রাপ্ত পিস', value: `${toBengaliDigits(grandTotalPieces)} পিস` },
-    { label: 'কার্টুন সমতুল্য', value: `${formatCartonNumber(cartonCount)} কা.` },
+    { label: 'প্রাপ্তি', value: `${toBengaliDigits(grandTotalPieces)} পিস (${formatCartonNumber(cartonCount)} কার্টুন)` },
+    { label: 'আনডেলিভারি', value: `${toBengaliDigits(columnTotals.sumUndelivered)} পিস (${formatCartonNumber(undeliveredCartonCount)} কার্টুন)` },
     {
       label: 'চূড়ান্ত বিক্রয় মূল্য',
       value: `${currency} ${toBengaliDigits(sellingPricePerCarton.toFixed(2))} / কা.`,
@@ -217,7 +222,12 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
             <div className="p-3 text-xs space-y-2 bg-white">
               <div className="flex justify-between items-center py-1 border-b border-slate-100">
                 <span className="text-slate-700">
-                  <strong>১. মোট প্রাপ্ত পিস (Grand Total Pieces):</strong> মোট পিস ({toBengaliDigits(columnTotals.sumTotalPieces)}) + ফ্রি ({toBengaliDigits(columnTotals.sumFreePieces)}) − আনডেলিভারি ({toBengaliDigits(columnTotals.sumUndelivered)})
+                  <strong>১. মোট প্রাপ্ত পিস (Grand Total Pieces):</strong> মোট পিস ({toBengaliDigits(columnTotals.sumTotalPieces)}) + ফ্রি ({toBengaliDigits(columnTotals.sumFreePieces)})
+                  {columnTotals.sumUndelivered > 0 && (
+                    <span className="text-rose-600 font-semibold ml-2">
+                      [মোট আনডেলিভারি: {toBengaliDigits(columnTotals.sumUndelivered)} পিস — পৃথক প্রদর্শিত]
+                    </span>
+                  )}
                 </span>
                 <span className="font-mono font-bold text-slate-900">
                   = {toBengaliDigits(grandTotalPieces)} পিস
@@ -274,6 +284,21 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
                 <span className="font-mono font-bold text-slate-900">
                   = {currency} {sellingPricePerPiece > 0 ? toBengaliDigits(sellingPricePerPiece.toFixed(2)) : '০.০০'} / পিস
                 </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200 text-xs">
+                <div className="flex justify-between items-center bg-slate-50 px-2 py-1 rounded border border-slate-200">
+                  <span className="text-slate-700 font-bold">প্রাপ্তি:</span>
+                  <span className="font-mono font-bold text-slate-900">
+                    {toBengaliDigits(grandTotalPieces)} পিস ({formatCartonNumber(cartonCount)} কার্টুন)
+                  </span>
+                </div>
+                <div className="flex justify-between items-center bg-slate-50 px-2 py-1 rounded border border-slate-200">
+                  <span className="text-slate-700 font-bold">আনডেলিভারি:</span>
+                  <span className="font-mono font-bold text-rose-700">
+                    {toBengaliDigits(columnTotals.sumUndelivered)} পিস ({formatCartonNumber(undeliveredCartonCount)} কার্টুন)
+                  </span>
+                </div>
               </div>
             </div>
           </div>

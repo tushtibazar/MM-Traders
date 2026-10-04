@@ -237,10 +237,11 @@ export const ChallanCheckModule: React.FC = () => {
   }, [rows]);
 
   // 4. মোট (GRAND TOTAL PIECES RECEIVED)
-  // মোট = মোট পিস (sum) + মোট ফ্রি (sum) − মোট আনডেলিভারি (sum)
+  // মোট = মোট পিস (sum) + মোট ফ্রি (sum)
+  // (Do NOT subtract আনডেলিভারি from this total.)
   const grandTotalPieces = useMemo(() => {
-    const { sumTotalPieces, sumFreePieces, sumUndelivered } = columnTotals;
-    return Math.max(0, sumTotalPieces + sumFreePieces - sumUndelivered);
+    const { sumTotalPieces, sumFreePieces } = columnTotals;
+    return Math.max(0, sumTotalPieces + sumFreePieces);
   }, [columnTotals]);
 
   // 5. পিছ মূল্য (PER PIECE COST)
@@ -287,6 +288,13 @@ export const ChallanCheckModule: React.FC = () => {
     if (parsedPiecesPerCarton <= 0 || grandTotalPieces <= 0) return 0;
     return grandTotalPieces / parsedPiecesPerCarton;
   }, [grandTotalPieces, parsedPiecesPerCarton]);
+
+  // Undelivered carton count
+  // আনডেলিভারি কার্টুন সমতুল্য = আনডেলিভারি পিস ÷ কত পিছে কার্টুন
+  const undeliveredCartonCount = useMemo(() => {
+    if (parsedPiecesPerCarton <= 0 || columnTotals.sumUndelivered <= 0) return 0;
+    return columnTotals.sumUndelivered / parsedPiecesPerCarton;
+  }, [columnTotals.sumUndelivered, parsedPiecesPerCarton]);
 
   // Helper format decimal/integer
   const formatCartonNumber = (val: number): string => {
@@ -663,6 +671,18 @@ export const ChallanCheckModule: React.FC = () => {
                   </strong>{' '}
                   <span className="text-xs text-slate-500 font-mono">({formatCartonNumberEn(cartonCount)})</span>
                 </span>
+                {columnTotals.sumUndelivered > 0 && (
+                  <>
+                    <span className="text-slate-300">|</span>
+                    <span className="text-rose-700 font-medium">
+                      আনডেলিভারি:{' '}
+                      <strong className="font-mono font-bold">
+                        {toBengaliDigits(columnTotals.sumUndelivered)}
+                      </strong>{' '}
+                      <span className="text-xs text-rose-500 font-mono">({columnTotals.sumUndelivered})</span>
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -848,9 +868,19 @@ export const ChallanCheckModule: React.FC = () => {
                 <span className="font-bold text-slate-900 block">
                   ৪. মোট প্রাপ্ত পিস (Grand Total Pieces Received)
                 </span>
-                <span className="text-[11px] text-slate-500 font-mono">
-                  মোট পিস ({columnTotals.sumTotalPieces}) + মোট ফ্রি ({columnTotals.sumFreePieces}) − মোট আনডেলিভারি ({columnTotals.sumUndelivered})
+                <span className="text-[11px] text-slate-600 font-mono">
+                  মোট পিস ({columnTotals.sumTotalPieces}) + মোট ফ্রি ({columnTotals.sumFreePieces})
                 </span>
+                <div className="text-[11px] text-slate-500 font-medium mt-0.5 font-bengali">
+                  মোট আনডেলিভারি:{' '}
+                  <strong className="font-mono text-rose-700">
+                    {toBengaliDigits(columnTotals.sumUndelivered)}
+                  </strong>{' '}
+                  পিস{' '}
+                  <span className="text-slate-400 text-[10px]">
+                    (রেফারেন্স/ট্র্যাকিং — মোটে বিয়োগ হবে না)
+                  </span>
+                </div>
               </div>
               <div className="text-right">
                 <span className="text-lg font-black text-indigo-950 font-mono">
@@ -1031,6 +1061,22 @@ export const ChallanCheckModule: React.FC = () => {
                 <span className="text-indigo-300 block text-[10px]">মোট কার্টুন সমতুল্য</span>
                 <span className="text-sm font-bold font-mono text-white">
                   {formatCartonNumber(cartonCount)} কা.
+                </span>
+              </div>
+            </div>
+
+            {/* Delivery & Quantity Breakdown Lines */}
+            <div className="space-y-2 pt-2 border-t border-indigo-700/60 text-xs font-bengali">
+              <div className="flex items-center justify-between bg-indigo-950/50 rounded-xl px-3 py-2 border border-indigo-700/40">
+                <span className="text-indigo-200 font-bold">প্রাপ্তি:</span>
+                <span className="font-bold text-white font-mono">
+                  {toBengaliDigits(grandTotalPieces)} পিস ({formatCartonNumber(cartonCount)} কার্টুন)
+                </span>
+              </div>
+              <div className="flex items-center justify-between bg-indigo-950/50 rounded-xl px-3 py-2 border border-indigo-700/40">
+                <span className="text-indigo-200 font-bold">আনডেলিভারি:</span>
+                <span className="font-bold text-rose-300 font-mono">
+                  {toBengaliDigits(columnTotals.sumUndelivered)} পিস ({formatCartonNumber(undeliveredCartonCount)} কার্টুন)
                 </span>
               </div>
             </div>
