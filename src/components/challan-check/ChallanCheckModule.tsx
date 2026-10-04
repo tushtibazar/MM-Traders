@@ -236,12 +236,12 @@ export const ChallanCheckModule: React.FC = () => {
     };
   }, [rows]);
 
-  // 4. মোট (GRAND TOTAL PIECES RECEIVED)
-  // মোট = মোট পিস (sum) + মোট ফ্রি (sum)
-  // (Do NOT subtract আনডেলিভারি from this total.)
+  // 4. মোট পিস (GRAND TOTAL PIECES)
+  // মোট পিস = মোট পিস (sum) + মোট ফ্রি (sum) + মোট আনডেলিভারি (sum)
+  // (All three values — ক্রয় করা পিস, ফ্রি পিস, এবং আনডেলিভারি পিস — are added together)
   const grandTotalPieces = useMemo(() => {
-    const { sumTotalPieces, sumFreePieces } = columnTotals;
-    return Math.max(0, sumTotalPieces + sumFreePieces);
+    const { sumTotalPieces, sumFreePieces, sumUndelivered } = columnTotals;
+    return Math.max(0, sumTotalPieces + sumFreePieces + sumUndelivered);
   }, [columnTotals]);
 
   // 5. পিছ মূল্য (PER PIECE COST)
@@ -551,7 +551,7 @@ export const ChallanCheckModule: React.FC = () => {
                   </button>
                 </div>
                 <div className="mt-1 text-slate-500 text-[11px]">
-                  মোট পিছ: <strong>{toBengaliDigits(item.grandTotalPieces)}</strong> • কার্টুন:{' '}
+                  মোট পিস: <strong>{toBengaliDigits(item.grandTotalPieces)}</strong> • কার্টুন:{' '}
                   <strong>{formatCartonNumber(item.cartonCount)}</strong>
                 </div>
                 <div className="mt-1 text-emerald-700 font-bold font-mono">
@@ -657,7 +657,7 @@ export const ChallanCheckModule: React.FC = () => {
               </div>
               <div className="text-base sm:text-lg font-black text-indigo-950 flex items-center gap-3 mt-0.5">
                 <span>
-                  মোট পিছ:{' '}
+                  মোট পিস:{' '}
                   <strong className="font-mono text-indigo-700">
                     {toBengaliDigits(grandTotalPieces)}
                   </strong>{' '}
@@ -821,7 +821,10 @@ export const ChallanCheckModule: React.FC = () => {
             <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-100 font-extrabold text-slate-900 text-xs sm:text-sm font-bengali">
                 <td className="py-3 px-3 text-center">
-                  যোগফল
+                  <div className="font-extrabold">যোগফল</div>
+                  <div className="text-[11px] font-bold text-indigo-700 font-mono mt-0.5 whitespace-nowrap">
+                    ({currency}{columnTotals.sumPurchasePrice > 0 ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '০.০০'} টাকায় {toBengaliDigits(grandTotalPieces)} পিস)
+                  </div>
                 </td>
                 {/* মোট ক্রয় মূল্য */}
                 <td className="py-3 px-3 text-right font-mono font-black text-slate-950 bg-slate-200/70">
@@ -844,6 +847,17 @@ export const ChallanCheckModule: React.FC = () => {
                 </td>
                 <td></td>
               </tr>
+              {/* Clarifying note row */}
+              <tr className="border-t border-slate-200 bg-indigo-50/40 text-xs sm:text-sm font-bengali">
+                <td colSpan={6} className="py-2.5 px-4 text-center sm:text-right">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white border border-indigo-200 shadow-2xs">
+                    <span className="text-slate-600 font-medium">সামগ্রিক ক্রয় অনুপাত:</span>
+                    <strong className="font-mono text-indigo-950 font-bold">
+                      ({currency}{columnTotals.sumPurchasePrice > 0 ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '০.০০'} টাকায় {toBengaliDigits(grandTotalPieces)} পিস)
+                    </strong>
+                  </span>
+                </td>
+              </tr>
             </tfoot>
           </table>
         </div>
@@ -862,14 +876,14 @@ export const ChallanCheckModule: React.FC = () => {
           </div>
 
           <div className="space-y-3.5 text-xs sm:text-sm">
-            {/* 4. মোট (GRAND TOTAL PIECES RECEIVED) */}
+            {/* 4. মোট পিস (GRAND TOTAL PIECES) */}
             <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <span className="font-bold text-slate-900 block">
-                  ৪. মোট প্রাপ্ত পিস (Grand Total Pieces Received)
+                  ৪. মোট পিস (Grand Total Pieces)
                 </span>
                 <span className="text-[11px] text-slate-600 font-mono">
-                  মোট পিস ({columnTotals.sumTotalPieces}) + মোট ফ্রি ({columnTotals.sumFreePieces})
+                  মোট পিস ({columnTotals.sumTotalPieces}) + মোট ফ্রি ({columnTotals.sumFreePieces}) + মোট আনডেলিভারি ({columnTotals.sumUndelivered})
                 </span>
                 <div className="text-[11px] text-slate-500 font-medium mt-0.5 font-bengali">
                   মোট আনডেলিভারি:{' '}
@@ -878,7 +892,7 @@ export const ChallanCheckModule: React.FC = () => {
                   </strong>{' '}
                   পিস{' '}
                   <span className="text-slate-400 text-[10px]">
-                    (রেফারেন্স/ট্র্যাকিং — মোটে বিয়োগ হবে না)
+                    (মোটে অন্তর্ভুক্ত এবং পৃথকভাবেও প্রদর্শিত)
                   </span>
                 </div>
               </div>
@@ -897,7 +911,7 @@ export const ChallanCheckModule: React.FC = () => {
                   ৫. পিছ মূল্য (Per Piece Cost)
                 </span>
                 <span className="text-[11px] text-slate-500 font-mono">
-                  মোট ক্রয় মূল্য ({columnTotals.sumPurchasePrice.toFixed(2)}) ÷ মোট প্রাপ্ত পিস ({grandTotalPieces})
+                  মোট ক্রয় মূল্য ({columnTotals.sumPurchasePrice.toFixed(2)}) ÷ মোট পিস ({grandTotalPieces})
                 </span>
               </div>
               <div className="text-right">
@@ -1052,7 +1066,7 @@ export const ChallanCheckModule: React.FC = () => {
                 </span>
               </div>
               <div className="bg-indigo-950/50 rounded-xl p-2.5 border border-indigo-700/40">
-                <span className="text-indigo-300 block text-[10px]">মোট প্রাপ্ত পিস</span>
+                <span className="text-indigo-300 block text-[10px]">মোট পিস</span>
                 <span className="text-sm font-bold font-mono text-white">
                   {toBengaliDigits(grandTotalPieces)} পিস
                 </span>
@@ -1068,7 +1082,7 @@ export const ChallanCheckModule: React.FC = () => {
             {/* Delivery & Quantity Breakdown Lines */}
             <div className="space-y-2 pt-2 border-t border-indigo-700/60 text-xs font-bengali">
               <div className="flex items-center justify-between bg-indigo-950/50 rounded-xl px-3 py-2 border border-indigo-700/40">
-                <span className="text-indigo-200 font-bold">প্রাপ্তি:</span>
+                <span className="text-indigo-200 font-bold">মোট পিস:</span>
                 <span className="font-bold text-white font-mono">
                   {toBengaliDigits(grandTotalPieces)} পিস ({formatCartonNumber(cartonCount)} কার্টুন)
                 </span>

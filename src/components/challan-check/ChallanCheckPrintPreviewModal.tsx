@@ -70,7 +70,7 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
   const metadata = [
     { label: 'তারিখ', value: formatDate(todayDateStr) },
     { label: 'পণ্যের নাম', value: productName.trim() || 'সাধারণ চালান হিসাব' },
-    { label: 'প্রাপ্তি', value: `${toBengaliDigits(grandTotalPieces)} পিস (${formatCartonNumber(cartonCount)} কার্টুন)` },
+    { label: 'মোট পিস', value: `${toBengaliDigits(grandTotalPieces)} পিস (${formatCartonNumber(cartonCount)} কার্টুন)` },
     { label: 'আনডেলিভারি', value: `${toBengaliDigits(columnTotals.sumUndelivered)} পিস (${formatCartonNumber(undeliveredCartonCount)} কার্টুন)` },
     {
       label: 'চূড়ান্ত বিক্রয় মূল্য',
@@ -108,7 +108,7 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
           {/* 1. TOP SUMMARY KPI CARDS STRIP */}
           <div className="grid grid-cols-4 gap-2 mb-4 text-xs">
             <div className="bg-slate-50 border border-slate-300 rounded p-2 text-center">
-              <span className="text-[10px] text-slate-500 block">মোট প্রাপ্ত পিস</span>
+              <span className="text-[10px] text-slate-500 block">মোট পিস</span>
               <span className="text-base font-bold font-mono text-slate-900">
                 {toBengaliDigits(grandTotalPieces)}{' '}
                 <span className="text-[10px] font-normal font-sans">পিস</span>
@@ -210,6 +210,11 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
                     {toBengaliDigits(columnTotals.sumUndelivered)}
                   </td>
                 </tr>
+                <tr className="border-t border-slate-200 bg-slate-50 text-[11px]">
+                  <td colSpan={5} className="py-1.5 px-3 text-right font-bold text-slate-800">
+                    ({currency}{columnTotals.sumPurchasePrice > 0 ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '০.০০'} টাকায় {toBengaliDigits(grandTotalPieces)} পিস)
+                  </td>
+                </tr>
               </tfoot>
             </table>
           </div>
@@ -222,12 +227,7 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
             <div className="p-3 text-xs space-y-2 bg-white">
               <div className="flex justify-between items-center py-1 border-b border-slate-100">
                 <span className="text-slate-700">
-                  <strong>১. মোট প্রাপ্ত পিস (Grand Total Pieces):</strong> মোট পিস ({toBengaliDigits(columnTotals.sumTotalPieces)}) + ফ্রি ({toBengaliDigits(columnTotals.sumFreePieces)})
-                  {columnTotals.sumUndelivered > 0 && (
-                    <span className="text-rose-600 font-semibold ml-2">
-                      [মোট আনডেলিভারি: {toBengaliDigits(columnTotals.sumUndelivered)} পিস — পৃথক প্রদর্শিত]
-                    </span>
-                  )}
+                  <strong>১. মোট পিস (Grand Total Pieces):</strong> মোট পিস ({toBengaliDigits(columnTotals.sumTotalPieces)}) + ফ্রি ({toBengaliDigits(columnTotals.sumFreePieces)}) + আনডেলিভারি ({toBengaliDigits(columnTotals.sumUndelivered)})
                 </span>
                 <span className="font-mono font-bold text-slate-900">
                   = {toBengaliDigits(grandTotalPieces)} পিস
@@ -236,7 +236,7 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
 
               <div className="flex justify-between items-center py-1 border-b border-slate-100">
                 <span className="text-slate-700">
-                  <strong>২. পিছ মূল্য (Per Piece Cost):</strong> মোট ক্রয় মূল্য ({currency}{toBengaliDigits(columnTotals.sumPurchasePrice.toFixed(2))}) ÷ মোট প্রাপ্ত পিস ({toBengaliDigits(grandTotalPieces)})
+                  <strong>২. পিছ মূল্য (Per Piece Cost):</strong> মোট ক্রয় মূল্য ({currency}{toBengaliDigits(columnTotals.sumPurchasePrice.toFixed(2))}) ÷ মোট পিস ({toBengaliDigits(grandTotalPieces)})
                 </span>
                 <span className="font-mono font-bold text-slate-900">
                   = {currency} {perPieceCost > 0 ? toBengaliDigits(perPieceCost.toFixed(3)) : '০.০০'}
@@ -288,7 +288,7 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
 
               <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200 text-xs">
                 <div className="flex justify-between items-center bg-slate-50 px-2 py-1 rounded border border-slate-200">
-                  <span className="text-slate-700 font-bold">প্রাপ্তি:</span>
+                  <span className="text-slate-700 font-bold">মোট পিস:</span>
                   <span className="font-mono font-bold text-slate-900">
                     {toBengaliDigits(grandTotalPieces)} পিস ({formatCartonNumber(cartonCount)} কার্টুন)
                   </span>
