@@ -22,10 +22,10 @@ import {
 import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { toBengaliDigits } from '../../utils/dateUtils';
+import { ChallanCheckPrintPreviewModal } from './ChallanCheckPrintPreviewModal';
 
 interface BatchRow {
   id: string;
-  name: string; // e.g. "চালান ১"
   purchasePrice: string | number; // ক্রয় মূল্য (মোট টাকা)
   totalPieces: string | number; // মোট পিস
   freePieces: string | number; // ফ্রি পিস
@@ -50,7 +50,7 @@ interface SavedCalculation {
 const STORAGE_KEY = 'mm_traders_challan_check_history_v1';
 
 export const ChallanCheckModule: React.FC = () => {
-  const { db, currentUser, updateProduct } = useApp();
+  const { db, currentUser, updateProduct, todayDateStr } = useApp();
   const currency = db.settings.currency || '৳';
   const isOwner = currentUser.role === 'owner';
 
@@ -62,9 +62,9 @@ export const ChallanCheckModule: React.FC = () => {
 
   // 2. Batch Entry Table — 3 rows by default
   const [rows, setRows] = useState<BatchRow[]>([
-    { id: 'batch-1', name: 'চালান ১', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
-    { id: 'batch-2', name: 'চালান ২', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
-    { id: 'batch-3', name: 'চালান ৩', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+    { id: 'batch-1', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+    { id: 'batch-2', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+    { id: 'batch-3', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
   ]);
 
   // 6. কত পিছে কার্টুন (Pieces Per Carton) — manual input, default 24
@@ -89,6 +89,7 @@ export const ChallanCheckModule: React.FC = () => {
     }
   });
   const [showHistory, setShowHistory] = useState<boolean>(false);
+  const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState<boolean>(false);
 
   // Close product dropdown on click outside
   useEffect(() => {
@@ -143,12 +144,10 @@ export const ChallanCheckModule: React.FC = () => {
 
   // Add another batch row
   const handleAddRow = () => {
-    const newIdx = rows.length + 1;
     setRows((prev) => [
       ...prev,
       {
         id: `batch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        name: `চালান ${toBengaliDigits(newIdx)}`,
         purchasePrice: '',
         totalPieces: '',
         freePieces: '',
@@ -178,9 +177,9 @@ export const ChallanCheckModule: React.FC = () => {
   // Reset calculator to clean 3 rows
   const handleReset = () => {
     setRows([
-      { id: 'batch-1', name: 'চালান ১', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
-      { id: 'batch-2', name: 'চালান ২', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
-      { id: 'batch-3', name: 'চালান ৩', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+      { id: 'batch-1', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+      { id: 'batch-2', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+      { id: 'batch-3', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
     ]);
     setProductSearch('');
     setSelectedProductId('');
@@ -192,9 +191,9 @@ export const ChallanCheckModule: React.FC = () => {
   // Load a demo example (e.g. from user prompt reference)
   const handleLoadDemo = () => {
     setRows([
-      { id: 'batch-1', name: 'চালান ১', purchasePrice: '19699.20', totalPieces: '1152', freePieces: '144', undeliveredPieces: '0' },
-      { id: 'batch-2', name: 'চালান ২', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
-      { id: 'batch-3', name: 'চালান ৩', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+      { id: 'batch-1', purchasePrice: '19699.20', totalPieces: '1152', freePieces: '144', undeliveredPieces: '0' },
+      { id: 'batch-2', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
+      { id: 'batch-3', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
     ]);
     setProductSearch('উদাহরণ পণ্য (Sample Demo Product)');
     setSelectedProductId('');
@@ -470,11 +469,11 @@ export const ChallanCheckModule: React.FC = () => {
 
           <button
             type="button"
-            onClick={handlePrint}
-            className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-xs font-bengali"
+            onClick={() => setIsPrintPreviewOpen(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs sm:text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-xs font-bengali cursor-pointer"
           >
             <Printer className="h-4 w-4 text-slate-500" />
-            <span>প্রিন্ট</span>
+            <span>প্রিন্ট প্রিভিউ</span>
           </button>
         </div>
       </div>
@@ -565,7 +564,7 @@ export const ChallanCheckModule: React.FC = () => {
           {/* 1. নাম (Product Name) Search / Input */}
           <div ref={searchContainerRef} className="relative flex-1">
             <label className="block text-xs font-bold text-slate-700 mb-1.5 font-bengali">
-              ১. পণ্যের নাম (Product Name)
+              নাম (Product Name)
             </label>
             <div className="relative">
               <input
@@ -577,7 +576,7 @@ export const ChallanCheckModule: React.FC = () => {
                   setShowProductDropdown(true);
                 }}
                 onFocus={() => setShowProductDropdown(true)}
-                placeholder="পণ্যের নাম লিখুন বা পণ্য ও মূল্য থেকে সার্চ করে সিলেক্ট করুন..."
+                placeholder="পণ্যের নাম লিখুন বা সিলেক্ট করুন..."
                 className="w-full rounded-xl border border-slate-300 bg-slate-50/50 pl-10 pr-9 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all"
               />
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
@@ -699,7 +698,6 @@ export const ChallanCheckModule: React.FC = () => {
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100/90 text-slate-700 text-xs font-bold font-bengali">
                 <th className="py-3 px-3 w-12 text-center">#</th>
-                <th className="py-3 px-3 min-w-[130px]">চালান / ব্যাচ নাম</th>
                 <th className="py-3 px-3 min-w-[170px] text-right">
                   ক্রয় মূল্য (Purchase Price ৳)
                 </th>
@@ -722,17 +720,6 @@ export const ChallanCheckModule: React.FC = () => {
                     {/* Index */}
                     <td className="py-2.5 px-3 text-center text-xs font-mono font-bold text-slate-400">
                       {toBengaliDigits(idx + 1)}
-                    </td>
-
-                    {/* Batch Name / Note */}
-                    <td className="py-2.5 px-3">
-                      <input
-                        type="text"
-                        value={row.name}
-                        onChange={(e) => handleRowChange(row.id, 'name', e.target.value)}
-                        placeholder={`চালান ${idx + 1}`}
-                        className="w-full rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-800 focus:border-indigo-500 focus:outline-none"
-                      />
                     </td>
 
                     {/* ক্রয় মূল্য (Purchase Price) */}
@@ -813,8 +800,8 @@ export const ChallanCheckModule: React.FC = () => {
             {/* 3. COLUMN TOTALS (যোগফল) ROW */}
             <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-100 font-extrabold text-slate-900 text-xs sm:text-sm font-bengali">
-                <td colSpan={2} className="py-3 px-4 text-left">
-                  ৩. যোগফল (Column Totals)
+                <td className="py-3 px-3 text-center">
+                  যোগফল
                 </td>
                 {/* মোট ক্রয় মূল্য */}
                 <td className="py-3 px-3 text-right font-mono font-black text-slate-950 bg-slate-200/70">
@@ -1088,61 +1075,25 @@ export const ChallanCheckModule: React.FC = () => {
         </div>
       </div>
 
-      {/* Hidden Print Worksheet (Active during window.print()) */}
-      <div className="hidden print:block font-bengali text-black p-6 space-y-4">
-        <div className="text-center border-b pb-3">
-          <h1 className="text-2xl font-bold">{db.settings.businessName || 'MM TRADERS'}</h1>
-          <p className="text-xs">{db.settings.address || 'Proprietor: Mohammad Mamun'}</p>
-          <h2 className="text-base font-bold mt-2 underline">চালান চেক ও বিক্রয়মূল্য নির্ধারণ ওয়ার্কশিট</h2>
-          <p className="text-xs text-slate-600">তারিখ: {new Date().toLocaleDateString('bn-BD')}</p>
-        </div>
-
-        <div className="border p-3 rounded text-xs space-y-1">
-          <div><strong>পণ্যের নাম:</strong> {productSearch || 'নাম উল্লেখ নেই'}</div>
-          <div><strong>কত পিছে কার্টুন:</strong> {toBengaliDigits(parsedPiecesPerCarton)} পিস</div>
-          <div><strong>প্রফিট মার্জিন:</strong> {toBengaliDigits(parsedProfitMargin)}%</div>
-          <div><strong>মোট প্রাপ্ত পিস:</strong> {toBengaliDigits(grandTotalPieces)} পিস ({formatCartonNumber(cartonCount)} কার্টুন)</div>
-          <div><strong>পিছ মূল্য (ক্রয়):</strong> {currency} {toBengaliDigits(perPieceCost.toFixed(3))}</div>
-          <div><strong>প্রতি কার্টুন ক্রয় দর:</strong> {currency} {toBengaliDigits(costPerCarton.toFixed(2))}</div>
-          <div className="text-sm font-bold mt-2">
-            চূড়ান্ত বিক্রয় মূল্য (প্রতি কার্টুন): {currency} {toBengaliDigits(sellingPricePerCarton.toFixed(2))} (পিস প্রতি: {currency} {toBengaliDigits(sellingPricePerPiece.toFixed(2))})
-          </div>
-        </div>
-
-        <table className="w-full text-xs border border-collapse mt-4">
-          <thead>
-            <tr className="border bg-slate-100">
-              <th className="border p-2 text-center">#</th>
-              <th className="border p-2">চালান বিবরণ</th>
-              <th className="border p-2 text-right">ক্রয় মূল্য ({currency})</th>
-              <th className="border p-2 text-right">মোট পিস</th>
-              <th className="border p-2 text-right">ফ্রি</th>
-              <th className="border p-2 text-right">আনডেলিভারি</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r, i) => (
-              <tr key={r.id}>
-                <td className="border p-2 text-center">{toBengaliDigits(i + 1)}</td>
-                <td className="border p-2">{r.name}</td>
-                <td className="border p-2 text-right">{toBengaliDigits(r.purchasePrice || '০')}</td>
-                <td className="border p-2 text-right">{toBengaliDigits(r.totalPieces || '০')}</td>
-                <td className="border p-2 text-right">{toBengaliDigits(r.freePieces || '০')}</td>
-                <td className="border p-2 text-right">{toBengaliDigits(r.undeliveredPieces || '০')}</td>
-              </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr className="border font-bold bg-slate-100">
-              <td colSpan={2} className="border p-2 text-center">যোগফল</td>
-              <td className="border p-2 text-right">{currency} {toBengaliDigits(columnTotals.sumPurchasePrice.toFixed(2))}</td>
-              <td className="border p-2 text-right">{toBengaliDigits(columnTotals.sumTotalPieces)}</td>
-              <td className="border p-2 text-right">{toBengaliDigits(columnTotals.sumFreePieces)}</td>
-              <td className="border p-2 text-right">{toBengaliDigits(columnTotals.sumUndelivered)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+      {/* Print Preview Modal */}
+      <ChallanCheckPrintPreviewModal
+        isOpen={isPrintPreviewOpen}
+        onClose={() => setIsPrintPreviewOpen(false)}
+        settings={db.settings}
+        currency={currency}
+        productName={productSearch}
+        rows={rows}
+        columnTotals={columnTotals}
+        grandTotalPieces={grandTotalPieces}
+        cartonCount={cartonCount}
+        perPieceCost={perPieceCost}
+        piecesPerCarton={parsedPiecesPerCarton}
+        costPerCarton={costPerCarton}
+        profitMargin={parsedProfitMargin}
+        sellingPricePerCarton={sellingPricePerCarton}
+        sellingPricePerPiece={sellingPricePerPiece}
+        todayDateStr={todayDateStr}
+      />
     </div>
   );
 };
