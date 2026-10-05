@@ -65,3 +65,26 @@
     display: none !important;
   }
 }
+
+/* Hide number input spinner arrows */
+input[type=number].no-spinners::-webkit-inner-spin-button,
+input[type=number].no-spinners::-webkit-outer-spin-button,
+.no-spinners::-webkit-inner-spin-button,
+.no-spinners::-webkit-outer-spin-button {
+  -webkit-appearance: none !important;
+  margin: 0 !important;
+}
+
+input[type=number].no-spinners,
+.no-spinners {
+  -moz-appearance: textfield !important;
+  appearance: textfield !important;
+}
+
+/* Fixed width constraints for batch table inputs */
+.batch-table-input {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}

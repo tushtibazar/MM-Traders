@@ -62,6 +62,16 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
     return toBengaliDigits(numStr);
   };
 
+  // Helper to format monetary values with standard comma thousand-separators
+  const formatMoneyBn = (val: number, maxDecimals: number = 2, minDecimals: number = 2): string => {
+    if (isNaN(val) || !isFinite(val) || val <= 0) return '০.০০';
+    const str = val.toLocaleString('en-US', {
+      minimumFractionDigits: minDecimals,
+      maximumFractionDigits: maxDecimals,
+    });
+    return toBengaliDigits(str);
+  };
+
   const undeliveredCartonCount =
     piecesPerCarton > 0 && columnTotals.sumUndelivered > 0
       ? columnTotals.sumUndelivered / piecesPerCarton
@@ -74,7 +84,7 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
     { label: 'আনডেলিভারি', value: `${toBengaliDigits(columnTotals.sumUndelivered)} পিস (${formatCartonNumber(undeliveredCartonCount)} কার্টুন)` },
     {
       label: 'চূড়ান্ত বিক্রয় মূল্য',
-      value: `${currency} ${toBengaliDigits(sellingPricePerCarton.toFixed(2))} / কা.`,
+      value: `${currency} ${formatMoneyBn(sellingPricePerCarton, 2, 2)} / কা.`,
     },
   ];
 
@@ -124,13 +134,13 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
             <div className="bg-slate-50 border border-slate-300 rounded p-2 text-center">
               <span className="text-[10px] text-slate-500 block">পিছ মূল্য (ক্রয়)</span>
               <span className="text-base font-bold font-mono text-slate-900">
-                {currency} {toBengaliDigits(perPieceCost.toFixed(3).replace(/\.?0+$/, ''))}
+                {currency} {formatMoneyBn(perPieceCost, 3, 2)}
               </span>
             </div>
             <div className="bg-emerald-50 border border-emerald-300 rounded p-2 text-center">
               <span className="text-[10px] text-emerald-800 font-bold block">বিক্রয় মূল্য (কার্টুন)</span>
               <span className="text-base font-bold font-mono text-emerald-950">
-                {currency} {toBengaliDigits(sellingPricePerCarton.toFixed(2))}
+                {currency} {formatMoneyBn(sellingPricePerCarton, 2, 2)}
               </span>
             </div>
           </div>
@@ -236,10 +246,10 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
 
               <div className="flex justify-between items-center py-1 border-b border-slate-100">
                 <span className="text-slate-700">
-                  <strong>২. পিছ মূল্য (Per Piece Cost):</strong> মোট ক্রয় মূল্য ({currency}{toBengaliDigits(columnTotals.sumPurchasePrice.toFixed(2))}) ÷ মোট পিস ({toBengaliDigits(grandTotalPieces)})
+                  <strong>২. পিছ মূল্য (Per Piece Cost):</strong> মোট ক্রয় মূল্য ({currency}{formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)}) ÷ মোট পিস ({toBengaliDigits(grandTotalPieces)})
                 </span>
                 <span className="font-mono font-bold text-slate-900">
-                  = {currency} {perPieceCost > 0 ? toBengaliDigits(perPieceCost.toFixed(3)) : '০.০০'}
+                  = {currency} {formatMoneyBn(perPieceCost, 3, 2)}
                 </span>
               </div>
 
@@ -254,10 +264,10 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
 
               <div className="flex justify-between items-center py-1 border-b border-slate-100">
                 <span className="text-slate-700">
-                  <strong>৪. প্রতি কার্টুন ক্রয় (Purchase Cost Per Carton):</strong> পিছ মূল্য ({currency}{toBengaliDigits(perPieceCost.toFixed(3))}) × কত পিছে কার্টুন ({toBengaliDigits(piecesPerCarton)})
+                  <strong>৪. প্রতি কার্টুন ক্রয় (Purchase Cost Per Carton):</strong> পিছ মূল্য ({currency}{formatMoneyBn(perPieceCost, 3, 2)}) × কত পিছে কার্টুন ({toBengaliDigits(piecesPerCarton)})
                 </span>
                 <span className="font-mono font-bold text-slate-900">
-                  = {currency} {costPerCarton > 0 ? toBengaliDigits(costPerCarton.toFixed(2)) : '০.০০'}
+                  = {currency} {formatMoneyBn(costPerCarton, 2, 2)}
                 </span>
               </div>
 
@@ -275,14 +285,14 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
                   ৬. চূড়ান্ত বিক্রয় মূল্য (Final Selling Price Per Carton): প্রতি কার্টুন ক্রয় × (১ + {toBengaliDigits(profitMargin)}% ÷ ১০০)
                 </span>
                 <span className="font-mono text-base">
-                  = {currency} {sellingPricePerCarton > 0 ? toBengaliDigits(sellingPricePerCarton.toFixed(2)) : '০.০০'}
+                  = {currency} {formatMoneyBn(sellingPricePerCarton, 2, 2)}
                 </span>
               </div>
 
               <div className="flex justify-between items-center text-xs text-slate-600 px-2">
                 <span>পিস প্রতি চূড়ান্ত বিক্রয় মূল্য (Selling Price Per Piece):</span>
                 <span className="font-mono font-bold text-slate-900">
-                  = {currency} {sellingPricePerPiece > 0 ? toBengaliDigits(sellingPricePerPiece.toFixed(2)) : '০.০০'} / পিস
+                  = {currency} {formatMoneyBn(sellingPricePerPiece, 2, 2)} / পিস
                 </span>
               </div>
 

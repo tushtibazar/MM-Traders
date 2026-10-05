@@ -49,6 +49,47 @@ interface SavedCalculation {
 
 const STORAGE_KEY = 'mm_traders_challan_check_history_v1';
 
+// Format clean numeric string into thousands-separated comma string (e.g. 19699.20 -> 19,699.20)
+export const formatCurrencyDisplay = (val: string | number): string => {
+  if (val === '' || val === null || val === undefined) return '';
+  const str = String(val).replace(/,/g, '').trim();
+  if (!str) return '';
+  const parts = str.split('.');
+  const intPart = parts[0];
+  const decPart = parts.length > 1 ? '.' + parts[1] : '';
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return formattedInt + decPart;
+};
+
+// Sanitize raw typed string into clean numeric string (strips commas, keeps at most 1 decimal)
+export const sanitizeCurrencyValue = (val: string): string => {
+  let clean = val.replace(/,/g, '').replace(/[^\d.]/g, '');
+  const parts = clean.split('.');
+  if (parts.length > 2) {
+    clean = parts[0] + '.' + parts.slice(1).join('');
+  }
+  return clean;
+};
+
+// Format numeric monetary values into Bengali localized strings with commas
+export const formatMoneyBn = (val: number, maxDecimals: number = 2, minDecimals: number = 2): string => {
+  if (isNaN(val) || !isFinite(val) || val <= 0) return '০.০০';
+  const str = val.toLocaleString('en-US', {
+    minimumFractionDigits: minDecimals,
+    maximumFractionDigits: maxDecimals,
+  });
+  return toBengaliDigits(str);
+};
+
+// Format numeric monetary values into English strings with commas
+export const formatMoneyEn = (val: number, maxDecimals: number = 2, minDecimals: number = 2): string => {
+  if (isNaN(val) || !isFinite(val) || val <= 0) return '0.00';
+  return val.toLocaleString('en-US', {
+    minimumFractionDigits: minDecimals,
+    maximumFractionDigits: maxDecimals,
+  });
+};
+
 export const ChallanCheckModule: React.FC = () => {
   const { db, currentUser, updateProduct, todayDateStr } = useApp();
   const currency = db.settings.currency || '৳';
@@ -172,6 +213,155 @@ export const ChallanCheckModule: React.FC = () => {
         return r;
       })
     );
+  };
+
+  // Handle purchase price change with comma formatting and cursor preservation
+  const handlePurchasePriceChange = (
+    id: string,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const input = e.target;
+    const rawVal = input.value;
+    const selectionStart = input.selectionStart || 0;
+
+    // Count how many non-comma characters were before the cursor
+    const rawBefore = rawVal.slice(0, selectionStart);
+    const charsBefore = rawBefore.replace(/,/g, '').length;
+
+    // Clean number without commas for underlying storage
+    const clean = sanitizeCurrencyValue(rawVal);
+    handleRowChange(id, 'purchasePrice', clean);
+
+    // Formatted value for display
+    const formatted = formatCurrencyDisplay(clean);
+
+    // Calculate new cursor position in formatted string
+    requestAnimationFrame(() => {
+      let charCount = 0;
+      let newCursor = formatted.length;
+      for (let i = 0; i < formatted.length; i++) {
+        if (formatted[i] !== ',') {
+          charCount++;
+        }
+        if (charCount >= charsBefore) {
+          newCursor = i + 1;
+          break;
+        }
+      }
+      try {
+        input.setSelectionRange(newCursor, newCursor);
+      } catch {
+        // ignore
+      }
+    });
+  };
+
+  // Check if cursor is at the very beginning of the numeric input
+  const isCursorAtStart = (input: HTMLInputElement): boolean => {
+    if (!input.value) return true;
+    try {
+      if (typeof input.selectionStart === 'number') {
+        return input.selectionStart === 0 && input.selectionEnd === 0;
+      }
+    } catch {
+      try {
+        input.type = 'text';
+        const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
+        input.type = 'number';
+        return atStart;
+      } catch {
+        // Fallback
+      }
+    }
+    return false;
+  };
+
+  // Check if cursor is at the very end of the numeric input
+  const isCursorAtEnd = (input: HTMLInputElement): boolean => {
+    if (!input.value) return true;
+    try {
+      if (typeof input.selectionStart === 'number') {
+        return input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+      }
+    } catch {
+      try {
+        input.type = 'text';
+        const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
+        input.type = 'number';
+        return atEnd;
+      } catch {
+        // Fallback
+      }
+    }
+    return false;
+  };
+
+  // Move focus to another cell in the batch grid
+  const focusBatchCell = (
+    targetRow: number,
+    targetCol: number,
+    cursorPos?: 'start' | 'end'
+  ) => {
+    const targetId = `batch-cell-${targetRow}-${targetCol}`;
+    const target = document.getElementById(targetId) as HTMLInputElement | null;
+    if (!target) return;
+    target.focus();
+    if (cursorPos && target.value) {
+      try {
+        if (cursorPos === 'start') {
+          target.setSelectionRange(0, 0);
+        } else {
+          target.setSelectionRange(target.value.length, target.value.length);
+        }
+      } catch {
+        try {
+          target.type = 'text';
+          if (cursorPos === 'start') {
+            target.setSelectionRange(0, 0);
+          } else {
+            target.setSelectionRange(target.value.length, target.value.length);
+          }
+          target.type = 'number';
+        } catch {
+          // ignore
+        }
+      }
+    }
+  };
+
+  // Handle spreadsheet-style arrow key navigation between table cells
+  const handleBatchKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+    rowIndex: number,
+    colIndex: number
+  ) => {
+    const input = e.currentTarget;
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (rowIndex > 0) {
+        focusBatchCell(rowIndex - 1, colIndex);
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (rowIndex < rows.length - 1) {
+        focusBatchCell(rowIndex + 1, colIndex);
+      }
+    } else if (e.key === 'ArrowLeft') {
+      if (isCursorAtStart(input)) {
+        e.preventDefault();
+        if (colIndex > 0) {
+          focusBatchCell(rowIndex, colIndex - 1, 'end');
+        }
+      }
+    } else if (e.key === 'ArrowRight') {
+      if (isCursorAtEnd(input)) {
+        e.preventDefault();
+        if (colIndex < 3) {
+          focusBatchCell(rowIndex, colIndex + 1, 'start');
+        }
+      }
+    }
   };
 
   // Reset calculator to clean 3 rows
@@ -348,7 +538,7 @@ export const ChallanCheckModule: React.FC = () => {
 
     setNotification({
       type: 'success',
-      message: `সাফল্যের সাথে "${matchedProduct.name}" পণ্যের মূল্য আপডেট করা হয়েছে! নতুন কার্টন রেট: ${currency} ${toBengaliDigits(roundedSellingPrice)} (পিস প্রতি: ${currency} ${toBengaliDigits(roundedPerPiecePrice)})`,
+      message: `সাফল্যের সাথে "${matchedProduct.name}" পণ্যের মূল্য আপডেট করা হয়েছে! নতুন কার্টন রেট: ${currency} ${formatMoneyBn(roundedSellingPrice, 2, 2)} (পিস প্রতি: ${currency} ${formatMoneyBn(roundedPerPiecePrice, 2, 2)})`,
     });
   };
 
@@ -555,7 +745,7 @@ export const ChallanCheckModule: React.FC = () => {
                   <strong>{formatCartonNumber(item.cartonCount)}</strong>
                 </div>
                 <div className="mt-1 text-emerald-700 font-bold font-mono">
-                  বিক্রয় দর: {currency} {toBengaliDigits(item.sellingPricePerCarton.toFixed(2))}
+                  বিক্রয় দর: {currency} {formatMoneyBn(item.sellingPricePerCarton, 2, 2)}
                 </div>
                 <div className="mt-0.5 text-[10px] text-slate-400">
                   {new Date(item.date).toLocaleString('bn-BD')}
@@ -627,7 +817,7 @@ export const ChallanCheckModule: React.FC = () => {
                           {p.code}
                         </span>
                         <div className="text-[11px] text-slate-500 font-bengali mt-0.5">
-                          ১ কার্টুন = {toBengaliDigits(ratio)} পিস • বর্তমান কার্টন রেট: {currency}{toBengaliDigits(p.salePrice)}
+                          ১ কার্টুন = {toBengaliDigits(ratio)} পিস • বর্তমান কার্টন রেট: {currency}{formatMoneyBn(Number(p.salePrice) || 0, 2, 2)}
                         </div>
                       </div>
                       <span className="text-[11px] font-bold text-indigo-700 shrink-0 font-bengali">
@@ -643,7 +833,7 @@ export const ChallanCheckModule: React.FC = () => {
               <div className="mt-1.5 flex items-center gap-2 text-xs text-emerald-700 font-bengali">
                 <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                 <span>
-                  পণ্য চিহ্নিত: <strong>{matchedProduct.name}</strong> [{matchedProduct.code}] — বর্তমান কার্টন দর: {currency}{toBengaliDigits(matchedProduct.salePrice)}
+                  পণ্য চিহ্নিত: <strong>{matchedProduct.name}</strong> [{matchedProduct.code}] — বর্তমান কার্টন দর: {currency}{formatMoneyBn(Number(matchedProduct.salePrice), 2, 2)}
                 </span>
               </div>
             )}
@@ -713,24 +903,32 @@ export const ChallanCheckModule: React.FC = () => {
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs sm:text-sm">
+        <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+          <table className="w-full table-fixed min-w-[700px] text-left border-collapse text-xs sm:text-sm">
+            <colgroup>
+              <col className="w-12 text-center" />
+              <col className="w-[31%] min-w-[180px]" />
+              <col className="w-[23%] min-w-[140px]" />
+              <col className="w-[20%] min-w-[120px]" />
+              <col className="w-[23%] min-w-[140px]" />
+              <col className="w-10 text-center" />
+            </colgroup>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100/90 text-slate-700 text-xs font-bold font-bengali">
-                <th className="py-3 px-3 w-12 text-center">#</th>
-                <th className="py-3 px-3 min-w-[170px] text-right">
+                <th className="py-3 px-3 text-center">#</th>
+                <th className="py-3 px-3 text-right">
                   ক্রয় মূল্য (Purchase Price ৳)
                 </th>
-                <th className="py-3 px-3 min-w-[150px] text-right">
+                <th className="py-3 px-3 text-right">
                   মোট পিস (Quantity Purchased)
                 </th>
-                <th className="py-3 px-3 min-w-[140px] text-right">
+                <th className="py-3 px-3 text-right">
                   ফ্রি (Free Pieces)
                 </th>
-                <th className="py-3 px-3 min-w-[160px] text-right">
+                <th className="py-3 px-3 text-right">
                   আনডেলিভারি (Undelivered)
                 </th>
-                <th className="py-3 px-2 w-10 text-center"></th>
+                <th className="py-3 px-2 text-center"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -738,69 +936,82 @@ export const ChallanCheckModule: React.FC = () => {
                 return (
                   <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
                     {/* Index */}
-                    <td className="py-2.5 px-3 text-center text-xs font-mono font-bold text-slate-400">
+                    <td className="py-2.5 px-3 text-center text-xs font-mono font-bold text-slate-400 overflow-hidden">
                       {toBengaliDigits(idx + 1)}
                     </td>
 
                     {/* ক্রয় মূল্য (Purchase Price) */}
-                    <td className="py-2.5 px-3">
-                      <div className="relative">
-                        <span className="absolute left-2.5 top-1.5 text-xs text-slate-400 font-mono font-bold">
+                    <td className="py-2.5 px-3 overflow-hidden">
+                      <div className="relative w-full max-w-full min-w-0">
+                        <span className="absolute left-2.5 top-1.5 text-xs text-slate-400 font-mono font-bold pointer-events-none z-10">
                           {currency}
                         </span>
                         <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={row.purchasePrice}
-                          onChange={(e) => handleRowChange(row.id, 'purchasePrice', e.target.value)}
+                          id={`batch-cell-${idx}-0`}
+                          type="text"
+                          inputMode="decimal"
+                          value={formatCurrencyDisplay(row.purchasePrice)}
+                          onChange={(e) => handlePurchasePriceChange(row.id, e)}
+                          onKeyDown={(e) => handleBatchKeyDown(e, idx, 0)}
                           placeholder="0.00"
-                          className="w-full text-right rounded-lg border border-slate-300 bg-white pl-6 pr-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                          className="batch-table-input no-spinners w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white pl-6 pr-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none overflow-x-auto"
                         />
                       </div>
                     </td>
 
                     {/* মোট পিস (Quantity Purchased) */}
-                    <td className="py-2.5 px-3">
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={row.totalPieces}
-                        onChange={(e) => handleRowChange(row.id, 'totalPieces', e.target.value)}
-                        placeholder="0"
-                        className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-indigo-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-                      />
+                    <td className="py-2.5 px-3 overflow-hidden">
+                      <div className="w-full max-w-full min-w-0">
+                        <input
+                          id={`batch-cell-${idx}-1`}
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={row.totalPieces}
+                          onChange={(e) => handleRowChange(row.id, 'totalPieces', e.target.value)}
+                          onKeyDown={(e) => handleBatchKeyDown(e, idx, 1)}
+                          placeholder="0"
+                          className="batch-table-input no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-indigo-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none overflow-x-auto"
+                        />
+                      </div>
                     </td>
 
                     {/* ফ্রি (Free Pieces) */}
-                    <td className="py-2.5 px-3">
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={row.freePieces}
-                        onChange={(e) => handleRowChange(row.id, 'freePieces', e.target.value)}
-                        placeholder="0"
-                        className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none"
-                      />
+                    <td className="py-2.5 px-3 overflow-hidden">
+                      <div className="w-full max-w-full min-w-0">
+                        <input
+                          id={`batch-cell-${idx}-2`}
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={row.freePieces}
+                          onChange={(e) => handleRowChange(row.id, 'freePieces', e.target.value)}
+                          onKeyDown={(e) => handleBatchKeyDown(e, idx, 2)}
+                          placeholder="0"
+                          className="batch-table-input no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none overflow-x-auto"
+                        />
+                      </div>
                     </td>
 
                     {/* আনডেলিভারি (Undelivered Pieces) */}
-                    <td className="py-2.5 px-3">
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={row.undeliveredPieces}
-                        onChange={(e) => handleRowChange(row.id, 'undeliveredPieces', e.target.value)}
-                        placeholder="0"
-                        className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
-                      />
+                    <td className="py-2.5 px-3 overflow-hidden">
+                      <div className="w-full max-w-full min-w-0">
+                        <input
+                          id={`batch-cell-${idx}-3`}
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={row.undeliveredPieces}
+                          onChange={(e) => handleRowChange(row.id, 'undeliveredPieces', e.target.value)}
+                          onKeyDown={(e) => handleBatchKeyDown(e, idx, 3)}
+                          placeholder="0"
+                          className="batch-table-input no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none overflow-x-auto"
+                        />
+                      </div>
                     </td>
 
                     {/* Delete action */}
-                    <td className="py-2.5 px-2 text-center">
+                    <td className="py-2.5 px-2 text-center overflow-hidden">
                       {rows.length > 1 && (
                         <button
                           type="button"
@@ -820,29 +1031,26 @@ export const ChallanCheckModule: React.FC = () => {
             {/* 3. COLUMN TOTALS (যোগফল) ROW */}
             <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-100 font-extrabold text-slate-900 text-xs sm:text-sm font-bengali">
-                <td className="py-3 px-3 text-center">
+                <td className="py-3 px-3 text-center overflow-hidden">
                   <div className="font-extrabold">যোগফল</div>
-                  <div className="text-[11px] font-bold text-indigo-700 font-mono mt-0.5 whitespace-nowrap">
-                    ({currency}{columnTotals.sumPurchasePrice > 0 ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '০.০০'} টাকায় {toBengaliDigits(grandTotalPieces)} পিস)
-                  </div>
                 </td>
                 {/* মোট ক্রয় মূল্য */}
-                <td className="py-3 px-3 text-right font-mono font-black text-slate-950 bg-slate-200/70">
+                <td className="py-3 px-3 text-right font-mono font-black text-slate-950 bg-slate-200/70 overflow-hidden">
                   {currency}{' '}
                   {columnTotals.sumPurchasePrice > 0
                     ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
                     : '০.০০'}
                 </td>
                 {/* মোট পিস */}
-                <td className="py-3 px-3 text-right font-mono font-black text-indigo-950 bg-indigo-50/60">
+                <td className="py-3 px-3 text-right font-mono font-black text-indigo-950 bg-indigo-50/60 overflow-hidden">
                   {toBengaliDigits(columnTotals.sumTotalPieces)}
                 </td>
                 {/* মোট ফ্রি */}
-                <td className="py-3 px-3 text-right font-mono font-black text-emerald-950 bg-emerald-50/60">
+                <td className="py-3 px-3 text-right font-mono font-black text-emerald-950 bg-emerald-50/60 overflow-hidden">
                   {toBengaliDigits(columnTotals.sumFreePieces)}
                 </td>
                 {/* মোট আনডেলিভারি */}
-                <td className="py-3 px-3 text-right font-mono font-black text-rose-950 bg-rose-50/60">
+                <td className="py-3 px-3 text-right font-mono font-black text-rose-950 bg-rose-50/60 overflow-hidden">
                   {toBengaliDigits(columnTotals.sumUndelivered)}
                 </td>
                 <td></td>
@@ -911,15 +1119,12 @@ export const ChallanCheckModule: React.FC = () => {
                   ৫. পিছ মূল্য (Per Piece Cost)
                 </span>
                 <span className="text-[11px] text-slate-500 font-mono">
-                  মোট ক্রয় মূল্য ({columnTotals.sumPurchasePrice.toFixed(2)}) ÷ মোট পিস ({grandTotalPieces})
+                  মোট ক্রয় মূল্য ({currency}{formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)}) ÷ মোট পিস ({toBengaliDigits(grandTotalPieces)})
                 </span>
               </div>
               <div className="text-right">
                 <span className="text-lg font-black text-slate-950 font-mono">
-                  {currency}{' '}
-                  {perPieceCost > 0
-                    ? toBengaliDigits(perPieceCost.toFixed(3).replace(/\.?0+$/, ''))
-                    : '০.০০'}
+                  {currency} {formatMoneyBn(perPieceCost, 3, 2)}
                 </span>
               </div>
             </div>
@@ -939,7 +1144,7 @@ export const ChallanCheckModule: React.FC = () => {
                     value={piecesPerCarton}
                     onChange={(e) => setPiecesPerCarton(e.target.value)}
                     placeholder="24"
-                    className="w-full text-right rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-mono font-bold text-indigo-950 focus:border-indigo-500 focus:outline-none"
+                    className="no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full text-right rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-mono font-bold text-indigo-950 focus:border-indigo-500 focus:outline-none"
                   />
                 </div>
                 <p className="text-[10px] text-slate-500">
@@ -959,10 +1164,7 @@ export const ChallanCheckModule: React.FC = () => {
                 </div>
                 <div className="text-right mt-2">
                   <span className="text-base sm:text-lg font-black text-slate-950 font-mono">
-                    {currency}{' '}
-                    {costPerCarton > 0
-                      ? toBengaliDigits(costPerCarton.toFixed(2))
-                      : '০.০০'}
+                    {currency} {formatMoneyBn(costPerCarton, 2, 2)}
                   </span>
                 </div>
               </div>
@@ -985,7 +1187,7 @@ export const ChallanCheckModule: React.FC = () => {
                     value={profitMargin}
                     onChange={(e) => setProfitMargin(e.target.value)}
                     placeholder="6"
-                    className="w-full text-right rounded-lg border border-emerald-300 bg-white pl-3 pr-7 py-2 text-sm font-mono font-bold text-emerald-950 focus:border-emerald-500 focus:outline-none"
+                    className="no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full text-right rounded-lg border border-emerald-300 bg-white pl-3 pr-7 py-2 text-sm font-mono font-bold text-emerald-950 focus:border-emerald-500 focus:outline-none"
                   />
                 </div>
                 <p className="text-[10px] text-slate-500">
@@ -1005,10 +1207,7 @@ export const ChallanCheckModule: React.FC = () => {
                 </div>
                 <div className="text-right mt-2">
                   <span className="text-lg sm:text-xl font-black text-emerald-950 font-mono">
-                    {currency}{' '}
-                    {sellingPricePerCarton > 0
-                      ? toBengaliDigits(sellingPricePerCarton.toFixed(2))
-                      : '০.০০'}
+                    {currency} {formatMoneyBn(sellingPricePerCarton, 2, 2)}
                   </span>
                 </div>
               </div>
@@ -1035,13 +1234,10 @@ export const ChallanCheckModule: React.FC = () => {
                 প্রতি কার্টুন বিক্রয় মূল্য (Carton Rate)
               </div>
               <div className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-white mt-1">
-                {currency}{' '}
-                {sellingPricePerCarton > 0
-                  ? toBengaliDigits(sellingPricePerCarton.toFixed(2))
-                  : '০.০০'}
+                {currency} {formatMoneyBn(sellingPricePerCarton, 2, 2)}
               </div>
               <div className="text-xs text-indigo-300 font-mono mt-1">
-                (Exact: {currency}{sellingPricePerCarton > 0 ? sellingPricePerCarton.toFixed(3) : '0.00'})
+                (Exact: {currency}{formatMoneyEn(sellingPricePerCarton, 3, 2)})
               </div>
             </div>
 
@@ -1050,19 +1246,13 @@ export const ChallanCheckModule: React.FC = () => {
               <div className="bg-indigo-950/50 rounded-xl p-2.5 border border-indigo-700/40">
                 <span className="text-indigo-300 block text-[10px]">পিস প্রতি বিক্রয় দর</span>
                 <span className="text-sm font-bold font-mono text-emerald-300">
-                  {currency}{' '}
-                  {sellingPricePerPiece > 0
-                    ? toBengaliDigits(sellingPricePerPiece.toFixed(2))
-                    : '০.০০'}
+                  {currency} {formatMoneyBn(sellingPricePerPiece, 2, 2)}
                 </span>
               </div>
               <div className="bg-indigo-950/50 rounded-xl p-2.5 border border-indigo-700/40">
                 <span className="text-indigo-300 block text-[10px]">প্রতি কার্টুন ক্রয় দর</span>
                 <span className="text-sm font-bold font-mono text-white">
-                  {currency}{' '}
-                  {costPerCarton > 0
-                    ? toBengaliDigits(costPerCarton.toFixed(2))
-                    : '০.০০'}
+                  {currency} {formatMoneyBn(costPerCarton, 2, 2)}
                 </span>
               </div>
               <div className="bg-indigo-950/50 rounded-xl p-2.5 border border-indigo-700/40">
