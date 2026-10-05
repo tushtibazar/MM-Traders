@@ -201,14 +201,11 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-slate-300 bg-slate-100 font-bold text-slate-900 text-xs">
-                  <td className="py-2 px-2 text-center border-r border-slate-300">
-                    যোগফল
+                  <td className="py-2 px-2 text-center border-r border-slate-300 font-extrabold">
+                    যোগ:
                   </td>
                   <td className="py-2 px-3 text-right border-r border-slate-300 font-mono font-black text-slate-950">
-                    {currency}{' '}
-                    {columnTotals.sumPurchasePrice > 0
-                      ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
-                      : '০.০০'}
+                    {currency} {formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)}
                   </td>
                   <td className="py-2 px-3 text-right border-r border-slate-300 font-mono font-black text-indigo-950">
                     {toBengaliDigits(columnTotals.sumTotalPieces)}
@@ -221,8 +218,8 @@ export const ChallanCheckPrintPreviewModal: React.FC<ChallanCheckPrintPreviewMod
                   </td>
                 </tr>
                 <tr className="border-t border-slate-200 bg-slate-50 text-[11px]">
-                  <td colSpan={5} className="py-1.5 px-3 text-right font-bold text-slate-800">
-                    ({currency}{columnTotals.sumPurchasePrice > 0 ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '০.০০'} টাকায় {toBengaliDigits(grandTotalPieces)} পিস)
+                  <td colSpan={5} className="py-2 px-3 text-center font-bold text-slate-900 bg-indigo-50/50">
+                    সামগ্রিক ক্রয় অনুপাত: <span className="font-mono text-indigo-950">({currency}{formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)} টাকায় {toBengaliDigits(grandTotalPieces)} পিস)</span>
                   </td>
                 </tr>
               </tfoot>

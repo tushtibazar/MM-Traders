@@ -107,6 +107,7 @@ export const ChallanCheckModule: React.FC = () => {
     { id: 'batch-2', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
     { id: 'batch-3', purchasePrice: '', totalPieces: '', freePieces: '', undeliveredPieces: '' },
   ]);
+  const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
 
   // 6. কত পিছে কার্টুন (Pieces Per Carton) — manual input, default 24
   const [piecesPerCarton, setPiecesPerCarton] = useState<number | string>(24);
@@ -215,83 +216,35 @@ export const ChallanCheckModule: React.FC = () => {
     );
   };
 
-  // Handle purchase price change with comma formatting and cursor preservation
+  // Handle purchase price change - sanitizes and stores clean numeric value for calculation
   const handlePurchasePriceChange = (
     id: string,
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    const input = e.target;
-    const rawVal = input.value;
-    const selectionStart = input.selectionStart || 0;
-
-    // Count how many non-comma characters were before the cursor
-    const rawBefore = rawVal.slice(0, selectionStart);
-    const charsBefore = rawBefore.replace(/,/g, '').length;
-
-    // Clean number without commas for underlying storage
+    const rawVal = e.target.value;
     const clean = sanitizeCurrencyValue(rawVal);
     handleRowChange(id, 'purchasePrice', clean);
-
-    // Formatted value for display
-    const formatted = formatCurrencyDisplay(clean);
-
-    // Calculate new cursor position in formatted string
-    requestAnimationFrame(() => {
-      let charCount = 0;
-      let newCursor = formatted.length;
-      for (let i = 0; i < formatted.length; i++) {
-        if (formatted[i] !== ',') {
-          charCount++;
-        }
-        if (charCount >= charsBefore) {
-          newCursor = i + 1;
-          break;
-        }
-      }
-      try {
-        input.setSelectionRange(newCursor, newCursor);
-      } catch {
-        // ignore
-      }
-    });
   };
 
-  // Check if cursor is at the very beginning of the numeric input
+  // Check if cursor is at the very beginning of the input
   const isCursorAtStart = (input: HTMLInputElement): boolean => {
     if (!input.value) return true;
-    try {
-      if (typeof input.selectionStart === 'number') {
-        return input.selectionStart === 0 && input.selectionEnd === 0;
-      }
-    } catch {
-      try {
-        input.type = 'text';
-        const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
-        input.type = 'number';
-        return atStart;
-      } catch {
-        // Fallback
-      }
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    if (typeof start === 'number' && typeof end === 'number') {
+      return start === 0 && end === 0;
     }
     return false;
   };
 
-  // Check if cursor is at the very end of the numeric input
+  // Check if cursor is at the very end of the input
   const isCursorAtEnd = (input: HTMLInputElement): boolean => {
     if (!input.value) return true;
-    try {
-      if (typeof input.selectionStart === 'number') {
-        return input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
-      }
-    } catch {
-      try {
-        input.type = 'text';
-        const atEnd = input.selectionStart === input.value.length && input.selectionEnd === input.value.length;
-        input.type = 'number';
-        return atEnd;
-      } catch {
-        // Fallback
-      }
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const len = input.value.length;
+    if (typeof start === 'number' && typeof end === 'number') {
+      return start === len && end === len;
     }
     return false;
   };
@@ -306,25 +259,19 @@ export const ChallanCheckModule: React.FC = () => {
     const target = document.getElementById(targetId) as HTMLInputElement | null;
     if (!target) return;
     target.focus();
-    if (cursorPos && target.value) {
+    const len = target.value ? target.value.length : 0;
+    if (cursorPos) {
+      const pos = cursorPos === 'start' ? 0 : len;
       try {
-        if (cursorPos === 'start') {
-          target.setSelectionRange(0, 0);
-        } else {
-          target.setSelectionRange(target.value.length, target.value.length);
-        }
+        target.setSelectionRange(pos, pos);
       } catch {
-        try {
-          target.type = 'text';
-          if (cursorPos === 'start') {
-            target.setSelectionRange(0, 0);
-          } else {
-            target.setSelectionRange(target.value.length, target.value.length);
-          }
-          target.type = 'number';
-        } catch {
-          // ignore
-        }
+        // ignore
+      }
+    } else {
+      try {
+        target.select();
+      } catch {
+        // ignore
       }
     }
   };
@@ -352,6 +299,8 @@ export const ChallanCheckModule: React.FC = () => {
         e.preventDefault();
         if (colIndex > 0) {
           focusBatchCell(rowIndex, colIndex - 1, 'end');
+        } else if (rowIndex > 0) {
+          focusBatchCell(rowIndex - 1, 3, 'end');
         }
       }
     } else if (e.key === 'ArrowRight') {
@@ -359,7 +308,14 @@ export const ChallanCheckModule: React.FC = () => {
         e.preventDefault();
         if (colIndex < 3) {
           focusBatchCell(rowIndex, colIndex + 1, 'start');
+        } else if (rowIndex < rows.length - 1) {
+          focusBatchCell(rowIndex + 1, 0, 'start');
         }
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (rowIndex < rows.length - 1) {
+        focusBatchCell(rowIndex + 1, colIndex);
       }
     }
   };
@@ -904,10 +860,10 @@ export const ChallanCheckModule: React.FC = () => {
 
         {/* Table */}
         <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
-          <table className="w-full table-fixed min-w-[700px] text-left border-collapse text-xs sm:text-sm">
+          <table className="w-full table-fixed min-w-[760px] text-left border-collapse text-xs sm:text-sm">
             <colgroup>
-              <col className="w-12 text-center" />
-              <col className="w-[31%] min-w-[180px]" />
+              <col className="w-16 text-center" />
+              <col className="w-[32%] min-w-[200px]" />
               <col className="w-[23%] min-w-[140px]" />
               <col className="w-[20%] min-w-[120px]" />
               <col className="w-[23%] min-w-[140px]" />
@@ -915,17 +871,17 @@ export const ChallanCheckModule: React.FC = () => {
             </colgroup>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-100/90 text-slate-700 text-xs font-bold font-bengali">
-                <th className="py-3 px-3 text-center">#</th>
-                <th className="py-3 px-3 text-right">
+                <th className="py-3 px-2 text-center w-16">#</th>
+                <th className="py-3 px-3 text-right min-w-[200px] whitespace-nowrap">
                   ক্রয় মূল্য (Purchase Price ৳)
                 </th>
-                <th className="py-3 px-3 text-right">
+                <th className="py-3 px-3 text-right min-w-[140px] whitespace-nowrap">
                   মোট পিস (Quantity Purchased)
                 </th>
-                <th className="py-3 px-3 text-right">
+                <th className="py-3 px-3 text-right min-w-[120px] whitespace-nowrap">
                   ফ্রি (Free Pieces)
                 </th>
-                <th className="py-3 px-3 text-right">
+                <th className="py-3 px-3 text-right min-w-[140px] whitespace-nowrap">
                   আনডেলিভারি (Undelivered)
                 </th>
                 <th className="py-3 px-2 text-center"></th>
@@ -933,79 +889,93 @@ export const ChallanCheckModule: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {rows.map((row, idx) => {
+                const isPriceFocused = focusedRowId === row.id;
+                const formattedPriceDisplay =
+                  row.purchasePrice !== '' && row.purchasePrice !== null && row.purchasePrice !== undefined
+                    ? `${currency} ${formatCurrencyDisplay(row.purchasePrice)}`
+                    : '';
+                const displayVal = isPriceFocused
+                  ? String(row.purchasePrice || '')
+                  : formattedPriceDisplay;
+
                 return (
                   <tr key={row.id} className="hover:bg-slate-50/70 transition-colors">
                     {/* Index */}
-                    <td className="py-2.5 px-3 text-center text-xs font-mono font-bold text-slate-400 overflow-hidden">
+                    <td className="py-2.5 px-2 text-center text-xs font-mono font-bold text-slate-400 overflow-hidden w-16">
                       {toBengaliDigits(idx + 1)}
                     </td>
 
                     {/* ক্রয় মূল্য (Purchase Price) */}
-                    <td className="py-2.5 px-3 overflow-hidden">
-                      <div className="relative w-full max-w-full min-w-0">
-                        <span className="absolute left-2.5 top-1.5 text-xs text-slate-400 font-mono font-bold pointer-events-none z-10">
-                          {currency}
-                        </span>
+                    <td className="py-2.5 px-3 min-w-[200px]">
+                      <div className="w-full max-w-full min-w-0">
                         <input
                           id={`batch-cell-${idx}-0`}
                           type="text"
                           inputMode="decimal"
-                          value={formatCurrencyDisplay(row.purchasePrice)}
+                          value={displayVal}
+                          onFocus={() => setFocusedRowId(row.id)}
+                          onBlur={() => setFocusedRowId(null)}
                           onChange={(e) => handlePurchasePriceChange(row.id, e)}
                           onKeyDown={(e) => handleBatchKeyDown(e, idx, 0)}
-                          placeholder="0.00"
-                          className="batch-table-input no-spinners w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white pl-6 pr-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none overflow-x-auto"
+                          placeholder={isPriceFocused ? '0.00' : `${currency} 0.00`}
+                          className="batch-table-input w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none transition-all shadow-2xs"
                         />
                       </div>
                     </td>
 
                     {/* মোট পিস (Quantity Purchased) */}
-                    <td className="py-2.5 px-3 overflow-hidden">
+                    <td className="py-2.5 px-3 min-w-[140px]">
                       <div className="w-full max-w-full min-w-0">
                         <input
                           id={`batch-cell-${idx}-1`}
-                          type="number"
-                          step="any"
-                          min="0"
+                          type="text"
+                          inputMode="decimal"
                           value={row.totalPieces}
-                          onChange={(e) => handleRowChange(row.id, 'totalPieces', e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^\d.]/g, '');
+                            handleRowChange(row.id, 'totalPieces', val);
+                          }}
                           onKeyDown={(e) => handleBatchKeyDown(e, idx, 1)}
                           placeholder="0"
-                          className="batch-table-input no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-indigo-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none overflow-x-auto"
+                          className="batch-table-input w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono font-bold text-indigo-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none transition-all shadow-2xs"
                         />
                       </div>
                     </td>
 
                     {/* ফ্রি (Free Pieces) */}
-                    <td className="py-2.5 px-3 overflow-hidden">
+                    <td className="py-2.5 px-3 min-w-[120px]">
                       <div className="w-full max-w-full min-w-0">
                         <input
                           id={`batch-cell-${idx}-2`}
-                          type="number"
-                          step="any"
-                          min="0"
+                          type="text"
+                          inputMode="decimal"
                           value={row.freePieces}
-                          onChange={(e) => handleRowChange(row.id, 'freePieces', e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^\d.]/g, '');
+                            handleRowChange(row.id, 'freePieces', val);
+                          }}
                           onKeyDown={(e) => handleBatchKeyDown(e, idx, 2)}
                           placeholder="0"
-                          className="batch-table-input no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none overflow-x-auto"
+                          className="batch-table-input w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono font-bold text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none transition-all shadow-2xs"
                         />
                       </div>
                     </td>
 
                     {/* আনডেলিভারি (Undelivered Pieces) */}
-                    <td className="py-2.5 px-3 overflow-hidden">
+                    <td className="py-2.5 px-3 min-w-[140px]">
                       <div className="w-full max-w-full min-w-0">
                         <input
                           id={`batch-cell-${idx}-3`}
-                          type="number"
-                          step="any"
-                          min="0"
+                          type="text"
+                          inputMode="decimal"
                           value={row.undeliveredPieces}
-                          onChange={(e) => handleRowChange(row.id, 'undeliveredPieces', e.target.value)}
+                          onChange={(e) => {
+                            const val = e.target.value.replace(/[^\d.]/g, '');
+                            handleRowChange(row.id, 'undeliveredPieces', val);
+                          }}
                           onKeyDown={(e) => handleBatchKeyDown(e, idx, 3)}
                           placeholder="0"
-                          className="batch-table-input no-spinners [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none overflow-x-auto"
+                          className="batch-table-input w-full max-w-full min-w-0 box-border block text-right rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none transition-all shadow-2xs"
                         />
                       </div>
                     </td>
@@ -1031,44 +1001,54 @@ export const ChallanCheckModule: React.FC = () => {
             {/* 3. COLUMN TOTALS (যোগফল) ROW */}
             <tfoot>
               <tr className="border-t-2 border-slate-300 bg-slate-100 font-extrabold text-slate-900 text-xs sm:text-sm font-bengali">
-                <td className="py-3 px-3 text-center overflow-hidden">
-                  <div className="font-extrabold">যোগফল</div>
+                <td className="py-3 px-2 text-center whitespace-nowrap font-black text-slate-900 text-xs sm:text-sm">
+                  যোগ:
                 </td>
                 {/* মোট ক্রয় মূল্য */}
-                <td className="py-3 px-3 text-right font-mono font-black text-slate-950 bg-slate-200/70 overflow-hidden">
-                  {currency}{' '}
-                  {columnTotals.sumPurchasePrice > 0
-                    ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
-                    : '০.০০'}
+                <td className="py-3 px-3 text-right font-mono font-black text-slate-950 bg-slate-200/70 min-w-[200px] whitespace-nowrap">
+                  {currency} {formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)}
                 </td>
                 {/* মোট পিস */}
-                <td className="py-3 px-3 text-right font-mono font-black text-indigo-950 bg-indigo-50/60 overflow-hidden">
+                <td className="py-3 px-3 text-right font-mono font-black text-indigo-950 bg-indigo-50/60 min-w-[140px] whitespace-nowrap">
                   {toBengaliDigits(columnTotals.sumTotalPieces)}
                 </td>
                 {/* মোট ফ্রি */}
-                <td className="py-3 px-3 text-right font-mono font-black text-emerald-950 bg-emerald-50/60 overflow-hidden">
+                <td className="py-3 px-3 text-right font-mono font-black text-emerald-950 bg-emerald-50/60 min-w-[120px] whitespace-nowrap">
                   {toBengaliDigits(columnTotals.sumFreePieces)}
                 </td>
                 {/* মোট আনডেলিভারি */}
-                <td className="py-3 px-3 text-right font-mono font-black text-rose-950 bg-rose-50/60 overflow-hidden">
+                <td className="py-3 px-3 text-right font-mono font-black text-rose-950 bg-rose-50/60 min-w-[140px] whitespace-nowrap">
                   {toBengaliDigits(columnTotals.sumUndelivered)}
                 </td>
                 <td></td>
               </tr>
-              {/* Clarifying note row */}
-              <tr className="border-t border-slate-200 bg-indigo-50/40 text-xs sm:text-sm font-bengali">
-                <td colSpan={6} className="py-2.5 px-4 text-center sm:text-right">
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white border border-indigo-200 shadow-2xs">
-                    <span className="text-slate-600 font-medium">সামগ্রিক ক্রয় অনুপাত:</span>
-                    <strong className="font-mono text-indigo-950 font-bold">
-                      ({currency}{columnTotals.sumPurchasePrice > 0 ? toBengaliDigits(columnTotals.sumPurchasePrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })) : '০.০০'} টাকায় {toBengaliDigits(grandTotalPieces)} পিস)
-                    </strong>
-                  </span>
-                </td>
-              </tr>
             </tfoot>
           </table>
         </div>
+      </div>
+
+      {/* 3. CENTERED & PROMINENT HIGHLIGHT CARD: সামগ্রিক ক্রয় অনুপাত */}
+      <div className="rounded-2xl border-2 border-indigo-400 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 shadow-md text-white text-center flex flex-col items-center justify-center font-bengali">
+        <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-indigo-500/20 border border-indigo-400/40 text-indigo-300 text-xs font-bold tracking-wide uppercase">
+          <TrendingUp className="h-4 w-4 text-amber-400" />
+          <span>সামগ্রিক ক্রয় অনুপাত (Overall Purchase Ratio)</span>
+        </div>
+
+        <div className="mt-3.5 flex items-center justify-center flex-wrap gap-2.5 sm:gap-3.5 text-2xl sm:text-3xl md:text-4xl font-black">
+          <span className="font-mono text-amber-300 bg-amber-400/10 px-4 py-1.5 rounded-xl border border-amber-400/30 shadow-inner whitespace-nowrap">
+            {currency} {formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)}
+          </span>
+          <span className="text-slate-300 text-lg sm:text-2xl font-bold font-bengali">
+            টাকায়
+          </span>
+          <span className="font-mono text-emerald-300 bg-emerald-400/10 px-4 py-1.5 rounded-xl border border-emerald-400/30 shadow-inner whitespace-nowrap">
+            {toBengaliDigits(grandTotalPieces)} পিস
+          </span>
+        </div>
+
+        <p className="mt-2 text-xs sm:text-sm text-indigo-200/90 font-medium font-bengali">
+          (সর্বমোট <strong>{currency} {formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)}</strong> খরচে মোট <strong>{toBengaliDigits(grandTotalPieces)} পিস</strong> পণ্য ক্রয় ও হিসাব অন্তর্ভুক্ত)
+        </p>
       </div>
 
       {/* 4 to 9: COST & SELLING PRICE CALCULATOR PANEL */}
@@ -1123,7 +1103,7 @@ export const ChallanCheckModule: React.FC = () => {
                 </span>
               </div>
               <div className="text-right">
-                <span className="text-lg font-black text-slate-950 font-mono">
+                <span className="text-lg font-black text-slate-950 font-mono whitespace-nowrap">
                   {currency} {formatMoneyBn(perPieceCost, 3, 2)}
                 </span>
               </div>
@@ -1163,7 +1143,7 @@ export const ChallanCheckModule: React.FC = () => {
                   </span>
                 </div>
                 <div className="text-right mt-2">
-                  <span className="text-base sm:text-lg font-black text-slate-950 font-mono">
+                  <span className="text-base sm:text-lg font-black text-slate-950 font-mono whitespace-nowrap">
                     {currency} {formatMoneyBn(costPerCarton, 2, 2)}
                   </span>
                 </div>
@@ -1206,7 +1186,7 @@ export const ChallanCheckModule: React.FC = () => {
                   </span>
                 </div>
                 <div className="text-right mt-2">
-                  <span className="text-lg sm:text-xl font-black text-emerald-950 font-mono">
+                  <span className="text-lg sm:text-xl font-black text-emerald-950 font-mono whitespace-nowrap">
                     {currency} {formatMoneyBn(sellingPricePerCarton, 2, 2)}
                   </span>
                 </div>
@@ -1233,10 +1213,10 @@ export const ChallanCheckModule: React.FC = () => {
               <div className="text-xs text-indigo-200">
                 প্রতি কার্টুন বিক্রয় মূল্য (Carton Rate)
               </div>
-              <div className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-white mt-1">
+              <div className="text-3xl sm:text-4xl font-black font-mono tracking-tight text-white mt-1 whitespace-nowrap">
                 {currency} {formatMoneyBn(sellingPricePerCarton, 2, 2)}
               </div>
-              <div className="text-xs text-indigo-300 font-mono mt-1">
+              <div className="text-xs text-indigo-300 font-mono mt-1 whitespace-nowrap">
                 (Exact: {currency}{formatMoneyEn(sellingPricePerCarton, 3, 2)})
               </div>
             </div>
@@ -1245,13 +1225,13 @@ export const ChallanCheckModule: React.FC = () => {
             <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-indigo-700/60 text-xs">
               <div className="bg-indigo-950/50 rounded-xl p-2.5 border border-indigo-700/40">
                 <span className="text-indigo-300 block text-[10px]">পিস প্রতি বিক্রয় দর</span>
-                <span className="text-sm font-bold font-mono text-emerald-300">
+                <span className="text-sm font-bold font-mono text-emerald-300 whitespace-nowrap block">
                   {currency} {formatMoneyBn(sellingPricePerPiece, 2, 2)}
                 </span>
               </div>
               <div className="bg-indigo-950/50 rounded-xl p-2.5 border border-indigo-700/40">
                 <span className="text-indigo-300 block text-[10px]">প্রতি কার্টুন ক্রয় দর</span>
-                <span className="text-sm font-bold font-mono text-white">
+                <span className="text-sm font-bold font-mono text-white whitespace-nowrap block">
                   {currency} {formatMoneyBn(costPerCarton, 2, 2)}
                 </span>
               </div>
