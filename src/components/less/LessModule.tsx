@@ -20,6 +20,7 @@ import {
   Eye,
   ImageDown,
   FileDown,
+  RotateCcw,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { LessEntry, LessSettlement } from '../../types';
@@ -35,6 +36,7 @@ export const LessModule: React.FC = () => {
     deleteLessEntry,
     addLessSettlement,
     deleteLessSettlement,
+    resetLessAccount,
     todayDateStr,
     todayLessAmount,
     totalOutstandingLess,
@@ -75,7 +77,10 @@ export const LessModule: React.FC = () => {
   const [settlementToDelete, setSettlementToDelete] = useState<LessSettlement | null>(null);
   const [isDeleteSettlementPinOpen, setIsDeleteSettlementPinOpen] = useState(false);
 
-  // 6. Print & Export Modal State
+  // 6. Reset Less Account PIN Modal State
+  const [isResetPinOpen, setIsResetPinOpen] = useState(false);
+
+  // 7. Print & Export Modal State
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printAction, setPrintAction] = useState<'png' | 'pdf' | null>(null);
 
@@ -305,6 +310,14 @@ export const LessModule: React.FC = () => {
     setTimeout(() => setSuccessMessage(''), 3000);
   };
 
+  // Confirm complete reset of Less Account data
+  const handleConfirmResetLess = () => {
+    resetLessAccount();
+    setIsResetPinOpen(false);
+    setSuccessMessage('লেস হিসাবের সমস্ত ডেটা সফলভাবে রিসেট করা হয়েছে।');
+    setTimeout(() => setSuccessMessage(''), 4000);
+  };
+
   return (
     <div id="less-account-module" className="space-y-6 pb-12">
       {/* Header */}
@@ -337,6 +350,16 @@ export const LessModule: React.FC = () => {
           >
             <Eye className="h-4 w-4 text-sky-600" />
             <span>প্রিন্ট প্রিভিউ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsResetPinOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 hover:border-rose-400 transition shadow-xs cursor-pointer"
+            title="লেস হিসাবের সমস্ত তথ্য রিসেট করুন"
+          >
+            <RotateCcw className="h-4 w-4 text-rose-600" />
+            <span>রিসেট করুন</span>
           </button>
         </div>
       </div>
@@ -1099,6 +1122,20 @@ export const LessModule: React.FC = () => {
           setIsDeleteSettlementPinOpen(false);
           setSettlementToDelete(null);
         }}
+      />
+
+      {/* PIN Prompt Modal for Reset Less Account */}
+      <PinPromptModal
+        isOpen={isResetPinOpen}
+        title="লেস হিসাব রিসেট নিশ্চিতকরণ"
+        subtitle="লেস হিসাবের সমস্ত ডেটা স্থায়ীভাবে মুছে ফেলতে আপনার ওনার পিন (PIN) লিখুন।"
+        warning="সতর্কতা: এটি এই পেজের সকল লেস ডেটা স্থায়ীভাবে মুছে ফেলবে।"
+        itemName="লেস তালিকা ও লেস জমা ইতিহাস"
+        confirmButtonText="হ্যাঁ, রিসেট করুন"
+        confirmButtonVariant="danger"
+        correctPin={ownerPin}
+        onSuccess={handleConfirmResetLess}
+        onClose={() => setIsResetPinOpen(false)}
       />
 
       {/* Less Account Print & Export Preview Modal */}

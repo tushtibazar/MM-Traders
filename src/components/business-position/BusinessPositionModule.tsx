@@ -38,6 +38,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { BusinessPositionSettings, CustomPositionItem, OtherPositionItem } from '../../types';
 import { BusinessPositionPrintPreviewModal } from './BusinessPositionPrintPreviewModal';
+import { PinPromptModal } from '../modals/PinPromptModal';
 import { formatDate } from '../../utils/dateUtils';
 
 export const BusinessPositionModule: React.FC = () => {
@@ -53,6 +54,12 @@ export const BusinessPositionModule: React.FC = () => {
 
   const isOwner = currentUser.role === 'owner';
   const currency = db.settings.currency || '৳';
+  const ownerPin =
+    db.settings.ownerPin ||
+    db.settings.securityPin ||
+    db.users.find((u) => u.role === 'owner')?.pin ||
+    '1234';
+  const [isResetPinOpen, setIsResetPinOpen] = useState(false);
 
   // Helper to load stored business position from settings or dedicated localStorage
   const getStoredBusinessPosition = (): BusinessPositionSettings | undefined => {
@@ -87,58 +94,80 @@ export const BusinessPositionModule: React.FC = () => {
 
   // 1. AUTO-ITEM ADJUSTMENTS & NOTES
   const [stockAdjustment, setStockAdjustment] = useState<string>(
-    savedPos?.stockAdjustment !== undefined ? String(savedPos.stockAdjustment) : ''
+    savedPos?.stockAdjustment !== undefined && savedPos.stockAdjustment !== 0
+      ? String(savedPos.stockAdjustment)
+      : ''
   );
   const [stockNote, setStockNote] = useState<string>(savedPos?.stockNote || '');
 
   const [damageAdjustment, setDamageAdjustment] = useState<string>(
-    savedPos?.damageAdjustment !== undefined ? String(savedPos.damageAdjustment) : ''
+    savedPos?.damageAdjustment !== undefined && savedPos.damageAdjustment !== 0
+      ? String(savedPos.damageAdjustment)
+      : ''
   );
   const [damageNote, setDamageNote] = useState<string>(savedPos?.damageNote || '');
 
   const [dueAdjustment, setDueAdjustment] = useState<string>(
-    savedPos?.dueAdjustment !== undefined ? String(savedPos.dueAdjustment) : ''
+    savedPos?.dueAdjustment !== undefined && savedPos.dueAdjustment !== 0
+      ? String(savedPos.dueAdjustment)
+      : ''
   );
   const [dueNote, setDueNote] = useState<string>(savedPos?.dueNote || '');
 
   const [cashAdjustment, setCashAdjustment] = useState<string>(
-    savedPos?.cashAdjustment !== undefined ? String(savedPos.cashAdjustment) : ''
+    savedPos?.cashAdjustment !== undefined && savedPos.cashAdjustment !== 0
+      ? String(savedPos.cashAdjustment)
+      : ''
   );
   const [cashNote, setCashNote] = useState<string>(savedPos?.cashNote || '');
 
   // 2. SPECIFIC LINE ITEMS (আনডেলিভারি, ক্যাম্পেইন, অ্যাপ ক্যাশ, ডিও, গাড়িতে, ব্যাংক, কোম্পানি লেইস)
   const [undeliveredAmount, setUndeliveredAmount] = useState<string>(
-    savedPos?.undeliveredAmount !== undefined ? String(savedPos.undeliveredAmount) : ''
+    savedPos?.undeliveredAmount !== undefined && savedPos.undeliveredAmount !== 0
+      ? String(savedPos.undeliveredAmount)
+      : ''
   );
   const [undeliveredNote, setUndeliveredNote] = useState<string>(savedPos?.undeliveredNote || '');
 
   const [campaignAmount, setCampaignAmount] = useState<string>(
-    savedPos?.campaignAmount !== undefined ? String(savedPos.campaignAmount) : ''
+    savedPos?.campaignAmount !== undefined && savedPos.campaignAmount !== 0
+      ? String(savedPos.campaignAmount)
+      : ''
   );
   const [campaignNote, setCampaignNote] = useState<string>(savedPos?.campaignNote || '');
 
   const [appCashAmount, setAppCashAmount] = useState<string>(
-    savedPos?.appCashAmount !== undefined ? String(savedPos.appCashAmount) : ''
+    savedPos?.appCashAmount !== undefined && savedPos.appCashAmount !== 0
+      ? String(savedPos.appCashAmount)
+      : ''
   );
   const [appCashNote, setAppCashNote] = useState<string>(savedPos?.appCashNote || '');
 
   const [doAmount, setDoAmount] = useState<string>(
-    savedPos?.doAmount !== undefined ? String(savedPos.doAmount) : ''
+    savedPos?.doAmount !== undefined && savedPos.doAmount !== 0
+      ? String(savedPos.doAmount)
+      : ''
   );
   const [doNote, setDoNote] = useState<string>(savedPos?.doNote || '');
 
   const [vehicleStockAmount, setVehicleStockAmount] = useState<string>(
-    savedPos?.vehicleStockAmount !== undefined ? String(savedPos.vehicleStockAmount) : ''
+    savedPos?.vehicleStockAmount !== undefined && savedPos.vehicleStockAmount !== 0
+      ? String(savedPos.vehicleStockAmount)
+      : ''
   );
   const [vehicleStockNote, setVehicleStockNote] = useState<string>(savedPos?.vehicleStockNote || '');
 
   const [bankBalance, setBankBalance] = useState<string>(
-    savedPos?.bankBalance !== undefined ? String(savedPos.bankBalance) : ''
+    savedPos?.bankBalance !== undefined && savedPos.bankBalance !== 0
+      ? String(savedPos.bankBalance)
+      : ''
   );
   const [bankNote, setBankNote] = useState<string>(savedPos?.bankNote || '');
 
   const [lessAdjustment, setLessAdjustment] = useState<string>(
-    savedPos?.lessAdjustment !== undefined ? String(savedPos.lessAdjustment) : ''
+    savedPos?.lessAdjustment !== undefined && savedPos.lessAdjustment !== 0
+      ? String(savedPos.lessAdjustment)
+      : ''
   );
   const [lessNote, setLessNote] = useState<string>(savedPos?.lessNote || '');
 
@@ -151,17 +180,23 @@ export const BusinessPositionModule: React.FC = () => {
 
   // 4. "মূল ইনভেস্টমেন্ট" (ORIGINAL INVESTMENT) INPUT FIELD
   const [originalInvestment, setOriginalInvestment] = useState<string>(
-    savedPos?.originalInvestment !== undefined ? String(savedPos.originalInvestment) : ''
+    savedPos?.originalInvestment !== undefined && savedPos.originalInvestment !== 0
+      ? String(savedPos.originalInvestment)
+      : ''
   );
 
   // 5. LIABILITIES & CUSTOM ITEMS
   const [supplierPayables, setSupplierPayables] = useState<string>(
-    savedPos?.supplierPayables !== undefined ? String(savedPos.supplierPayables) : ''
+    savedPos?.supplierPayables !== undefined && savedPos.supplierPayables !== 0
+      ? String(savedPos.supplierPayables)
+      : ''
   );
   const [supplierNote, setSupplierNote] = useState<string>(savedPos?.supplierNote || '');
 
   const [loansPayables, setLoansPayables] = useState<string>(
-    savedPos?.loansPayables !== undefined ? String(savedPos.loansPayables) : ''
+    savedPos?.loansPayables !== undefined && savedPos.loansPayables !== 0
+      ? String(savedPos.loansPayables)
+      : ''
   );
   const [loansNote, setLoansNote] = useState<string>(savedPos?.loansNote || '');
 
@@ -558,50 +593,90 @@ export const BusinessPositionModule: React.FC = () => {
     setTimeout(() => setSaveMessage(''), 4000);
   };
 
-  // RESET HANDLER
-  const handleResetToAuto = () => {
-    if (window.confirm('আপনি কি সকল ম্যানুয়াল এন্ট্রি ও সমন্বয় মুছে সিস্টেমের মূল অটো-হিসাবে রিসেট করতে চান?')) {
-      setStockAdjustment('');
-      setStockNote('');
-      setDamageAdjustment('');
-      setDamageNote('');
-      setDueAdjustment('');
-      setDueNote('');
-      setCashAdjustment('');
-      setCashNote('');
+  // RESET HANDLER (With PIN confirmation and persistent storage)
+  const handleConfirmReset = () => {
+    setStockAdjustment('');
+    setStockNote('');
+    setDamageAdjustment('');
+    setDamageNote('');
+    setDueAdjustment('');
+    setDueNote('');
+    setCashAdjustment('');
+    setCashNote('');
 
-      setUndeliveredAmount('');
-      setUndeliveredNote('');
-      setCampaignAmount('');
-      setCampaignNote('');
-      setAppCashAmount('');
-      setAppCashNote('');
-      setDoAmount('');
-      setDoNote('');
-      setVehicleStockAmount('');
-      setVehicleStockNote('');
+    setUndeliveredAmount('');
+    setUndeliveredNote('');
+    setCampaignAmount('');
+    setCampaignNote('');
+    setAppCashAmount('');
+    setAppCashNote('');
+    setDoAmount('');
+    setDoNote('');
+    setVehicleStockAmount('');
+    setVehicleStockNote('');
 
-      setBankBalance('');
-      setBankNote('');
-      setLessAdjustment('');
-      setLessNote('');
-      setOthersList([{ id: `other-${Date.now()}`, description: '', amount: 0 }]);
-      setOriginalInvestment('');
+    setBankBalance('');
+    setBankNote('');
+    setLessAdjustment('');
+    setLessNote('');
+    setOthersList([{ id: `other-${Date.now()}`, description: '', amount: 0 }]);
+    setOriginalInvestment('');
 
-      setSupplierPayables('');
-      setSupplierNote('');
-      setLoansPayables('');
-      setLoansNote('');
-      setCustomItems([]);
+    setSupplierPayables('');
+    setSupplierNote('');
+    setLoansPayables('');
+    setLoansNote('');
+    setCustomItems([]);
 
-      updateSettings({
-        ...db.settings,
-        businessPosition: undefined,
-      });
+    const timestamp = new Date().toISOString();
+    const clearedPos: BusinessPositionSettings = {
+      stockAdjustment: 0,
+      stockNote: '',
+      damageAdjustment: 0,
+      damageNote: '',
+      dueAdjustment: 0,
+      dueNote: '',
+      cashAdjustment: 0,
+      cashNote: '',
+      undeliveredAmount: 0,
+      undeliveredNote: '',
+      campaignAmount: 0,
+      campaignNote: '',
+      appCashAmount: 0,
+      appCashNote: '',
+      doAmount: 0,
+      doNote: '',
+      vehicleStockAmount: 0,
+      vehicleStockNote: '',
+      bankBalance: 0,
+      bankNote: '',
+      lessAdjustment: 0,
+      lessNote: '',
+      others: [],
+      originalInvestment: 0,
+      supplierPayables: 0,
+      supplierNote: '',
+      loansPayables: 0,
+      loansNote: '',
+      customItems: [],
+      lastSavedAt: timestamp,
+    };
 
-      setSaveMessage('সিস্টেমের অটো-হিসাব অনুযায়ী সফলভাবে রিসেট করা হয়েছে');
-      setTimeout(() => setSaveMessage(''), 4000);
+    updateSettings({
+      ...db.settings,
+      businessPosition: clearedPos,
+    });
+
+    try {
+      localStorage.setItem('mm_traders_business_position_current', JSON.stringify(clearedPos));
+    } catch (e) {
+      console.error('Failed to update localStorage on reset:', e);
     }
+
+    setLastSavedTimestamp(timestamp);
+    setIsResetPinOpen(false);
+    setSaveMessage('ব্যবসার সার্বিক হিসাব সফলভাবে রিসেট ও সেভ করা হয়েছে');
+    setTimeout(() => setSaveMessage(''), 4000);
   };
 
   // ADD CUSTOM ITEM
@@ -764,12 +839,13 @@ export const BusinessPositionModule: React.FC = () => {
           </button>
 
           <button
-            onClick={handleResetToAuto}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-rose-50 hover:text-rose-700 hover:border-rose-200 transition cursor-pointer"
-            title="সকল এন্ট্রি মুছে সিস্টেমের মূল অটো-হিসাবে রিসেট করুন"
+            type="button"
+            onClick={() => setIsResetPinOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 hover:border-rose-400 transition cursor-pointer shadow-xs"
+            title="ব্যবসার সার্বিক হিসাবের সমস্ত তথ্য রিসেট করুন"
           >
-            <RotateCcw className="h-4 w-4 text-slate-500" />
-            <span className="hidden sm:inline">অটো-রিসেট</span>
+            <RotateCcw className="h-4 w-4 text-rose-600" />
+            <span>রিসেট করুন</span>
           </button>
 
           <button
@@ -2063,6 +2139,20 @@ export const BusinessPositionModule: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* PIN Prompt Modal for Reset Business Position */}
+      <PinPromptModal
+        isOpen={isResetPinOpen}
+        title="সার্বিক হিসাব রিসেট নিশ্চিতকরণ"
+        subtitle="ব্যবসার সার্বিক হিসাবের সকল ম্যানুয়াল এন্ট্রি ও সমন্বয় স্থায়ীভাবে মুছে ফেলতে আপনার ওনার পিন (PIN) লিখুন।"
+        warning="সতর্কতা: এটি এই পেজের সকল সমন্বয়, আদার্স এন্ট্রি ও মূল ইনভেস্টমেন্ট ডেটা স্থায়ীভাবে মুছে ফেলবে।"
+        itemName="ব্যবসার সার্বিক হিসাবের সকল এন্ট্রি ও সমন্বয়"
+        confirmButtonText="হ্যাঁ, রিসেট করুন"
+        confirmButtonVariant="danger"
+        correctPin={ownerPin}
+        onSuccess={handleConfirmReset}
+        onClose={() => setIsResetPinOpen(false)}
+      />
 
       {/* Business Position Print & Export Preview Modal */}
       <BusinessPositionPrintPreviewModal

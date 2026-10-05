@@ -93,6 +93,7 @@ interface AppContextType {
   deleteLessEntry: (id: string) => void;
   addLessSettlement: (input: { date: string; amount: number; note?: string }) => LessSettlement;
   deleteLessSettlement: (id: string) => void;
+  resetLessAccount: () => void;
 
   // Due Entry Actions (Settlement / Void with trace)
   settleDueEntry: (referenceId: string, note?: string) => void;
@@ -1008,6 +1009,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const deleteLessSettlement = (id: string) => {
     const updated = (db.lessSettlements || []).filter((item) => item.id !== id);
     updateDb({ ...db, lessSettlements: updated });
+  };
+
+  const resetLessAccount = () => {
+    updateDb({
+      ...db,
+      lessEntries: [],
+      lessSettlements: [],
+    });
   };
 
   // Due Entry Actions (Settlement & Void with history trace)
@@ -1989,6 +1998,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteLessEntry,
         addLessSettlement,
         deleteLessSettlement,
+        resetLessAccount,
         settleDueEntry,
         voidDueEntry,
         addProduct,

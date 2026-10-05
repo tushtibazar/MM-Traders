@@ -99,6 +99,7 @@ export const ChallanCheckModule: React.FC = () => {
   const [productSearch, setProductSearch] = useState<string>('');
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [showProductDropdown, setShowProductDropdown] = useState<boolean>(false);
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(0);
   const searchContainerRef = useRef<HTMLDivElement>(null);
 
   // 2. Batch Entry Table — 3 rows by default
@@ -146,9 +147,10 @@ export const ChallanCheckModule: React.FC = () => {
 
   // Filter matching products for autocomplete
   const matchingProducts = useMemo(() => {
-    if (!productSearch.trim()) return db.products.filter((p) => !p.deletedFromStock);
+    const list = db.products.filter((p) => !p.deletedFromStock && p.status !== 'inactive');
+    if (!productSearch.trim()) return list;
     const q = productSearch.toLowerCase().trim();
-    return db.products.filter(
+    return list.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.code.toLowerCase().includes(q) ||
@@ -159,14 +161,15 @@ export const ChallanCheckModule: React.FC = () => {
   // Find currently matched product
   const matchedProduct = useMemo(() => {
     if (selectedProductId) {
-      return db.products.find((p) => p.id === selectedProductId);
+      return db.products.find((p) => p.id === selectedProductId && !p.deletedFromStock);
     }
     const trimmed = productSearch.trim().toLowerCase();
     if (!trimmed) return undefined;
     return db.products.find(
       (p) =>
-        p.name.trim().toLowerCase() === trimmed ||
-        p.code.trim().toLowerCase() === trimmed
+        !p.deletedFromStock &&
+        (p.name.trim().toLowerCase() === trimmed ||
+          p.code.trim().toLowerCase() === trimmed)
     );
   }, [db.products, selectedProductId, productSearch]);
 
@@ -725,12 +728,44 @@ export const ChallanCheckModule: React.FC = () => {
                 type="text"
                 value={productSearch}
                 onChange={(e) => {
-                  setProductSearch(e.target.value);
-                  setSelectedProductId('');
+                  const val = e.target.value;
+                  setProductSearch(val);
+                  // Clear linked product ID if typed name differs
+                  if (matchedProduct && matchedProduct.name !== val) {
+                    setSelectedProductId('');
+                  }
                   setShowProductDropdown(true);
+                  setHighlightedIndex(0);
                 }}
-                onFocus={() => setShowProductDropdown(true)}
-                placeholder="পণ্যের নাম লিখুন বা সিলেক্ট করুন..."
+                onFocus={() => {
+                  setShowProductDropdown(true);
+                  setHighlightedIndex(0);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
+                    if (!showProductDropdown) {
+                      setShowProductDropdown(true);
+                      return;
+                    }
+                    if (matchingProducts.length > 0) {
+                      e.preventDefault();
+                      setHighlightedIndex((prev) => (prev + 1) % matchingProducts.length);
+                    }
+                  } else if (e.key === 'ArrowUp') {
+                    if (showProductDropdown && matchingProducts.length > 0) {
+                      e.preventDefault();
+                      setHighlightedIndex((prev) => (prev - 1 + matchingProducts.length) % matchingProducts.length);
+                    }
+                  } else if (e.key === 'Enter') {
+                    if (showProductDropdown && matchingProducts.length > 0 && matchingProducts[highlightedIndex]) {
+                      e.preventDefault();
+                      handleSelectProduct(matchingProducts[highlightedIndex]);
+                    }
+                  } else if (e.key === 'Escape') {
+                    setShowProductDropdown(false);
+                  }
+                }}
+                placeholder="পণ্যের নাম বা কোড লিখুন / সিলেক্ট করুন..."
                 className="w-full rounded-xl border border-slate-300 bg-slate-50/50 pl-10 pr-9 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none transition-all"
               />
               <Search className="absolute left-3.5 top-3 h-4 w-4 text-slate-400" />
@@ -741,7 +776,8 @@ export const ChallanCheckModule: React.FC = () => {
                     setProductSearch('');
                     setSelectedProductId('');
                   }}
-                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  title="মুছুন"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -750,13 +786,14 @@ export const ChallanCheckModule: React.FC = () => {
 
             {/* Suggestions Dropdown */}
             {showProductDropdown && matchingProducts.length > 0 && (
-              <div className="absolute z-50 left-0 right-0 top-full mt-1.5 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl divide-y divide-slate-100">
-                <div className="px-3 py-1.5 bg-slate-50 text-[11px] font-semibold text-slate-500 flex justify-between items-center font-bengali">
-                  <span>পণ্য ও মূল্যের তালিকা থেকে বেছে নিন:</span>
-                  <span className="text-[10px] text-slate-400">ক্লিক করুন</span>
+              <div className="absolute z-50 left-0 right-0 top-full mt-1.5 max-h-64 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl divide-y divide-slate-100">
+                <div className="px-3.5 py-1.5 bg-slate-50 text-[11px] font-semibold text-slate-500 flex justify-between items-center font-bengali">
+                  <span>পণ্য ও মূল্যের তালিকা ({matchingProducts.length} টি মিল পাওয়া গেছে):</span>
+                  <span className="text-[10px] text-slate-400">ক্লিক বা Enter চাপুন</span>
                 </div>
-                {matchingProducts.map((p) => {
+                {matchingProducts.map((p, idx) => {
                   const ratio = Number(p.piecesPerCarton) || Number(p.cartonQty) || 24;
+                  const isHighlighted = idx === highlightedIndex;
                   return (
                     <button
                       key={p.id}
@@ -765,19 +802,26 @@ export const ChallanCheckModule: React.FC = () => {
                         e.preventDefault();
                         handleSelectProduct(p);
                       }}
-                      className="w-full text-left px-3.5 py-2 text-xs flex items-center justify-between hover:bg-indigo-50/80 transition-colors"
+                      onMouseEnter={() => setHighlightedIndex(idx)}
+                      className={`w-full text-left px-3.5 py-2.5 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                        isHighlighted
+                          ? 'bg-indigo-50/90 text-indigo-950 font-medium'
+                          : 'hover:bg-slate-50 text-slate-900'
+                      }`}
                     >
                       <div>
-                        <span className="font-semibold text-slate-900">{p.name}</span>
-                        <span className="ml-2 font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                          {p.code}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900">{p.name}</span>
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                            {p.code}
+                          </span>
+                        </div>
                         <div className="text-[11px] text-slate-500 font-bengali mt-0.5">
                           ১ কার্টুন = {toBengaliDigits(ratio)} পিস • বর্তমান কার্টন রেট: {currency}{formatMoneyBn(Number(p.salePrice) || 0, 2, 2)}
                         </div>
                       </div>
-                      <span className="text-[11px] font-bold text-indigo-700 shrink-0 font-bengali">
-                        নির্বাচন
+                      <span className="text-[11px] font-bold text-indigo-700 shrink-0 font-bengali bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                        সিলেক্ট করুন
                       </span>
                     </button>
                   );
@@ -785,14 +829,30 @@ export const ChallanCheckModule: React.FC = () => {
               </div>
             )}
 
-            {matchedProduct && (
-              <div className="mt-1.5 flex items-center gap-2 text-xs text-emerald-700 font-bengali">
-                <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
-                <span>
-                  পণ্য চিহ্নিত: <strong>{matchedProduct.name}</strong> [{matchedProduct.code}] — বর্তমান কার্টন দর: {currency}{formatMoneyBn(Number(matchedProduct.salePrice), 2, 2)}
-                </span>
+            {/* Linked Product Status or Standalone Notice */}
+            {matchedProduct ? (
+              <div className="mt-1.5 flex items-center justify-between gap-2 text-xs bg-emerald-50 border border-emerald-200 rounded-lg px-2.5 py-1 text-emerald-800 font-bengali">
+                <div className="flex items-center gap-1.5 truncate">
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                  <span className="truncate">
+                    সংযুক্ত পণ্য: <strong>{matchedProduct.name}</strong> [{matchedProduct.code}] — বর্তমান কার্টন রেট: {currency}{formatMoneyBn(Number(matchedProduct.salePrice) || 0, 2, 2)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedProductId('')}
+                  className="text-[10px] text-emerald-700 hover:text-rose-600 underline font-bold shrink-0 ml-1 cursor-pointer"
+                  title="লিংক বিচ্ছিন্ন করে উন্মুক্ত হিসাবে রূপান্তর করুন"
+                >
+                  লিংক সরান
+                </button>
               </div>
-            )}
+            ) : productSearch.trim() ? (
+              <div className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-800 bg-amber-50/70 border border-amber-200/80 rounded-lg px-2.5 py-1 font-bengali">
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500 shrink-0"></span>
+                <span>উন্মুক্ত হিসাব (কোনো বিদ্যমান পণ্য লিংক করা নেই — স্বাধীন হিসাব টুল হিসেবে কাজ করছে)</span>
+              </div>
+            ) : null}
           </div>
 
           {/* 10. TOP SUMMARY DISPLAY (Prominently displayed right next to the name field) */}
@@ -1270,15 +1330,30 @@ export const ChallanCheckModule: React.FC = () => {
               <button
                 type="button"
                 onClick={handleApplyToProduct}
-                disabled={sellingPricePerCarton <= 0}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md shadow-emerald-950/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                disabled={!matchedProduct || sellingPricePerCarton <= 0}
+                className={`w-full py-3 px-4 rounded-xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all ${
+                  matchedProduct && sellingPricePerCarton > 0
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white shadow-emerald-950/30 cursor-pointer'
+                    : 'bg-slate-700/60 text-slate-400 border border-slate-600/40 cursor-not-allowed opacity-50 shadow-none'
+                }`}
+                title={
+                  matchedProduct
+                    ? `পণ্য ও মূল্য তালিকায় "${matchedProduct.name}" পণ্যের কার্টন রেট আপডেট করুন`
+                    : 'পণ্য ও মূল্য থেকে কোনো বিদ্যমান পণ্য সিলেক্ট করা থাকলে এই বাটনটি সক্রিয় হবে'
+                }
               >
                 <Tag className="h-4 w-4" />
                 <span>এই দামে পণ্যের মূল্য আপডেট করুন</span>
               </button>
-              <p className="text-[11px] text-indigo-300 text-center mt-2">
-                ক্লিক করলে &quot;পণ্য ও মূল্য&quot; তালিকার নির্বাচিত পণ্যে এই নতুন কার্টন রেট সেট হবে।
-              </p>
+              {matchedProduct ? (
+                <p className="text-[11px] text-emerald-300 text-center mt-2 font-bengali">
+                  ✓ নির্বাচিত বিদ্যমান পণ্য: <strong>{matchedProduct.name}</strong> [{matchedProduct.code}] — ক্লিক করলে &quot;পণ্য ও মূল্য&quot; তালিকায় নতুন কার্টন রেট {currency} {formatMoneyBn(sellingPricePerCarton, 2, 2)} সেট হবে।
+                </p>
+              ) : (
+                <p className="text-[11px] text-slate-400 text-center mt-2 font-bengali">
+                  (বিদ্যমান পণ্য নির্বাচন করা হয়নি — মুক্ত ক্যালকুলেটর হিসেবে কাজ করছে)
+                </p>
+              )}
             </div>
           </div>
 
