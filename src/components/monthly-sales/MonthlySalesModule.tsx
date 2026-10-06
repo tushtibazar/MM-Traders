@@ -163,40 +163,82 @@ export const MonthlySalesModule: React.FC = () => {
   // COLUMN 2: DAILY LESS (date-wise)
   // =========================================================================
   const dailyLessData = useMemo(() => {
+    // 1. Gather all less entries for the target month from db.lessEntries
     const monthLess = (db.lessEntries || []).filter(
       (l) => l.date && l.date.startsWith(targetMonthPrefix)
     );
 
     const dateMap = new Map<
       string,
-      { totalLess: number; count: number; descriptions: string[] }
+      { totalLess: number; count: number; descriptions: string[]; coveredSheetIds: Set<string> }
     >();
 
+    const allCoveredSheetIds = new Set<string>();
+
+    // Primary source: entries in lessEntries (includes auto-pulled entries from Daily হিসাব)
     monthLess.forEach((entry) => {
       const d = entry.date;
       const amt = Number(entry.amount) || 0;
-      const existing = dateMap.get(d) || { totalLess: 0, count: 0, descriptions: [] };
+      if (amt <= 0) return;
+
+      const existing = dateMap.get(d) || {
+        totalLess: 0,
+        count: 0,
+        descriptions: [],
+        coveredSheetIds: new Set(),
+      };
       existing.totalLess += amt;
       existing.count += 1;
       if (entry.description && !existing.descriptions.includes(entry.description)) {
         existing.descriptions.push(entry.description);
       }
+      if (entry.id && entry.id.startsWith('less-sheet-')) {
+        const sid = entry.id.replace('less-sheet-', '');
+        existing.coveredSheetIds.add(sid);
+        allCoveredSheetIds.add(sid);
+      }
       dateMap.set(d, existing);
     });
 
-    // Also include dailyLess from dailySheets if any
+    // 2. Fallback: only include dailyLess from dailySheets if that date has NOT already recorded this less
+    // (Prevents doubling when both lessEntries auto-sync and dailySheets aggregation exist)
     (db.dailySheets || []).forEach((s) => {
-      if (s.date && s.date.startsWith(targetMonthPrefix) && (s.dailyLess || 0) > 0) {
+      const sAmt = Number(s.dailyLess ?? s.lessAmount ?? 0);
+      if (s.date && s.date.startsWith(targetMonthPrefix) && sAmt > 0) {
         const d = s.date;
-        const amt = Number(s.dailyLess) || 0;
-        const existing = dateMap.get(d) || { totalLess: 0, count: 0, descriptions: [] };
-        // Add if not already tracked under lessEntries
-        const note = `খতিয়ান লেস [${s.routeOrVan || 'রুট'}]`;
-        if (!existing.descriptions.some((desc) => desc.includes('খতিয়ান লেস'))) {
-          existing.totalLess += amt;
-          existing.count += 1;
-          existing.descriptions.push(note);
-          dateMap.set(d, existing);
+        const existing = dateMap.get(d);
+
+        // Check if this sheet or this date is already tracked
+        const isTracked =
+          allCoveredSheetIds.has(s.id) ||
+          (existing && (
+            existing.coveredSheetIds.has(s.id) ||
+            existing.totalLess >= sAmt ||
+            monthLess.some(
+              (l) =>
+                l.id === `less-sheet-${s.id}` ||
+                l.id.includes(s.id) ||
+                (l.date === s.date &&
+                  (Number(l.amount) === sAmt ||
+                    (s.sheetNo && l.description?.includes(s.sheetNo)) ||
+                    l.description?.includes('Daily হিসাব')))
+            )
+          ));
+
+        if (!isTracked) {
+          const entry = existing || {
+            totalLess: 0,
+            count: 0,
+            descriptions: [],
+            coveredSheetIds: new Set(),
+          };
+          const note = `Daily হিসাব লেস #${s.sheetNo || ''} [${s.routeOrVan || 'রুট'}]`;
+          entry.totalLess += sAmt;
+          entry.count += 1;
+          entry.descriptions.push(note);
+          entry.coveredSheetIds.add(s.id);
+          allCoveredSheetIds.add(s.id);
+          dateMap.set(d, entry);
         }
       }
     });

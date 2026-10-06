@@ -322,6 +322,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
 
     let totalSales = 0;
     let totalDue = 0;
+    let totalDueCollection = 0;
     let totalDamage = 0;
     let totalExpense = 0;
 
@@ -338,6 +339,9 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
 
       // Today's New Due
       totalDue += safeNumber(s.todayDue);
+
+      // Today's Due Collection (বাকি জমা / উত্তোলন)
+      totalDueCollection += safeNumber(s.dueCollection);
 
       // Damage
       totalDamage += sDamage;
@@ -356,6 +360,19 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
         !coveredDates.has(s.date)
       ) {
         totalSales += safeNumber(s.netSales);
+      }
+    });
+
+    // Also include standalone collections/payments from db.payments not covered in daily sheets
+    (db.payments || []).forEach((p) => {
+      if (
+        p.date &&
+        (targetMonthPrefix ? p.date.startsWith(targetMonthPrefix) : true) &&
+        p.date <= targetDate &&
+        p.status === 'completed' &&
+        !coveredDates.has(p.date)
+      ) {
+        totalDueCollection += safeNumber(p.amount);
       }
     });
 
@@ -387,6 +404,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     return {
       totalSales: safeNumber(totalSales),
       totalDue: safeNumber(totalDue),
+      totalDueCollection: safeNumber(totalDueCollection),
       totalDamage: safeNumber(totalDamage),
       totalExpense: safeNumber(totalExpense),
       monthName,
@@ -431,26 +449,53 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   const isShortage = diff < -0.01;
 
   // Multi-page Pagination Logic:
-  // With the redesigned compact layout, typical daily usage (7-10 products, damage entries, dues & reconciliation)
-  // fits comfortably on a SINGLE A4 page.
+  // Dynamically estimate content height to guarantee overflow flows onto Page 2+ without being cut off
   const dueEntriesMaxCount = Math.max(validTodayDues.length, validDueCollections.length);
-  // Allow at least 11 products on a single page, or 10 if there are several due/collection entries
-  const MAX_ITEMS_SINGLE_PAGE = dueEntriesMaxCount > 4 ? 10 : 12;
-  const MAX_ITEMS_PAGE_1_MULTI = 20;
+  const damageHeight = validDamageItems.length > 0 ? (40 + validDamageItems.length * 20 + 20) : 0;
+  const duesHeight = (todayDueTotal > 0 || safeNumber(sheet.dueCollection) > 0)
+    ? (40 + Math.max(dueEntriesMaxCount, 1) * 19 + 22)
+    : 0;
+  const bottomSectionsHeight = damageHeight + duesHeight + 45 /* 3 cards */ + 175 /* cash */ + 65 /* signs */ + 45 /* footers */;
+
+  // Total required height if all content were squeezed on a single page (A4 comfortable safe content height is ~1040px)
+  const singlePageTopHeight = 180 /* letterhead, monthly strip, metadata */ + 45 /* prod header/footer */;
+  const totalSinglePageEstimatedHeight = singlePageTopHeight + (validItems.length * 20) + bottomSectionsHeight;
 
   let pagesOfItems: DailyAccountItem[][] = [];
-  if (validItems.length <= MAX_ITEMS_SINGLE_PAGE && validDamageItems.length <= 4) {
+
+  // When content comfortably fits on 1 page:
+  if (totalSinglePageEstimatedHeight <= 1040 && validItems.length <= 11) {
     pagesOfItems = [validItems];
   } else {
-    // Page 1
-    const p1 = validItems.slice(0, MAX_ITEMS_PAGE_1_MULTI);
-    pagesOfItems.push(p1);
-    // Remaining pages
-    let remaining = validItems.slice(MAX_ITEMS_PAGE_1_MULTI);
-    while (remaining.length > 0) {
-      const chunkSize = 24;
-      pagesOfItems.push(remaining.slice(0, chunkSize));
-      remaining = remaining.slice(chunkSize);
+    // Requires MULTI-PAGE pagination (2 or more pages)
+    // Page 1 contains: Letterhead, Monthly strip, Metadata, Product items
+    // Page 2 (or last page) contains: Continued header, Remaining products (if any), Product table totals,
+    // Damage table, Customer Dues & Collections, Sales Summary, Cash Denominations & Reconciliation, Signatures
+    const remainingHeightLastPage = Math.max(0, 1040 - 65 - bottomSectionsHeight);
+    const maxItemsLastPage = Math.max(0, Math.floor(remainingHeightLastPage / 20));
+
+    const MAX_ITEMS_PAGE_1 = 14;
+    const MAX_ITEMS_PAGE_MIDDLE = 18;
+
+    if (validItems.length <= MAX_ITEMS_PAGE_1 + maxItemsLastPage) {
+      // Exactly 2 pages
+      let p1Count = Math.min(validItems.length, MAX_ITEMS_PAGE_1);
+      if (validItems.length - p1Count > maxItemsLastPage && p1Count < 18) {
+        p1Count = Math.min(validItems.length, 18);
+      }
+      const p1 = validItems.slice(0, p1Count);
+      const p2 = validItems.slice(p1Count);
+      pagesOfItems = [p1, p2];
+    } else {
+      // 3 or more pages
+      const p1 = validItems.slice(0, MAX_ITEMS_PAGE_1);
+      pagesOfItems.push(p1);
+      let remaining = validItems.slice(MAX_ITEMS_PAGE_1);
+      while (remaining.length > maxItemsLastPage && remaining.length > 0) {
+        pagesOfItems.push(remaining.slice(0, MAX_ITEMS_PAGE_MIDDLE));
+        remaining = remaining.slice(MAX_ITEMS_PAGE_MIDDLE);
+      }
+      pagesOfItems.push(remaining);
     }
   }
 
@@ -603,7 +648,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
             return (
               <div
                 key={pageIndex}
-                className="daily-print-a4-page bg-white text-slate-900 shadow-2xl rounded-sm print:rounded-none print:shadow-none print:m-0 flex flex-col justify-between overflow-hidden"
+                className="daily-print-a4-page bg-white text-slate-900 shadow-2xl rounded-sm print:rounded-none print:shadow-none print:m-0 flex flex-col justify-between overflow-visible"
                 style={{
                   width: '794px',
                   minHeight: '1123px',
@@ -657,30 +702,35 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                   {/* Monthly Summary Strip (Compact Single Line / Bengali Only) */}
                   {isFirstPage && (
                     <div className="mb-1">
-                      <div className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 flex items-center justify-between text-[8.5px] leading-tight">
+                      <div className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 flex items-center justify-between text-[8px] sm:text-[8.5px] leading-tight">
                         <div className="flex items-center gap-1 font-bold text-slate-700 shrink-0">
                           <Calendar className="h-2.5 w-2.5 text-emerald-600 shrink-0" />
                           <span>চলতি মাসের হিসাব {monthToDateTotals.dayBn ? `(${monthToDateTotals.monthName || 'চলতি মাস'} ১–${monthToDateTotals.dayBn} তারিখ)` : ''}:</span>
                         </div>
-                        <div className="flex items-center gap-2 sm:gap-3 font-bengali">
+                        <div className="flex items-center gap-1.5 sm:gap-2.5 font-bengali">
                           <div className="flex items-center gap-0.5">
                             <span className="text-slate-600">মোট বিক্রি:</span>
-                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{formatMoney(monthToDateTotals.totalSales)}</strong>
+                            <strong className="font-mono font-bold text-slate-900 text-[8.5px] sm:text-[9px]">{formatMoney(monthToDateTotals.totalSales)}</strong>
                           </div>
                           <span className="text-slate-300">•</span>
                           <div className="flex items-center gap-0.5">
                             <span className="text-amber-800">মোট বাকি:</span>
-                            <strong className="font-mono font-bold text-amber-900 text-[9px]">{formatMoney(monthToDateTotals.totalDue)}</strong>
+                            <strong className="font-mono font-bold text-amber-900 text-[8.5px] sm:text-[9px]">{formatMoney(monthToDateTotals.totalDue)}</strong>
+                          </div>
+                          <span className="text-slate-300">•</span>
+                          <div className="flex items-center gap-0.5">
+                            <span className="text-emerald-800">মোট বাকি উত্তোলন:</span>
+                            <strong className="font-mono font-bold text-emerald-900 text-[8.5px] sm:text-[9px]">{formatMoney(monthToDateTotals.totalDueCollection)}</strong>
                           </div>
                           <span className="text-slate-300">•</span>
                           <div className="flex items-center gap-0.5">
                             <span className="text-rose-800">মোট ড্যামেজ:</span>
-                            <strong className="font-mono font-bold text-rose-900 text-[9px]">{formatMoney(monthToDateTotals.totalDamage)}</strong>
+                            <strong className="font-mono font-bold text-rose-900 text-[8.5px] sm:text-[9px]">{formatMoney(monthToDateTotals.totalDamage)}</strong>
                           </div>
                           <span className="text-slate-300">•</span>
                           <div className="flex items-center gap-0.5">
                             <span className="text-slate-700">মোট খরচ:</span>
-                            <strong className="font-mono font-bold text-slate-900 text-[9px]">{formatMoney(monthToDateTotals.totalExpense)}</strong>
+                            <strong className="font-mono font-bold text-slate-900 text-[8.5px] sm:text-[9px]">{formatMoney(monthToDateTotals.totalExpense)}</strong>
                           </div>
                         </div>
                       </div>
@@ -739,12 +789,13 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                         {pageItems.length === 0 && (
                           <tr>
                             <td colSpan={7} className="py-2 text-center text-slate-400 font-bengali text-xs border-b border-slate-200">
-                              কোনো পণ্যের এন্ট্রি যুক্ত করা হয়নি (খালি খতিয়ান পাতা)
+                              {pageIndex > 0 ? 'পূর্ববর্তী পাতায় পণ্যের তালিকা সম্পন্ন হয়েছে (নিচে সারসংক্ষেপ দ্রষ্টব্য)' : 'কোনো পণ্যের এন্ট্রি যুক্ত করা হয়নি (খালি খতিয়ান পাতা)'}
                             </td>
                           </tr>
                         )}
                         {pageItems.map((item, idx) => {
-                          const globalIdx = (pageIndex === 0 ? 0 : MAX_ITEMS_PAGE_1_MULTI) + idx + 1;
+                          const itemsBeforeThisPage = pagesOfItems.slice(0, pageIndex).reduce((sum, p) => sum + p.length, 0);
+                          const globalIdx = itemsBeforeThisPage + idx + 1;
                           const rawIssued = safeNumber(item.rawIssuedQty ?? item.issuedQty);
                           const rawRet = safeNumber(item.rawReturnQty ?? item.returnQty);
                           const issuedUnit = item.issuedUnit || 'P';

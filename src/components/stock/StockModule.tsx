@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import {
   Boxes,
   PlusCircle,
@@ -11,6 +11,10 @@ import {
   Eye,
   ImageDown,
   Printer,
+  Search,
+  X,
+  ChevronDown,
+  CheckCircle2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { generateStockValuationPDF } from '../../services/pdfGenerator';
@@ -36,6 +40,14 @@ export const StockModule: React.FC = () => {
   const [selectedProductId, setSelectedProductId] = useState<string>(
     warehouseProducts[0]?.id || db.products[0]?.id || ''
   );
+  const [productSearchQuery, setProductSearchQuery] = useState<string>(
+    warehouseProducts[0]?.name || db.products[0]?.name || ''
+  );
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
+  const prevSelectedProductIdRef = useRef<string>(warehouseProducts[0]?.id || db.products[0]?.id || '');
+
   const [adjustType, setAdjustType] = useState<'in' | 'out'>('in');
   const [adjustQty, setAdjustQty] = useState<number | ''>('');
   const [reason, setReason] = useState<string>('নতুন চালান প্রাপ্তি');
@@ -49,8 +61,47 @@ export const StockModule: React.FC = () => {
 
   const selectedProduct = db.products.find((p) => p.id === selectedProductId);
 
+  // Sync productSearchQuery only when the selected product actually changes
+  useEffect(() => {
+    if (selectedProduct && prevSelectedProductIdRef.current !== selectedProductId) {
+      prevSelectedProductIdRef.current = selectedProductId;
+      setProductSearchQuery(selectedProduct.name);
+    }
+  }, [selectedProductId, selectedProduct]);
+
+  // Combined list of warehouse products and restorable products
+  const allSelectableProducts = useMemo(() => {
+    return [
+      ...warehouseProducts.map((p) => ({ ...p, isDeletedFromStock: false })),
+      ...deletedStockProducts.map((p) => ({ ...p, isDeletedFromStock: true })),
+    ];
+  }, [warehouseProducts, deletedStockProducts]);
+
+  // Search-as-you-type filtering
+  const filteredSelectableProducts = useMemo(() => {
+    if (!productSearchQuery.trim()) return allSelectableProducts;
+    const q = productSearchQuery.toLowerCase().trim();
+    return allSelectableProducts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.code.toLowerCase().includes(q) ||
+        (p.category && p.category.toLowerCase().includes(q))
+    );
+  }, [allSelectableProducts, productSearchQuery]);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownContainerRef.current && !dropdownContainerRef.current.contains(e.target as Node)) {
+        setIsDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   // Auto select product if current selection became invalid
-  React.useEffect(() => {
+  useEffect(() => {
     if (!selectedProductId && (warehouseProducts[0] || db.products[0])) {
       setSelectedProductId(warehouseProducts[0]?.id || db.products[0]?.id || '');
     }
@@ -224,30 +275,146 @@ export const StockModule: React.FC = () => {
           )}
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">পণ্য নির্বাচন</label>
-              <select
-                value={selectedProductId}
-                onChange={(e) => setSelectedProductId(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2"
-              >
-                <optgroup label="বর্তমান গুদাম স্টক পণ্য">
-                  {warehouseProducts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} (বর্তমান: {p.currentStock} {p.unit})
-                    </option>
-                  ))}
-                </optgroup>
-                {deletedStockProducts.length > 0 && (
-                  <optgroup label="স্টক তালিকা থেকে অপসারিত পণ্য (নতুন মাল যোগ করতে নির্বাচন করুন)">
-                    {deletedStockProducts.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        + {p.name} (স্টক নেই — পুনরায় যোগ করুন)
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
+            <div ref={dropdownContainerRef} className="relative">
+              <label className="block font-semibold text-slate-700 mb-1">
+                পণ্য নির্বাচন (খুঁজুন বা সিলেক্ট করুন)
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={productSearchQuery}
+                  onChange={(e) => {
+                    setProductSearchQuery(e.target.value);
+                    setIsDropdownOpen(true);
+                    setHighlightedIndex(0);
+                  }}
+                  onFocus={() => {
+                    setIsDropdownOpen(true);
+                    setHighlightedIndex(0);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'ArrowDown') {
+                      if (!isDropdownOpen) {
+                        setIsDropdownOpen(true);
+                        return;
+                      }
+                      if (filteredSelectableProducts.length > 0) {
+                        e.preventDefault();
+                        setHighlightedIndex((prev) => (prev + 1) % filteredSelectableProducts.length);
+                      }
+                    } else if (e.key === 'ArrowUp') {
+                      if (isDropdownOpen && filteredSelectableProducts.length > 0) {
+                        e.preventDefault();
+                        setHighlightedIndex((prev) => (prev - 1 + filteredSelectableProducts.length) % filteredSelectableProducts.length);
+                      }
+                    } else if (e.key === 'Enter') {
+                      if (isDropdownOpen && filteredSelectableProducts.length > 0 && filteredSelectableProducts[highlightedIndex]) {
+                        e.preventDefault();
+                        const p = filteredSelectableProducts[highlightedIndex];
+                        setSelectedProductId(p.id);
+                        setProductSearchQuery(p.name);
+                        setIsDropdownOpen(false);
+                      }
+                    } else if (e.key === 'Escape') {
+                      setIsDropdownOpen(false);
+                    }
+                  }}
+                  placeholder="পণ্যের নাম বা কোড লিখুন..."
+                  className="w-full rounded-lg border border-slate-300 bg-white pl-8 pr-16 py-2 text-xs font-semibold text-slate-900 placeholder:text-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-hidden"
+                />
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <div className="absolute right-2 top-2 flex items-center gap-1">
+                  {productSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProductSearchQuery('');
+                        setIsDropdownOpen(true);
+                      }}
+                      className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                      title="মুছুন"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setIsDropdownOpen((prev) => !prev)}
+                    className="text-slate-400 hover:text-slate-600 p-0.5 cursor-pointer"
+                  >
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Suggestions Dropdown */}
+              {isDropdownOpen && (
+                <div className="absolute z-50 left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xl divide-y divide-slate-100">
+                  <div className="px-3 py-1.5 bg-slate-50 text-[10px] font-semibold text-slate-500 flex justify-between items-center">
+                    <span>পণ্য তালিকা ({filteredSelectableProducts.length} টি পাওয়া গেছে)</span>
+                    <span className="text-slate-400">ক্লিক বা Enter চাপুন</span>
+                  </div>
+                  {filteredSelectableProducts.length === 0 ? (
+                    <div className="p-3 text-center text-xs text-slate-400 font-bengali">
+                      কোনো পণ্য পাওয়া যায়নি
+                    </div>
+                  ) : (
+                    filteredSelectableProducts.map((p, idx) => {
+                      const isHighlighted = idx === highlightedIndex;
+                      const isSelected = p.id === selectedProductId;
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setSelectedProductId(p.id);
+                            setProductSearchQuery(p.name);
+                            setIsDropdownOpen(false);
+                          }}
+                          onMouseEnter={() => setHighlightedIndex(idx)}
+                          className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-amber-50/80 text-amber-950 font-medium'
+                              : isHighlighted
+                              ? 'bg-slate-50 text-slate-900'
+                              : 'hover:bg-slate-50 text-slate-800'
+                          }`}
+                        >
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-bold">{p.name}</span>
+                              <span className="font-mono text-[9px] px-1 py-0.2 rounded bg-slate-100 text-slate-600">
+                                {p.code}
+                              </span>
+                              {p.isDeletedFromStock && (
+                                <span className="text-[9px] bg-rose-50 text-rose-700 px-1 py-0.2 rounded font-bold">
+                                  স্টক নেই
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-slate-500 mt-0.5">
+                              বর্তমান গুদাম স্টক: {p.currentStock} {p.unit || 'পিস'}
+                            </div>
+                          </div>
+                          {isSelected && (
+                            <CheckCircle2 className="h-4 w-4 text-amber-600 shrink-0" />
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {selectedProduct && (
+                <div className="mt-1 text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="h-3 w-3 shrink-0" />
+                  <span className="truncate">
+                    বর্তমান গুদাম স্টক: {selectedProduct.currentStock} {selectedProduct.unit || 'পিস'}
+                  </span>
+                </div>
+              )}
             </div>
 
             <div>

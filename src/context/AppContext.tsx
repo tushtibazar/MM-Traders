@@ -1470,7 +1470,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let updatedLessEntries = [...(db.lessEntries || [])];
     const lessEntryId = `less-sheet-${sheetId}`;
     const existingLessIdx = updatedLessEntries.findIndex(
-      (l) => l.id === lessEntryId || (l.date === newSheet.date && l.description.includes(`Daily হিসাব লেস #${newSheet.sheetNo || sheetId}`))
+      (l) =>
+        l.id === lessEntryId ||
+        l.id === `less-sheet-${newSheet.id}` ||
+        (l.date === newSheet.date &&
+          (l.id.startsWith('less-sheet-') ||
+            (newSheet.sheetNo && l.description.includes(newSheet.sheetNo)) ||
+            (newSheet.routeOrVan && l.description.includes(newSheet.routeOrVan)) ||
+            l.description.includes('Daily হিসাব লেস')))
     );
 
     if (dailyLessAmt > 0) {

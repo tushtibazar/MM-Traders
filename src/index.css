@@ -61,6 +61,16 @@
     break-after: auto;
   }
 
+  tr, td, th {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
   .no-print {
     display: none !important;
   }
