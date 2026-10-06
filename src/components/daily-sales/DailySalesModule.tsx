@@ -123,6 +123,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     db,
     todayDateStr,
     saveDailySheet,
+    updateDailySheetTableLocks,
     deleteDailySheet,
     currentUser,
     recordCustomerDue,
@@ -219,20 +220,89 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const isSalesLocked = isSalesTableLocked || isLockedForEdit;
   const isDamageLocked = isDamageTableLocked || isLockedForEdit;
 
+  // Helpers for record-level lock persistence (localStorage and database)
+  const getLockStorageKey = (date: string, route?: string, sr?: string) => {
+    return `mm_traders_table_lock_${date}_${(route || '').trim()}_${(sr || '').trim()}`;
+  };
+
+  const getPersistedLockState = (
+    date: string,
+    route?: string,
+    sr?: string,
+    sheetId?: string
+  ): { isSalesTableLocked?: boolean; isDamageTableLocked?: boolean } => {
+    try {
+      if (sheetId) {
+        const rawSheet = localStorage.getItem(`mm_traders_sheet_lock_${sheetId}`);
+        if (rawSheet) return JSON.parse(rawSheet);
+      }
+      const raw = localStorage.getItem(getLockStorageKey(date, route, sr));
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return {};
+  };
+
+  const setPersistedLockState = (
+    date: string,
+    route: string | undefined,
+    sr: string | undefined,
+    update: { isSalesTableLocked?: boolean; isDamageTableLocked?: boolean },
+    sheetId?: string | null
+  ) => {
+    try {
+      const key = getLockStorageKey(date, route, sr);
+      const existing = getPersistedLockState(date, route, sr, sheetId || undefined);
+      const merged = { ...existing, ...update };
+      localStorage.setItem(key, JSON.stringify(merged));
+      if (sheetId) {
+        localStorage.setItem(`mm_traders_sheet_lock_${sheetId}`, JSON.stringify(merged));
+      }
+    } catch {}
+  };
+
+  const persistLocks = (salesLocked: boolean, damageLocked: boolean) => {
+    // 1. Persist to localStorage
+    setPersistedLockState(
+      selectedDate,
+      selectedRoute,
+      selectedSR,
+      {
+        isSalesTableLocked: salesLocked,
+        isDamageTableLocked: damageLocked,
+      },
+      currentSheetId
+    );
+
+    // 2. Persist to database if record already exists
+    const targetSheet = currentSheetId
+      ? (db.dailySheets || []).find((s) => s.id === currentSheetId)
+      : findExistingCombinationSheet(selectedDate, selectedRoute, selectedSR, selectedDSR);
+
+    if (targetSheet) {
+      updateDailySheetTableLocks(targetSheet.id, salesLocked, damageLocked);
+    }
+  };
+
+  const persistTableLockState = (table: 'sales' | 'damage', locked: boolean) => {
+    const nextSales = table === 'sales' ? locked : isSalesTableLocked;
+    const nextDamage = table === 'damage' ? locked : isDamageTableLocked;
+    persistLocks(nextSales, nextDamage);
+  };
+
   const handleToggleSalesLock = () => {
     if (isLockedForEdit) {
       setShowUnlockModal(true);
       return;
     }
-    setIsSalesTableLocked((prev) => {
-      const next = !prev;
-      if (next) {
-        showNotification('বিক্রি হিসাব টেবিল লক করা হয়েছে। নতুন লাইন যোগ বা পরিবর্তন বন্ধ রয়েছে।', 'info');
-      } else {
-        showNotification('বিক্রি হিসাব টেবিল আনলক করা হয়েছে। এখন নতুন লাইন ও পরিবর্তন করা যাবে।', 'info');
-      }
-      return next;
-    });
+    const nextLocked = !isSalesTableLocked;
+    setIsSalesTableLocked(nextLocked);
+    persistTableLockState('sales', nextLocked);
+
+    if (nextLocked) {
+      showNotification('বিক্রি হিসাব টেবিল লক করা হয়েছে (লক সংরক্ষিত)। নতুন লাইন যোগ বা পরিবর্তন বন্ধ রয়েছে।', 'info');
+    } else {
+      showNotification('বিক্রি হিসাব টেবিল আনলক করা হয়েছে। এখন নতুন লাইন ও পরিবর্তন করা যাবে।', 'info');
+    }
   };
 
   const handleToggleDamageLock = () => {
@@ -240,15 +310,15 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setShowUnlockModal(true);
       return;
     }
-    setIsDamageTableLocked((prev) => {
-      const next = !prev;
-      if (next) {
-        showNotification('ড্যামেজ টেবিল লক করা হয়েছে। নতুন লাইন যোগ বা পরিবর্তন বন্ধ রয়েছে।', 'info');
-      } else {
-        showNotification('ড্যামেজ টেবিল আনলক করা হয়েছে। এখন নতুন লাইন ও পরিবর্তন করা যাবে।', 'info');
-      }
-      return next;
-    });
+    const nextLocked = !isDamageTableLocked;
+    setIsDamageTableLocked(nextLocked);
+    persistTableLockState('damage', nextLocked);
+
+    if (nextLocked) {
+      showNotification('ড্যামেজ টেবিল লক করা হয়েছে (লক সংরক্ষিত)। নতুন লাইন যোগ বা পরিবর্তন বন্ধ রয়েছে।', 'info');
+    } else {
+      showNotification('ড্যামেজ টেবিল আনলক করা হয়েছে। এখন নতুন লাইন ও পরিবর্তন করা যাবে।', 'info');
+    }
   };
 
   // Table Rows
@@ -657,14 +727,22 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     const status = sheet.status === 'confirmed' || sheet.status === 'completed' ? 'completed' : 'pending';
     setCurrentSheetStatus(status);
 
+    const storedLocks = getPersistedLockState(sheet.date, sheet.routeOrVan, sheet.srName, sheet.id);
+    const resolvedSalesLock = sheet.isSalesTableLocked !== undefined
+      ? Boolean(sheet.isSalesTableLocked)
+      : (storedLocks.isSalesTableLocked !== undefined ? Boolean(storedLocks.isSalesTableLocked) : false);
+    const resolvedDamageLock = sheet.isDamageTableLocked !== undefined
+      ? Boolean(sheet.isDamageTableLocked)
+      : (storedLocks.isDamageTableLocked !== undefined ? Boolean(storedLocks.isDamageTableLocked) : false);
+
     if (status === 'completed') {
       setIsLockedForEdit(true);
-      setIsSalesTableLocked(false);
-      setIsDamageTableLocked(false);
+      setIsSalesTableLocked(resolvedSalesLock);
+      setIsDamageTableLocked(resolvedDamageLock);
     } else {
       setIsLockedForEdit(false);
-      setIsSalesTableLocked(false);
-      setIsDamageTableLocked(false);
+      setIsSalesTableLocked(resolvedSalesLock);
+      setIsDamageTableLocked(resolvedDamageLock);
     }
 
     if (sheet.items && sheet.items.length > 0) {
@@ -769,7 +847,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setActiveTab('entry');
   };
 
-  // Check if an initialSheetId was provided
+  // Check if an initialSheetId was provided or if an existing combination sheet is present
   useEffect(() => {
     if (initialSheetId) {
       const sheet = (db.dailySheets || []).find((s) => s.id === initialSheetId);
@@ -779,6 +857,19 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       }
       if (onClearInitialSheetId) {
         onClearInitialSheetId();
+      }
+    } else if (selectedDate && selectedRoute) {
+      const existing = findExistingCombinationSheet(selectedDate, selectedRoute, selectedSR, selectedDSR);
+      if (existing) {
+        loadSheetIntoForm(existing);
+      } else {
+        const storedLocks = getPersistedLockState(selectedDate, selectedRoute, selectedSR);
+        if (storedLocks.isSalesTableLocked !== undefined) {
+          setIsSalesTableLocked(Boolean(storedLocks.isSalesTableLocked));
+        }
+        if (storedLocks.isDamageTableLocked !== undefined) {
+          setIsDamageTableLocked(Boolean(storedLocks.isDamageTableLocked));
+        }
       }
     }
   }, [initialSheetId]);
@@ -824,11 +915,12 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       );
     } else {
       // Fresh new combination
+      const storedLocks = getPersistedLockState(newDate, newRoute, newSR);
       setCurrentSheetId(null);
       setCurrentSheetStatus('pending');
       setIsLockedForEdit(false);
-      setIsSalesTableLocked(false);
-      setIsDamageTableLocked(false);
+      setIsSalesTableLocked(storedLocks.isSalesTableLocked !== undefined ? Boolean(storedLocks.isSalesTableLocked) : false);
+      setIsDamageTableLocked(storedLocks.isDamageTableLocked !== undefined ? Boolean(storedLocks.isDamageTableLocked) : false);
       setRows([createEmptyRow()]);
       setDamageRows([createEmptyDamageRow()]);
       setTodayDueRows([createEmptyDueRow()]);
@@ -1817,6 +1909,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         netCashSubmitted: totalDenominationCash > 0 ? totalDenominationCash : Math.max(0, netDailySales - totalTodayDueAmount - dailyExpense),
         marketDue: totalTodayDueAmount,
         status: sheetStatus,
+        isSalesTableLocked: isSalesTableLocked,
+        isDamageTableLocked: isDamageTableLocked,
       };
 
       const saved = saveDailySheet(sheetDataToSave, shouldUpdateStock);
@@ -2124,6 +2218,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setIsLockedForEdit(false);
     setIsSalesTableLocked(false);
     setIsDamageTableLocked(false);
+    persistLocks(false, false);
     setShowUnlockModal(false);
     showNotification('হিসাব সম্পাদনার জন্য আনলক করা হয়েছে। সংশোধনের পর পুনরায় সেভ করুন।', 'info');
   };

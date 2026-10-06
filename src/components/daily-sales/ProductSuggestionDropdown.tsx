@@ -32,24 +32,33 @@ export const ProductSuggestionDropdown: React.FC<ProductSuggestionDropdownProps>
       return;
     }
 
-    if (highlightedIndex === suggestions.length - 1) {
-      container.scrollTop = container.scrollHeight;
-      return;
-    }
-
-    const item = itemRefs.current[highlightedIndex];
+    // Locate the highlighted button
+    const item =
+      itemRefs.current[highlightedIndex] ||
+      container.querySelector<HTMLElement>(`[data-index="${highlightedIndex}"]`) ||
+      container.querySelector<HTMLElement>('[data-highlighted="true"]');
     if (!item) return;
+
+    // Height of sticky header
+    const header = container.firstElementChild as HTMLElement | null;
+    const headerHeight = header ? header.offsetHeight : 34;
 
     const containerRect = container.getBoundingClientRect();
     const itemRect = item.getBoundingClientRect();
 
-    const headerHeight = 32; // height of the sticky header
-    if (itemRect.bottom > containerRect.bottom) {
-      container.scrollTop += itemRect.bottom - containerRect.bottom + 4;
-    } else if (itemRect.top < containerRect.top + headerHeight) {
-      container.scrollTop -= (containerRect.top + headerHeight - itemRect.top + 4);
+    const visibleTop = containerRect.top + headerHeight;
+    const visibleBottom = containerRect.bottom;
+
+    if (itemRect.top < visibleTop) {
+      // Scrolled above visible area or hidden under sticky header: scroll UP so it's fully visible
+      const diff = visibleTop - itemRect.top;
+      container.scrollTop = Math.max(0, container.scrollTop - diff - 4);
+    } else if (itemRect.bottom > visibleBottom) {
+      // Scrolled below visible area: scroll DOWN so it's fully visible
+      const diff = itemRect.bottom - visibleBottom;
+      container.scrollTop = container.scrollTop + diff + 4;
     }
-  }, [highlightedIndex, suggestions.length]);
+  }, [highlightedIndex, suggestions]);
 
   return (
     <div
@@ -79,16 +88,22 @@ export const ProductSuggestionDropdown: React.FC<ProductSuggestionDropdownProps>
               itemRefs.current[sIdx] = el;
             }}
             type="button"
+            data-index={sIdx}
+            data-highlighted={isHighlighted ? 'true' : undefined}
             onMouseDown={(e) => {
               e.preventDefault();
               onSelect(p);
             }}
-            onMouseEnter={() => onHighlight(sIdx)}
+            onMouseMove={() => {
+              if (sIdx !== highlightedIndex) {
+                onHighlight(sIdx);
+              }
+            }}
             className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between cursor-pointer transition-colors ${
               isHighlighted
                 ? isRose
-                  ? 'bg-rose-100/90 text-rose-950 font-bold border-l-4 border-rose-500 pl-2'
-                  : 'bg-emerald-100/90 text-emerald-950 font-bold border-l-4 border-emerald-500 pl-2'
+                  ? 'bg-rose-100 text-rose-950 font-bold border-l-4 border-rose-600 pl-2 shadow-inner ring-1 ring-rose-300/60'
+                  : 'bg-emerald-100 text-emerald-950 font-bold border-l-4 border-emerald-600 pl-2 shadow-inner ring-1 ring-emerald-300/60'
                 : 'text-slate-800 hover:bg-slate-50'
             }`}
           >
@@ -97,10 +112,10 @@ export const ProductSuggestionDropdown: React.FC<ProductSuggestionDropdownProps>
                 <span className="font-semibold truncate">{p.name}</span>
                 {isHighlighted && (
                   <span
-                    className={`px-1 py-0.2 rounded text-[9px] font-mono font-bold shrink-0 ${
+                    className={`px-1.5 py-0.5 rounded text-[9px] font-mono font-bold shrink-0 shadow-2xs ${
                       isRose
-                        ? 'bg-rose-200 text-rose-900'
-                        : 'bg-emerald-200 text-emerald-900'
+                        ? 'bg-rose-200 text-rose-900 border border-rose-300'
+                        : 'bg-emerald-200 text-emerald-900 border border-emerald-300'
                     }`}
                   >
                     Tab

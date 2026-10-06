@@ -348,6 +348,8 @@ export interface DailyAccountSheet {
   shortAmount?: number;
   dailyShort?: number;
   cashDenominations?: { [key: string]: any };
+  isSalesTableLocked?: boolean;
+  isDamageTableLocked?: boolean;
   status: 'draft' | 'confirmed' | 'pending' | 'completed';
   notes?: string;
   createdAt: string;

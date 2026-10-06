@@ -117,6 +117,11 @@ interface AppContextType {
     sheetInput: Omit<DailyAccountSheet, 'id' | 'createdAt' | 'updatedAt' | 'createdBy'> & { id?: string },
     updateStock?: boolean
   ) => DailyAccountSheet;
+  updateDailySheetTableLocks: (
+    sheetId: string,
+    isSalesTableLocked: boolean,
+    isDamageTableLocked: boolean
+  ) => void;
   deleteDailySheet: (sheetId: string) => void;
   getDailySheetByDate: (date: string) => DailyAccountSheet | undefined;
 
@@ -1348,6 +1353,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       netCashSubmitted,
       marketDue,
       status: input.status || 'confirmed',
+      isSalesTableLocked: input.isSalesTableLocked !== undefined ? input.isSalesTableLocked : (existingSheet?.isSalesTableLocked ?? false),
+      isDamageTableLocked: input.isDamageTableLocked !== undefined ? input.isDamageTableLocked : (existingSheet?.isDamageTableLocked ?? false),
       createdAt: existingSheet ? existingSheet.createdAt : nowIso,
       updatedAt: nowIso,
       createdBy: currentUser.name,
@@ -1513,6 +1520,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     updateDb(newDb);
     return newSheet;
+  };
+
+  const updateDailySheetTableLocks = (
+    sheetId: string,
+    isSalesTableLocked: boolean,
+    isDamageTableLocked: boolean
+  ) => {
+    const updated = (db.dailySheets || []).map((s) => {
+      if (s.id === sheetId) {
+        return {
+          ...s,
+          isSalesTableLocked,
+          isDamageTableLocked,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return s;
+    });
+    updateDb({ ...db, dailySheets: updated });
   };
 
   const deleteDailySheet = (sheetId: string) => {
@@ -2019,6 +2045,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         voidExpense,
         deleteExpense,
         saveDailySheet,
+        updateDailySheetTableLocks,
         deleteDailySheet,
         getDailySheetByDate,
         addSR,
