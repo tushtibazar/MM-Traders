@@ -12,7 +12,13 @@
     margin: 0;
   }
 
+  html,
   body {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 100% !important;
+    overflow: visible !important;
+    position: static !important;
     background-color: #ffffff !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -20,7 +26,44 @@
     print-color-adjust: exact !important;
   }
 
-  /* Hide everything on page when printing except the print preview container */
+  /* Reset all modal overlays, backdrops, and scrollable wrappers so they don't clip multi-page output */
+  #root,
+  #root > div,
+  main,
+  .print-modal-overlay,
+  .print-preview-scroll,
+  .fixed,
+  [class*="fixed"],
+  .overflow-y-auto,
+  [class*="overflow-y-auto"],
+  .overflow-hidden,
+  [class*="overflow-hidden"],
+  [class*="backdrop-blur"] {
+    position: static !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
+    display: block !important;
+  }
+
+  /* Hide app navigation, headers, sidebars, buttons, toolbars, and anything marked .no-print */
+  .no-print,
+  aside,
+  header,
+  nav,
+  button {
+    display: none !important;
+  }
+
+  /* Hide everything by default, then make print area visible in natural document flow */
   body * {
     visibility: hidden;
   }
@@ -32,36 +75,67 @@
     visibility: visible;
   }
 
+  /* The printable container flows naturally in document order starting at the top */
   #daily-sales-print-area,
   .printable-area {
-    position: absolute;
-    left: 0;
-    top: 0;
+    position: static !important;
+    display: block !important;
     width: 100% !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
+    overflow: visible !important;
   }
 
+  /* Each A4 page container */
   .daily-print-a4-page,
   .printable-a4-page {
     width: 100% !important;
-    min-height: 100vh !important;
+    max-width: 210mm !important;
+    min-height: 297mm !important;
+    box-sizing: border-box !important;
     box-shadow: none !important;
     border-radius: 0 !important;
-    margin: 0 !important;
+    margin: 0 auto !important;
     padding: 8mm 10mm !important;
-    page-break-after: always;
-    break-after: page;
+    overflow: visible !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    background: #ffffff !important;
   }
 
   .daily-print-a4-page:last-child,
   .printable-a4-page:last-child {
-    page-break-after: auto;
-    break-after: auto;
+    page-break-after: auto !important;
+    break-after: auto !important;
   }
 
-  tr, td, th {
+  /* Ensure tables and rows don't split awkwardly across pages */
+  table {
+    page-break-inside: auto !important;
+    break-inside: auto !important;
+    width: 100% !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  td, th {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }
@@ -69,10 +143,6 @@
   .avoid-break {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
-  }
-
-  .no-print {
-    display: none !important;
   }
 }
 

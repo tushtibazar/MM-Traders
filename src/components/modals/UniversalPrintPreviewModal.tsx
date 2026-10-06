@@ -137,7 +137,7 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/80 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/80 backdrop-blur-sm print-modal-overlay">
       {/* Top Action Toolbar (Hidden in @media print) */}
       <div className="no-print flex items-center justify-between px-4 py-3 bg-slate-900 text-white border-b border-slate-700 shadow-md">
         <div className="flex items-center gap-3">
@@ -177,7 +177,7 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
       </div>
 
       {/* Main Preview Workspace */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-800/60 flex justify-center">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-800/60 flex justify-center print-preview-scroll">
         <div
           ref={printAreaRef}
           className="printable-area space-y-8 print:space-y-0"
