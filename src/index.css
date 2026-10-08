@@ -16,7 +16,7 @@
   body {
     width: 100% !important;
     height: auto !important;
-    min-height: 100% !important;
+    min-height: 0 !important;
     overflow: visible !important;
     position: static !important;
     background-color: #ffffff !important;
@@ -26,32 +26,17 @@
     print-color-adjust: exact !important;
   }
 
-  /* Reset all modal overlays, backdrops, and scrollable wrappers so they don't clip multi-page output */
-  #root,
-  #root > div,
-  main,
-  .print-modal-overlay,
-  .print-preview-scroll,
-  .fixed,
-  [class*="fixed"],
-  .overflow-y-auto,
-  [class*="overflow-y-auto"],
-  .overflow-hidden,
-  [class*="overflow-hidden"],
-  [class*="backdrop-blur"] {
-    position: static !important;
-    overflow: visible !important;
-    height: auto !important;
-    min-height: 0 !important;
-    max-height: none !important;
+  /* When a print preview modal is open, hide the entire background application shell (#root)
+     and all other siblings outside the print modal from the layout flow using display: none.
+     This completely eliminates the 5-7 blank pages caused by invisible background content! */
+  body.has-print-modal > *:not(.print-modal-overlay),
+  body:has(.print-modal-overlay) > *:not(.print-modal-overlay) {
+    display: none !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
     margin: 0 !important;
     padding: 0 !important;
-    background: transparent !important;
-    box-shadow: none !important;
-    transform: none !important;
-    filter: none !important;
-    backdrop-filter: none !important;
-    display: block !important;
   }
 
   /* Hide app navigation, headers, sidebars, buttons, toolbars, and anything marked .no-print */
@@ -63,19 +48,27 @@
     display: none !important;
   }
 
-  /* Hide everything by default, then make print area visible in natural document flow */
-  body * {
-    visibility: hidden;
+  /* Reset the modal overlay wrapper so it doesn't take up fixed viewport space or push content down */
+  .print-modal-overlay,
+  .print-preview-scroll {
+    position: static !important;
+    display: block !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    transform: none !important;
+    filter: none !important;
+    backdrop-filter: none !important;
   }
 
-  #daily-sales-print-area,
-  #daily-sales-print-area *,
-  .printable-area,
-  .printable-area * {
-    visibility: visible;
-  }
-
-  /* The printable container flows naturally in document order starting at the top */
+  /* The printable container flows naturally at the top-left of the first printed page */
   #daily-sales-print-area,
   .printable-area {
     position: static !important;
@@ -87,17 +80,24 @@
     overflow: visible !important;
   }
 
-  /* Each A4 page container */
+  /* Remove any inter-page margin spacing in print */
+  #daily-sales-print-area > * + *,
+  .printable-area > * + * {
+    margin-top: 0 !important;
+  }
+
+  /* Each A4 page container starts on page 1 and paginates only when needed */
   .daily-print-a4-page,
   .printable-a4-page {
     width: 100% !important;
     max-width: 210mm !important;
-    min-height: 297mm !important;
+    height: auto !important;
+    min-height: 0 !important;
     box-sizing: border-box !important;
     box-shadow: none !important;
     border-radius: 0 !important;
     margin: 0 auto !important;
-    padding: 8mm 10mm !important;
+    padding: 6mm 10mm !important;
     overflow: visible !important;
     page-break-inside: avoid !important;
     break-inside: avoid !important;

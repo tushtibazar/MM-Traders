@@ -1,4 +1,5 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Printer,
   ImageDown,
@@ -587,9 +588,20 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     window.print();
   };
 
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('has-print-modal');
+    } else {
+      document.body.classList.remove('has-print-modal');
+    }
+    return () => {
+      document.body.classList.remove('has-print-modal');
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/80 backdrop-blur-sm print-modal-overlay">
       {/* Top Action Toolbar (Hidden in @media print) */}
       <div className="no-print flex items-center justify-between px-4 py-3 bg-slate-900 text-white border-b border-slate-700 shadow-md">
@@ -1269,6 +1281,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
           })}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

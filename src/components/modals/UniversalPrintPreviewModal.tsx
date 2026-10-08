@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Printer,
   ImageDown,
@@ -54,6 +55,17 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
       lastTriggeredActionRef.current = null;
     }
   }, [isOpen, initialAction]);
+
+  useEffect(() => {
+    if (isOpen) {
+      document.body.classList.add('has-print-modal');
+    } else {
+      document.body.classList.remove('has-print-modal');
+    }
+    return () => {
+      document.body.classList.remove('has-print-modal');
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -136,7 +148,7 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
     window.print();
   };
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex flex-col bg-slate-900/80 backdrop-blur-sm print-modal-overlay">
       {/* Top Action Toolbar (Hidden in @media print) */}
       <div className="no-print flex items-center justify-between px-4 py-3 bg-slate-900 text-white border-b border-slate-700 shadow-md">
@@ -186,6 +198,7 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
           {children}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
