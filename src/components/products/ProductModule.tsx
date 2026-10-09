@@ -15,10 +15,12 @@ import {
   ChevronUp,
   Sparkles,
   ArrowRight,
+  Printer,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { ProductPricePrintPreviewModal } from './ProductPricePrintPreviewModal';
 
 export const ProductModule: React.FC = () => {
   const { db, currentUser, addProduct, updateProduct, deleteProduct } = useApp();
@@ -30,6 +32,7 @@ export const ProductModule: React.FC = () => {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false);
 
   // Delete with PIN state
   const [deleteTargetProduct, setDeleteTargetProduct] = useState<Product | null>(null);
@@ -244,15 +247,27 @@ export const ProductModule: React.FC = () => {
           </div>
         </div>
 
-        {isOwner && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={openAdd}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700"
+            type="button"
+            onClick={() => setIsPrintPreviewOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 hover:text-slate-950 shadow-2xs transition-colors cursor-pointer"
+            title="পণ্য ও মূল্য তালিকা প্রিন্ট প্রিভিউ দেখুন"
           >
-            <Plus className="h-4 w-4" />
-            <span>নতুন পণ্য যোগ করুন</span>
+            <Printer className="h-4 w-4 text-emerald-600" />
+            <span>প্রিন্ট প্রিভিউ</span>
           </button>
-        )}
+
+          {isOwner && (
+            <button
+              onClick={openAdd}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-2xs transition-colors cursor-pointer"
+            >
+              <Plus className="h-4 w-4" />
+              <span>নতুন পণ্য যোগ করুন</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Success banner */}
@@ -857,6 +872,15 @@ export const ProductModule: React.FC = () => {
           setIsDeleteModalOpen(false);
           setDeleteTargetProduct(null);
         }}
+      />
+
+      {/* Product Price List Print Preview Modal */}
+      <ProductPricePrintPreviewModal
+        isOpen={isPrintPreviewOpen}
+        onClose={() => setIsPrintPreviewOpen(false)}
+        settings={db.settings}
+        currency={currency}
+        products={db.products}
       />
     </div>
   );

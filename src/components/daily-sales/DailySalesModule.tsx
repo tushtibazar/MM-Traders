@@ -25,6 +25,7 @@ import {
   Printer,
   Edit2,
   X,
+  Loader2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DailyAccountItem, DailyAccountSheet, DailyDueEntry, Product, Customer } from '../../types';
@@ -326,12 +327,21 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
   // Success / Error Banner
   const [notification, setNotification] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
+  const [isSavingStage, setIsSavingStage] = useState<'morning' | 'evening' | null>(null);
+  const notificationTimeoutRef = useRef<any>(null);
 
-  const showNotification = (message: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showNotification = (
+    message: string,
+    type: 'success' | 'error' | 'info' = 'success',
+    duration = 3000
+  ) => {
     setNotification({ type, message });
-    setTimeout(() => {
+    if (notificationTimeoutRef.current) {
+      clearTimeout(notificationTimeoutRef.current);
+    }
+    notificationTimeoutRef.current = setTimeout(() => {
       setNotification(null);
-    }, 5000);
+    }, duration);
   };
 
   // Last saved sheet reference for PDF export
@@ -1712,9 +1722,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
   // TWO-STAGE SAVE ACTION
   // stage: 'morning' (চলমান/বিতরণ) or 'evening' (সম্পন্ন/চূড়ান্ত)
-  const handleSaveSheet = (stage: 'morning' | 'evening') => {
+  const handleSaveSheet = async (stage: 'morning' | 'evening') => {
+    if (isSavingStage !== null) return;
     if (isLockedForEdit) {
-      showNotification('এই হিসাবটি সম্পন্ন ও লক করা আছে। এডিট করার জন্য আগে আনলক করুন।', 'error');
+      showNotification('এই হিসাবটি সম্পন্ন ও লক করা আছে। এডিট করার জন্য আগে আনলক করুন।', 'error', 3500);
       return;
     }
 
@@ -1723,11 +1734,15 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     );
 
     if (filledRows.length === 0) {
-      showNotification('অনুগ্রহ করে অন্তত একটি পণ্যের নাম ও পরিমাণ লিখুন।', 'error');
+      showNotification('অনুগ্রহ করে অন্তত একটি পণ্যের নাম ও পরিমাণ লিখুন।', 'error', 3500);
       return;
     }
 
+    setIsSavingStage(stage);
+
     try {
+      // Brief yield so the UI renders the loading state
+      await new Promise((resolve) => setTimeout(resolve, 300));
       const items: DailyAccountItem[] = filledRows.map((r) => {
         const matchedProd = db.products.find((p) => p.id === r.productId);
         const ratio = r.ratio;
@@ -1921,19 +1936,23 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
       if (stage === 'morning') {
         showNotification(
-          `সকালের মাল বিতরণ সফলভাবে সেভ হয়েছে! অবস্থা: [চলমান]। সন্ধ্যায় ফেরত আসার পর চূড়ান্ত হিসাব সেভ করুন। (${selectedRoute})`,
-          'success'
+          `✅ বিতরণ সেভ হয়েছে — সকালের মাল বিতরণ সফলভাবে সেভ হয়েছে! (${selectedRoute})`,
+          'success',
+          3000
         );
       } else {
         // Completed
         setIsLockedForEdit(true);
         showNotification(
-          `চূড়ান্ত হিসাব সফলভাবে সম্পন্ন হয়েছে ও স্টক আপডেট করা হয়েছে! PDF প্রস্তুত রয়েছে।`,
-          'success'
+          `✅ চূড়ান্ত হিসাব সেভ হয়েছে — দৈনিক হিসাব সফলভাবে সম্পন্ন ও স্টক আপডেট করা হয়েছে!`,
+          'success',
+          3000
         );
       }
     } catch (err: any) {
-      showNotification(`সেভ করতে সমস্যা হয়েছে: ${err.message || 'অজানা ত্রুটি'}`, 'error');
+      showNotification(`❌ সেভ হয়নি, আবার চেষ্টা করুন: ${err.message || 'অজানা ত্রুটি'}`, 'error', 4000);
+    } finally {
+      setIsSavingStage(null);
     }
   };
 
@@ -2406,28 +2425,31 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         )}
       </div>
 
-      {/* Notification Toast */}
+      {/* Floating Save Confirmation Notification Toast (Prominently visible everywhere) */}
       {notification && (
-        <div
-          className={`flex items-center gap-2.5 p-3.5 rounded-xl text-sm font-medium transition-all shadow-xs ${
-            notification.type === 'success'
-              ? 'bg-emerald-50 border border-emerald-200 text-emerald-900'
-              : notification.type === 'error'
-              ? 'bg-rose-50 border border-rose-200 text-rose-900'
-              : 'bg-blue-50 border border-blue-200 text-blue-900'
-          }`}
-        >
-          {notification.type === 'success' && <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />}
-          {notification.type === 'error' && <AlertCircle className="h-5 w-5 shrink-0 text-rose-600" />}
-          {notification.type === 'info' && <AlertTriangle className="h-5 w-5 shrink-0 text-blue-600" />}
-          <span className="flex-1">{notification.message}</span>
-          <button
-            type="button"
-            onClick={() => setNotification(null)}
-            className="text-xs font-bold opacity-60 hover:opacity-100 cursor-pointer"
+        <div className="fixed top-5 right-5 sm:right-8 z-50 max-w-md animate-in slide-in-from-top-2 duration-200 drop-shadow-xl pointer-events-auto">
+          <div
+            className={`flex items-start gap-3 p-4 rounded-xl text-xs sm:text-sm font-semibold shadow-2xl border ${
+              notification.type === 'success'
+                ? 'bg-emerald-600 text-white border-emerald-500 shadow-emerald-900/25'
+                : notification.type === 'error'
+                ? 'bg-rose-600 text-white border-rose-500 shadow-rose-900/25'
+                : 'bg-blue-600 text-white border-blue-500 shadow-blue-900/25'
+            }`}
           >
-            বন্ধ
-          </button>
+            {notification.type === 'success' && <CheckCircle2 className="h-5 w-5 shrink-0 text-white mt-0.5" />}
+            {notification.type === 'error' && <AlertCircle className="h-5 w-5 shrink-0 text-white mt-0.5" />}
+            {notification.type === 'info' && <AlertTriangle className="h-5 w-5 shrink-0 text-white mt-0.5" />}
+            <div className="flex-1 leading-snug">{notification.message}</div>
+            <button
+              type="button"
+              onClick={() => setNotification(null)}
+              className="p-1 text-white/80 hover:text-white rounded hover:bg-black/10 transition-colors cursor-pointer shrink-0"
+              title="বন্ধ করুন"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -2622,12 +2644,12 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-700 font-semibold text-xs">
                     <th className="py-3 px-2 text-center w-10 sm:w-12 shrink-0">#</th>
-                    <th className="py-3 px-4 min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] w-auto">১. পণ্যের নাম (Product Name)</th>
+                    <th className="py-3 px-3 min-w-[280px] sm:min-w-[320px] lg:min-w-[360px] w-auto">১. পণ্যের নাম (Product Name)</th>
                     <th className="py-3 px-1 text-center w-20 sm:w-22 shrink-0">২. পরিমাণ (Issue)</th>
                     <th className="py-3 px-1 text-center w-20 sm:w-22 shrink-0">৩. ফেরত (Return)</th>
                     <th className="py-3 px-2 text-center w-20 sm:w-22 shrink-0">৪. মোট বিক্রি (Sold)</th>
-                    <th className="py-3 px-2 text-right w-20 sm:w-24 shrink-0">৫. দর ({currency})</th>
-                    <th className="py-3 px-3 text-right w-28 sm:w-32 shrink-0">৬. মোট টাকা ({currency})</th>
+                    <th className="py-3 px-2 text-right w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0">৫. দর ({currency})</th>
+                    <th className="py-3 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0">৬. মোট টাকা ({currency})</th>
                     <th className="py-3 px-2 text-center w-10 shrink-0"></th>
                   </tr>
                 </thead>
@@ -2658,7 +2680,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
                         {/* 1. পণ্যের নাম (Product Name with keyboard arrow & Tab selection) */}
                         <td
-                          className={`py-2 px-4 relative min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] ${
+                          className={`py-2 px-3 relative min-w-[280px] sm:min-w-[320px] lg:min-w-[360px] ${
                             row.showSuggestions ? 'z-50' : 'z-10'
                           }`}
                         >
@@ -2973,7 +2995,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 5. দর (Rate) — auto filled from product */}
-                        <td className="py-2 px-2 w-20 sm:w-24 shrink-0">
+                        <td className="py-2 px-2 w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0">
                           <input
                             type="number"
                             min="0"
@@ -2988,13 +3010,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               )
                             }
                             placeholder="0"
-                            className="w-full text-right rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs sm:text-sm font-mono font-medium text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
+                            className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
                           />
                         </td>
 
                         {/* 6. মোট টাকা (Amount) — auto calculated */}
-                        <td className="py-2 px-3 text-right w-28 sm:w-32 shrink-0">
-                          <span className="font-mono font-bold text-xs sm:text-sm text-slate-900">
+                        <td className="py-2 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0">
+                          <span className="font-mono font-black text-xs sm:text-sm text-slate-900 whitespace-nowrap block text-right">
                             {currency} {row.amount.toLocaleString()}
                           </span>
                         </td>
@@ -3025,7 +3047,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 <tfoot>
                   <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold text-xs sm:text-sm text-slate-900">
                     <td className="w-10 sm:w-12 shrink-0"></td>
-                    <td className="py-3 px-4 text-left font-bold text-slate-800 min-w-[500px] sm:min-w-[580px] lg:min-w-[640px]">
+                    <td className="py-3 px-3 text-left font-bold text-slate-800 min-w-[280px] sm:min-w-[320px] lg:min-w-[360px]">
                       সর্বমোট ({computedRows.filter((r) => r.productName.trim()).length} টি পণ্য)
                     </td>
                     <td className="py-3 px-1 text-center font-mono font-bold text-blue-800 w-20 sm:w-22 shrink-0">
@@ -3037,8 +3059,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     <td className="py-3 px-2 text-center font-mono font-black text-emerald-800 w-20 sm:w-22 shrink-0">
                       {totalNetSaleQty}
                     </td>
-                    <td className="w-20 sm:w-24 shrink-0"></td>
-                    <td className="py-3 px-3 text-right font-mono font-black text-emerald-800 text-sm sm:text-base w-28 sm:w-32 shrink-0">
+                    <td className="w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0"></td>
+                    <td className="py-3 px-3 text-right font-mono font-black text-emerald-800 text-sm sm:text-base w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0 whitespace-nowrap">
                       {currency} {totalAmount.toLocaleString()}
                     </td>
                     <td className="w-10 shrink-0"></td>
@@ -3118,12 +3140,12 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-[11px] sm:text-xs font-bold text-slate-700">
                     <th className="py-3 px-2 text-center w-10 sm:w-12 shrink-0">#</th>
-                    <th className="py-3 px-4 min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] w-auto">১. পণ্যের নাম (Product Name)</th>
+                    <th className="py-3 px-3 min-w-[280px] sm:min-w-[320px] lg:min-w-[360px] w-auto">১. পণ্যের নাম (Product Name)</th>
                     <th className="py-3 px-1 text-center w-20 sm:w-22 shrink-0">২. পরিমাণ (Damage)</th>
                     <th className="py-3 px-1 text-center w-14 sm:w-16 shrink-0 text-slate-400">৩. ফেরত (Return)</th>
                     <th className="py-3 px-2 text-center w-20 sm:w-22 shrink-0">৪. মোট বিক্রি (Net)</th>
-                    <th className="py-3 px-2 text-right w-20 sm:w-24 shrink-0">৫. দর (Rate)</th>
-                    <th className="py-3 px-3 text-right w-28 sm:w-32 shrink-0">৬. মোট টাকা (Amount)</th>
+                    <th className="py-3 px-2 text-right w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0">৫. দর (Rate)</th>
+                    <th className="py-3 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0">৬. মোট টাকা (Amount)</th>
                     <th className="py-3 px-2 text-center w-10 sm:w-12 shrink-0">মুছুন</th>
                   </tr>
                 </thead>
@@ -3158,7 +3180,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
                         {/* 1. পণ্যের নাম with Tab autocomplete */}
                         <td
-                          className={`py-2 px-4 relative min-w-[500px] sm:min-w-[580px] lg:min-w-[640px] ${
+                          className={`py-2 px-3 relative min-w-[280px] sm:min-w-[320px] lg:min-w-[360px] ${
                             isSuggestionsVisible ? 'z-50' : 'z-10'
                           }`}
                         >
@@ -3372,7 +3394,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 5. দর (Rate) */}
-                        <td className="py-2 px-2 w-20 sm:w-24 shrink-0">
+                        <td className="py-2 px-2 w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0">
                           <input
                             type="number"
                             min="0"
@@ -3387,13 +3409,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               )
                             }
                             placeholder="0.00"
-                            className="w-full text-right rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs sm:text-sm font-mono font-semibold text-slate-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
+                            className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
                           />
                         </td>
 
                         {/* 6. মোট টাকা (Amount = Qty × Rate) */}
-                        <td className="py-2 px-3 text-right w-28 sm:w-32 shrink-0">
-                          <span className="font-mono font-black text-xs sm:text-sm text-rose-800">
+                        <td className="py-2 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0">
+                          <span className="font-mono font-black text-xs sm:text-sm text-rose-800 whitespace-nowrap block text-right">
                             {currency} {row.amount.toLocaleString()}
                           </span>
                         </td>
@@ -3422,7 +3444,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 <tfoot>
                   <tr className="border-t-2 border-slate-300 bg-rose-50/50 font-bold text-xs sm:text-sm">
                     <td className="w-10 sm:w-12 shrink-0"></td>
-                    <td className="py-3 px-4 text-slate-900 font-extrabold min-w-[500px] sm:min-w-[580px] lg:min-w-[640px]">
+                    <td className="py-3 px-3 text-slate-900 font-extrabold min-w-[280px] sm:min-w-[320px] lg:min-w-[360px]">
                       মোট ড্যামেজ ({computedDamageRows.filter((r) => r.productName.trim()).length} টি পণ্য)
                     </td>
                     <td className="py-3 px-1 text-center font-mono font-black text-rose-700 text-sm sm:text-base w-20 sm:w-22 shrink-0">
@@ -3434,8 +3456,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     <td className="py-3 px-2 text-center font-mono font-black text-rose-700 text-sm sm:text-base w-20 sm:w-22 shrink-0">
                       {totalDamageQty}
                     </td>
-                    <td className="w-20 sm:w-24 shrink-0"></td>
-                    <td className="py-3 px-3 text-right font-mono font-black text-rose-800 text-sm sm:text-base w-28 sm:w-32 shrink-0">
+                    <td className="w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0"></td>
+                    <td className="py-3 px-3 text-right font-mono font-black text-rose-800 text-sm sm:text-base w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0 whitespace-nowrap">
                       {currency} {totalDamageAmount.toLocaleString()}
                     </td>
                     <td className="w-10 sm:w-12 shrink-0"></td>
@@ -3962,11 +3984,20 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 ref={morningSaveBtnRef}
                 type="button"
                 onClick={() => handleSaveSheet('morning')}
-                disabled={isLockedForEdit}
+                disabled={isLockedForEdit || isSavingStage !== null}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 shadow-sm transition-all disabled:opacity-50 cursor-pointer focus:ring-2 focus:ring-blue-400 focus:outline-none"
               >
-                <Clock className="h-4 w-4" />
-                <span>বিতরণ সেভ করুন (সকাল)</span>
+                {isSavingStage === 'morning' ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    <span>সেভ হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <Clock className="h-4 w-4" />
+                    <span>বিতরণ সেভ করুন (সকাল)</span>
+                  </>
+                )}
               </button>
 
               {/* STEP 2: Evening (চূড়ান্ত হিসাব সেভ করুন) */}
@@ -3974,11 +4005,20 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                 ref={eveningSaveBtnRef}
                 type="button"
                 onClick={() => handleSaveSheet('evening')}
-                disabled={isLockedForEdit}
+                disabled={isLockedForEdit || isSavingStage !== null}
                 className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white hover:bg-emerald-700 shadow-md shadow-emerald-900/15 transition-all disabled:opacity-50 cursor-pointer focus:ring-2 focus:ring-emerald-400 focus:outline-none"
               >
-                <CheckCircle className="h-4 w-4" />
-                <span>চূড়ান্ত হিসাব সেভ করুন (সন্ধ্যা)</span>
+                {isSavingStage === 'evening' ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin text-white" />
+                    <span>সেভ হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle className="h-4 w-4" />
+                    <span>চূড়ান্ত হিসাব সেভ করুন (সন্ধ্যা)</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

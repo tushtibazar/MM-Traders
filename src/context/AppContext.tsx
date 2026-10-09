@@ -1322,14 +1322,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const sheetId = input.id || `das-${input.date.replace(/-/g, '')}-${Date.now().toString().slice(-4)}`;
     const existingSheet = (db.dailySheets || []).find((s) => s.id === sheetId);
 
-    // Recalculate totals defensively
+    // Recalculate totals defensively (properly handling damageItems as well as items)
     const totalIssuedQty = input.items.reduce((sum, i) => sum + (Number(i.issuedQty) || 0), 0);
     const totalReturnQty = input.items.reduce((sum, i) => sum + (Number(i.returnQty) || 0), 0);
     const totalNetSoldQty = input.items.reduce((sum, i) => sum + (Number(i.netSoldQty) || 0), 0);
     const totalGrossAmount = input.items.reduce((sum, i) => sum + (Number(i.grossAmount) || 0), 0);
-    const totalDamageQty = input.items.reduce((sum, i) => sum + (Number(i.damageQty) || 0), 0);
-    const totalDamageValue = input.items.reduce((sum, i) => sum + (Number(i.damageValue) || 0), 0);
-    const finalNetSalesAmount = Math.max(0, totalGrossAmount - totalDamageValue);
+    
+    const totalDamageQty =
+      input.totalDamageQty !== undefined && Number(input.totalDamageQty) >= 0
+        ? Number(input.totalDamageQty)
+        : Array.isArray(input.damageItems) && input.damageItems.length > 0
+        ? input.damageItems.reduce((sum, i) => sum + (Number(i.damageQty) || 0), 0)
+        : input.items.reduce((sum, i) => sum + (Number(i.damageQty) || 0), 0);
+
+    const totalDamageValue =
+      input.totalDamageValue !== undefined && Number(input.totalDamageValue) >= 0
+        ? Number(input.totalDamageValue)
+        : Array.isArray(input.damageItems) && input.damageItems.length > 0
+        ? input.damageItems.reduce((sum, i) => sum + (Number(i.damageValue) || 0), 0)
+        : input.items.reduce((sum, i) => sum + (Number(i.damageValue) || 0), 0);
+
+    const finalNetSalesAmount =
+      input.finalNetSalesAmount !== undefined && Number(input.finalNetSalesAmount) >= 0
+        ? Number(input.finalNetSalesAmount)
+        : Math.max(0, totalGrossAmount - totalDamageValue);
 
     const cashCollected = Number(input.cashCollected) || 0;
     const marketExpense = Number(input.marketExpense) || 0;

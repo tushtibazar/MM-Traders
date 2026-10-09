@@ -261,36 +261,67 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
   // Month-to-Date Calculations for the previewed record's month (1st of month up to sheet.date)
   const monthToDateTotals = useMemo(() => {
     if (!sheet.date) {
-      return { totalSales: 0, totalDue: 0, totalDamage: 0, totalExpense: 0, monthName: '', dayBn: '' };
+      return { totalSales: 0, totalDue: 0, totalDueCollection: 0, totalDamage: 0, totalExpense: 0, monthName: '', dayBn: '' };
     }
 
-    let y = NaN, m = NaN, d = NaN;
-    const cleanDate = String(sheet.date).split('T')[0].trim();
-    if (cleanDate.includes('-')) {
-      const parts = cleanDate.split('-');
-      if (parts.length === 3) {
-        y = parseInt(parts[0], 10);
-        m = parseInt(parts[1], 10);
-        d = parseInt(parts[2], 10);
+    const parseYMD = (dateVal: string | undefined | null) => {
+      if (!dateVal) return null;
+      const str = String(dateVal).split('T')[0].trim();
+      if (str.includes('-')) {
+        const parts = str.split('-');
+        if (parts.length === 3) {
+          const y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          const d = parseInt(parts[2], 10);
+          if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+            return { y, m, d };
+          }
+        }
+      } else if (str.includes('/')) {
+        const parts = str.split('/');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            const d = parseInt(parts[2], 10);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) return { y, m, d };
+          } else {
+            const d = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            const y = parseInt(parts[2], 10);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) return { y, m, d };
+          }
+        }
       }
-    } else if (cleanDate.includes('/')) {
-      const parts = cleanDate.split('/');
-      if (parts.length === 3) {
-        d = parseInt(parts[0], 10);
-        m = parseInt(parts[1], 10);
-        y = parseInt(parts[2], 10);
-      }
-    } else {
-      const dt = new Date(sheet.date);
+      const dt = new Date(dateVal);
       if (!isNaN(dt.getTime())) {
-        y = dt.getFullYear();
-        m = dt.getMonth() + 1;
-        d = dt.getDate();
+        return {
+          y: dt.getFullYear(),
+          m: dt.getMonth() + 1,
+          d: dt.getDate(),
+        };
       }
+      return null;
+    };
+
+    const targetYMD = parseYMD(sheet.date);
+    if (!targetYMD) {
+      return { totalSales: 0, totalDue: 0, totalDueCollection: 0, totalDamage: 0, totalExpense: 0, monthName: '', dayBn: '' };
     }
 
-    const targetMonthPrefix = !isNaN(y) && !isNaN(m) ? `${y}-${String(m).padStart(2, '0')}` : '';
-    const targetDate = cleanDate;
+    const getSheetDamage = (s: DailyAccountSheet): number => {
+      let dmg = safeNumber(s.totalDamageValue);
+      if (dmg > 0) return dmg;
+      if (Array.isArray(s.damageItems) && s.damageItems.length > 0) {
+        const sum = s.damageItems.reduce((acc, it) => acc + safeNumber(it.damageValue), 0);
+        if (sum > 0) return sum;
+      }
+      if (Array.isArray(s.items) && s.items.length > 0) {
+        const sum = s.items.reduce((acc, it) => acc + safeNumber(it.damageValue), 0);
+        if (sum > 0) return sum;
+      }
+      return 0;
+    };
 
     // Combine db.dailySheets with the currently previewed sheet to ensure live values
     const existingSheets = db.dailySheets || [];
@@ -314,10 +345,12 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
       }
     }
 
-    // Filter sheets from 1st of the month up to sheet.date
-    const mtdSheets = allSheets.filter(
-      (s) => s.date && (targetMonthPrefix ? s.date.startsWith(targetMonthPrefix) : true) && s.date <= targetDate
-    );
+    // Filter sheets from 1st of the month up to sheet.date (inclusive)
+    const mtdSheets = allSheets.filter((s) => {
+      const sYMD = parseYMD(s.date);
+      if (!sYMD) return false;
+      return sYMD.y === targetYMD.y && sYMD.m === targetYMD.m && sYMD.d <= targetYMD.d;
+    });
 
     const coveredDates = new Set<string>();
 
@@ -328,10 +361,9 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     let totalExpense = 0;
 
     mtdSheets.forEach((s) => {
-      coveredDates.add(s.date);
-      // Net Sales (or Gross - Damage)
+      coveredDates.add(String(s.date).split('T')[0]);
       const sGross = safeNumber(s.totalGrossAmount);
-      const sDamage = safeNumber(s.totalDamageValue);
+      const sDamage = getSheetDamage(s);
       const salesAmt =
         s.finalNetSalesAmount !== undefined && !isNaN(Number(s.finalNetSalesAmount)) && Number(s.finalNetSalesAmount) > 0
           ? safeNumber(s.finalNetSalesAmount)
@@ -353,12 +385,15 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
 
     // Also include legacy direct sales if any (for dates not in daily sheets)
     (db.sales || []).forEach((s) => {
+      const sYMD = parseYMD(s.date);
+      const cleanDate = String(s.date).split('T')[0];
       if (
-        s.date &&
-        (targetMonthPrefix ? s.date.startsWith(targetMonthPrefix) : true) &&
-        s.date <= targetDate &&
+        sYMD &&
+        sYMD.y === targetYMD.y &&
+        sYMD.m === targetYMD.m &&
+        sYMD.d <= targetYMD.d &&
         s.status === 'completed' &&
-        !coveredDates.has(s.date)
+        !coveredDates.has(cleanDate)
       ) {
         totalSales += safeNumber(s.netSales);
       }
@@ -366,12 +401,15 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
 
     // Also include standalone collections/payments from db.payments not covered in daily sheets
     (db.payments || []).forEach((p) => {
+      const pYMD = parseYMD(p.date);
+      const cleanDate = String(p.date).split('T')[0];
       if (
-        p.date &&
-        (targetMonthPrefix ? p.date.startsWith(targetMonthPrefix) : true) &&
-        p.date <= targetDate &&
+        pYMD &&
+        pYMD.y === targetYMD.y &&
+        pYMD.m === targetYMD.m &&
+        pYMD.d <= targetYMD.d &&
         p.status === 'completed' &&
-        !coveredDates.has(p.date)
+        !coveredDates.has(cleanDate)
       ) {
         totalDueCollection += safeNumber(p.amount);
       }
@@ -379,10 +417,12 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
 
     // Also include standalone expenses (if not from daily sheet)
     (db.expenses || []).forEach((exp) => {
+      const expYMD = parseYMD(exp.date);
       if (
-        exp.date &&
-        (targetMonthPrefix ? exp.date.startsWith(targetMonthPrefix) : true) &&
-        exp.date <= targetDate &&
+        expYMD &&
+        expYMD.y === targetYMD.y &&
+        expYMD.m === targetYMD.m &&
+        expYMD.d <= targetYMD.d &&
         (exp as any).status !== 'void'
       ) {
         const isFromDailySheet =
@@ -399,8 +439,8 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
       'জানুয়ারি', 'ফেব্রুয়ারি', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
       'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'
     ];
-    const monthName = !isNaN(m) && m >= 1 && m <= 12 ? months[m - 1] : '';
-    const dayBn = !isNaN(d) && d >= 1 && d <= 31 ? toBnDigits(d) : '';
+    const monthName = targetYMD.m >= 1 && targetYMD.m <= 12 ? months[targetYMD.m - 1] : '';
+    const dayBn = targetYMD.d >= 1 && targetYMD.d <= 31 ? toBnDigits(targetYMD.d) : '';
 
     return {
       totalSales: safeNumber(totalSales),
@@ -411,7 +451,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
       monthName,
       dayBn,
     };
-  }, [db.dailySheets, db.sales, db.expenses, sheet]);
+  }, [db.dailySheets, db.sales, db.expenses, db.payments, sheet]);
 
   // Calculations with safe fallbacks
   const grossSales = safeNumber(sheet.totalGrossAmount);
