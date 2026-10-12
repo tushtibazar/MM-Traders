@@ -24,13 +24,35 @@ import { SaleMemoModal } from './components/modals/SaleMemoModal';
 import { VoidModal } from './components/modals/VoidModal';
 import { QuickPaymentModal } from './components/modals/QuickPaymentModal';
 import { ExpenseModal } from './components/modals/ExpenseModal';
+import { UnsavedChangesModal } from './components/modals/UnsavedChangesModal';
 import { LoginScreen } from './components/auth/LoginScreen';
 import { Customer, Sale } from './types';
 
 function MainLayout() {
-  const { currentUser, isInitialized, isLoggedIn } = useApp();
+  const {
+    currentUser,
+    isInitialized,
+    isLoggedIn,
+    confirmNavigation,
+    isUnsavedChangesModalOpen,
+    onSaveAndLeaveModal,
+    onLeaveWithoutSavingModal,
+    onStayModal,
+    isSavingAndLeaving,
+  } = useApp();
   const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Tab navigation protected by unsaved changes guard
+  const handleNavigateTab = (tab: TabType) => {
+    if (tab === currentTab) return;
+    confirmNavigation(() => {
+      if (tab !== 'ledger') {
+        // keep ledger customer if switched back, or null if navigating away
+      }
+      setCurrentTab(tab);
+    });
+  };
 
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -60,8 +82,10 @@ function MainLayout() {
 
   // When clicking customer to open ledger
   const handleOpenLedger = (cust: Customer) => {
-    setLedgerCustomer(cust);
-    setCurrentTab('ledger');
+    confirmNavigation(() => {
+      setLedgerCustomer(cust);
+      setCurrentTab('ledger');
+    });
   };
 
   const handleOpenVoidSale = (saleId: string, memoNo: string) => {
@@ -109,12 +133,7 @@ function MainLayout() {
       {/* Sidebar */}
       <Sidebar
         currentTab={currentTab}
-        setCurrentTab={(tab) => {
-          if (tab !== 'ledger') {
-            // keep ledger customer if switched back, or null if navigating away
-          }
-          setCurrentTab(tab);
-        }}
+        setCurrentTab={handleNavigateTab}
         isMobileOpen={isMobileMenuOpen}
         setIsMobileOpen={setIsMobileMenuOpen}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
@@ -125,7 +144,7 @@ function MainLayout() {
         {/* Header */}
         <Header
           onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
-          onNavigateTab={(tab) => setCurrentTab(tab)}
+          onNavigateTab={handleNavigateTab}
           onOpenAuthModal={() => setIsAuthModalOpen(true)}
           onQuickPaymentModal={() => handleOpenQuickPayment()}
         />
@@ -135,15 +154,17 @@ function MainLayout() {
           <div className="mx-auto max-w-7xl">
             {currentTab === 'dashboard' && (
               <Dashboard
-                onNavigateTab={(tab) => setCurrentTab(tab)}
-                onOpenQuickSale={() => setCurrentTab('daily-sale')}
+                onNavigateTab={handleNavigateTab}
+                onOpenQuickSale={() => handleNavigateTab('daily-sale')}
                 onOpenQuickPayment={(cId) => handleOpenQuickPayment(cId)}
-                onOpenAddCustomer={() => setCurrentTab('customers')}
+                onOpenAddCustomer={() => handleNavigateTab('customers')}
                 onOpenAddExpense={() => setIsExpenseModalOpen(true)}
                 onViewMemo={(s) => setSelectedSaleForMemo(s)}
                 onOpenDailySheet={(sheetId) => {
-                  setSelectedDailySheetId(sheetId);
-                  setCurrentTab('daily-sale');
+                  confirmNavigation(() => {
+                    setSelectedDailySheetId(sheetId);
+                    setCurrentTab('daily-sale');
+                  });
                 }}
               />
             )}
@@ -261,6 +282,15 @@ function MainLayout() {
       <ExpenseModal
         isOpen={isExpenseModalOpen}
         onClose={() => setIsExpenseModalOpen(false)}
+      />
+
+      {/* Unsaved Changes Confirmation Modal */}
+      <UnsavedChangesModal
+        isOpen={isUnsavedChangesModalOpen}
+        onSaveAndLeave={onSaveAndLeaveModal}
+        onLeaveWithoutSaving={onLeaveWithoutSavingModal}
+        onStay={onStayModal}
+        isSaving={isSavingAndLeaving}
       />
     </div>
   );

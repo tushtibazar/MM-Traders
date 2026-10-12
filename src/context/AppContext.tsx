@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, useRef } from 'react';
 import {
   AppDatabase,
   BusinessSettings,
@@ -19,6 +19,12 @@ import {
   User,
 } from '../types';
 import { StorageService, DEFAULT_ROUTES } from '../services/storage';
+
+export interface UnsavedChangesGuard {
+  hasUnsavedChanges: () => boolean;
+  save: () => Promise<boolean>;
+  discard: () => void;
+}
 
 interface AppContextType {
   db: AppDatabase;
@@ -152,6 +158,15 @@ interface AppContextType {
   cashBalance: number;
   todayDateStr: string;
   customersWithDue: Customer[];
+
+  // Unsaved Changes Navigation Protection
+  registerUnsavedChangesGuard: (guard: UnsavedChangesGuard | null) => void;
+  confirmNavigation: (action: () => void) => void;
+  isUnsavedChangesModalOpen: boolean;
+  onSaveAndLeaveModal: () => Promise<void>;
+  onLeaveWithoutSavingModal: () => void;
+  onStayModal: () => void;
+  isSavingAndLeaving: boolean;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -172,13 +187,83 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   });
 
-  const logout = () => {
+  // Unsaved changes navigation guard state
+  const unsavedGuardRef = useRef<UnsavedChangesGuard | null>(null);
+  const pendingNavActionRef = useRef<(() => void) | null>(null);
+  const [isUnsavedChangesModalOpen, setIsUnsavedChangesModalOpen] = useState<boolean>(false);
+  const [isSavingAndLeaving, setIsSavingAndLeaving] = useState<boolean>(false);
+
+  const registerUnsavedChangesGuard = (guard: UnsavedChangesGuard | null) => {
+    unsavedGuardRef.current = guard;
+  };
+
+  const confirmNavigation = (action: () => void) => {
+    if (unsavedGuardRef.current && unsavedGuardRef.current.hasUnsavedChanges()) {
+      pendingNavActionRef.current = action;
+      setIsUnsavedChangesModalOpen(true);
+    } else {
+      action();
+    }
+  };
+
+  const onSaveAndLeaveModal = async () => {
+    if (!unsavedGuardRef.current) {
+      setIsUnsavedChangesModalOpen(false);
+      const action = pendingNavActionRef.current;
+      pendingNavActionRef.current = null;
+      if (action) action();
+      return;
+    }
+    setIsSavingAndLeaving(true);
+    try {
+      const success = await unsavedGuardRef.current.save();
+      if (success) {
+        setIsUnsavedChangesModalOpen(false);
+        const action = pendingNavActionRef.current;
+        pendingNavActionRef.current = null;
+        if (action) action();
+      } else {
+        // Save failed, stay on page so owner can fix errors
+        setIsUnsavedChangesModalOpen(false);
+        pendingNavActionRef.current = null;
+      }
+    } catch (e) {
+      console.error('Error saving before leaving:', e);
+      setIsUnsavedChangesModalOpen(false);
+      pendingNavActionRef.current = null;
+    } finally {
+      setIsSavingAndLeaving(false);
+    }
+  };
+
+  const onLeaveWithoutSavingModal = () => {
+    if (unsavedGuardRef.current) {
+      unsavedGuardRef.current.discard();
+    }
+    setIsUnsavedChangesModalOpen(false);
+    const action = pendingNavActionRef.current;
+    pendingNavActionRef.current = null;
+    if (action) action();
+  };
+
+  const onStayModal = () => {
+    setIsUnsavedChangesModalOpen(false);
+    pendingNavActionRef.current = null;
+  };
+
+  const rawLogout = () => {
     setIsLoggedIn(false);
     try {
       sessionStorage.setItem('mm_traders_session_active', 'false');
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const logout = () => {
+    confirmNavigation(() => {
+      rawLogout();
+    });
   };
 
   const login = (userIdOrUsername: string, pin: string): boolean => {
@@ -2088,6 +2173,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         cashBalance,
         todayDateStr,
         customersWithDue,
+        registerUnsavedChangesGuard,
+        confirmNavigation,
+        isUnsavedChangesModalOpen,
+        onSaveAndLeaveModal,
+        onLeaveWithoutSavingModal,
+        onStayModal,
+        isSavingAndLeaving,
       }}
     >
       {children}
