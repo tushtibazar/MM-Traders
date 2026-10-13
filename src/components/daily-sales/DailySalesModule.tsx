@@ -552,6 +552,42 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     return (db.dailySheets || []).filter((s) => s.status === 'pending');
   }, [db.dailySheets]);
 
+  // Row selection highlighting for cross-checking (Sales Table and Damage Table)
+  const [selectedSalesRowId, setSelectedSalesRowId] = useState<string | null>(null);
+  const [selectedDamageRowId, setSelectedDamageRowId] = useState<string | null>(null);
+
+  // Clear row selection when clicking outside the tables or pressing Escape
+  useEffect(() => {
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+
+      const salesRow = target.closest('tr[data-table-type="sales"]');
+      const damageRow = target.closest('tr[data-table-type="damage"]');
+
+      if (!salesRow) {
+        setSelectedSalesRowId(null);
+      }
+      if (!damageRow) {
+        setSelectedDamageRowId(null);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSelectedSalesRowId(null);
+        setSelectedDamageRowId(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleDocumentClick);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
   // Calculations per row for MAIN SALES TABLE (converting C -> pieces, unit-aware rate & amount)
   const computedRows = useMemo(() => {
     return rows.map((row) => {
@@ -1030,6 +1066,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setDailyShort(sheet.shortAmount || sheet.dailyShort || 0);
 
     setLastSavedSheet(sheet);
+    setSelectedSalesRowId(null);
+    setSelectedDamageRowId(null);
     setActiveTab('entry');
     lastSavedSnapshotRef.current = computeSnapshot({
       route: sheet.routeOrVan,
@@ -1162,6 +1200,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setIsLockedForEdit(false);
     setIsSalesTableLocked(false);
     setIsDamageTableLocked(false);
+    setSelectedSalesRowId(null);
+    setSelectedDamageRowId(null);
     setRows([createEmptyRow()]);
     setDamageRows([createEmptyDamageRow()]);
     setTodayDueRows([createEmptyDueRow(getNextDueNumber())]);
@@ -1790,6 +1830,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
   const handleDamageDeleteRow = (id: string) => {
     if (isDamageLocked) return;
+    setSelectedDamageRowId((prev) => (prev === id ? null : prev));
     setDamageRows((prev) => {
       if (prev.length <= 1) {
         return [createEmptyDamageRow()];
@@ -1926,6 +1967,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // Delete a row
   const handleDeleteRow = (id: string) => {
     if (isSalesLocked) return;
+    setSelectedSalesRowId((prev) => (prev === id ? null : prev));
     setRows((prev) => {
       if (prev.length <= 1) {
         return [createEmptyRow()];
@@ -2900,21 +2942,47 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         )
                       : [];
 
+                    const isSelected = selectedSalesRowId === row.id;
+
                     return (
                       <tr
                         key={row.id}
-                        className={`hover:bg-slate-50/70 transition-colors ${
+                        data-table-type="sales"
+                        data-row-id={row.id}
+                        onClick={() => {
+                          setSelectedSalesRowId(row.id);
+                          setSelectedDamageRowId(null);
+                        }}
+                        onFocusCapture={() => {
+                          setSelectedSalesRowId(row.id);
+                          setSelectedDamageRowId(null);
+                        }}
+                        className={`transition-colors duration-150 cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-200/80 border-t-2 border-b-2 border-emerald-600 print:bg-transparent print:border-none'
+                            : `${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-emerald-100/70`
+                        } ${
                           row.showSuggestions ? 'relative z-40' : 'relative z-0'
                         }`}
                       >
                         {/* Index */}
-                        <td className="py-2 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 sm:w-12 shrink-0">
+                        <td
+                          className={`py-2 px-2 text-center font-mono text-xs w-10 sm:w-12 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-l-4 border-emerald-600 bg-emerald-200/80 text-emerald-950 font-bold print:bg-transparent print:border-none print:text-slate-400'
+                              : 'text-slate-400 font-medium'
+                          }`}
+                        >
                           {toBengaliDigits(idx + 1)}
                         </td>
 
                         {/* 1. পণ্যের নাম (Product Name with keyboard arrow & Tab selection) */}
                         <td
                           className={`py-2 px-3 relative min-w-[280px] sm:min-w-[320px] lg:min-w-[360px] ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          } ${
                             row.showSuggestions ? 'z-50' : 'z-10'
                           }`}
                         >
@@ -3013,7 +3081,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 2. পরিমাণ (Quantity Out) with C/P unit toggle */}
-                        <td className="py-2 px-1 text-center w-20 sm:w-22 shrink-0">
+                        <td
+                          className={`py-2 px-1 text-center w-20 sm:w-22 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <div className="flex items-center justify-center gap-0.5">
                             <input
                               ref={(el) => {
@@ -3122,7 +3196,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 3. ফেরত (Return) with C/P unit toggle */}
-                        <td className="py-2 px-1 text-center w-20 sm:w-22 shrink-0">
+                        <td
+                          className={`py-2 px-1 text-center w-20 sm:w-22 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <div className="flex items-center justify-center gap-0.5">
                             <input
                               ref={(el) => {
@@ -3222,14 +3302,32 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 4. মোট বিক্রি (Net Sale) — auto calculated */}
-                        <td className="py-2 px-2 text-center w-20 sm:w-22 shrink-0">
-                          <span className="inline-block py-1 px-2 rounded-md bg-emerald-50 border border-emerald-200/50 font-mono font-black text-xs sm:text-sm text-emerald-800">
+                        <td
+                          className={`py-2 px-2 text-center w-20 sm:w-22 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
+                          <span
+                            className={`inline-block py-1 px-2 rounded-md font-mono font-black text-xs sm:text-sm ${
+                              isSelected
+                                ? 'bg-white border border-emerald-400 text-emerald-900 shadow-2xs'
+                                : 'bg-emerald-50 border border-emerald-200/50 text-emerald-800'
+                            }`}
+                          >
                             {row.netSale}
                           </span>
                         </td>
 
                         {/* 5. দর (Rate) — auto filled from product */}
-                        <td className="py-2 px-2 w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0">
+                        <td
+                          className={`py-2 px-2 w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <input
                             type="number"
                             min="0"
@@ -3249,14 +3347,26 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 6. মোট টাকা (Amount) — auto calculated */}
-                        <td className="py-2 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0">
+                        <td
+                          className={`py-2 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <span className="font-mono font-black text-xs sm:text-sm text-slate-900 whitespace-nowrap block text-right">
                             {currency} {row.amount.toLocaleString()}
                           </span>
                         </td>
 
                         {/* Delete Row Button */}
-                        <td className="py-2 px-2 text-center w-10 shrink-0">
+                        <td
+                          className={`py-2 px-2 text-center w-10 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-r-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           {!isSalesLocked ? (
                             <button
                               type="button"
@@ -3397,24 +3507,47 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                       : [];
 
                     const isSuggestionsVisible = row.showSuggestions && suggestions.length > 0 && !isDamageLocked;
+                    const isSelected = selectedDamageRowId === row.id;
 
                     return (
                       <tr
                         key={row.id}
-                        className={`transition-colors ${
-                          idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
-                        } hover:bg-rose-50/30 ${
+                        data-table-type="damage"
+                        data-row-id={row.id}
+                        onClick={() => {
+                          setSelectedDamageRowId(row.id);
+                          setSelectedSalesRowId(null);
+                        }}
+                        onFocusCapture={() => {
+                          setSelectedDamageRowId(row.id);
+                          setSelectedSalesRowId(null);
+                        }}
+                        className={`transition-colors duration-150 cursor-pointer ${
+                          isSelected
+                            ? 'bg-emerald-200/80 border-t-2 border-b-2 border-emerald-600 print:bg-transparent print:border-none'
+                            : `${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-emerald-100/70`
+                        } ${
                           isSuggestionsVisible ? 'relative z-40' : 'relative z-0'
                         }`}
                       >
                         {/* Index */}
-                        <td className="py-2 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 sm:w-12 shrink-0">
+                        <td
+                          className={`py-2 px-2 text-center font-mono text-xs w-10 sm:w-12 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-l-4 border-emerald-600 bg-emerald-200/80 text-emerald-950 font-bold print:bg-transparent print:border-none print:text-slate-400'
+                              : 'text-slate-400 font-medium'
+                          }`}
+                        >
                           {toBengaliDigits(idx + 1)}
                         </td>
 
                         {/* 1. পণ্যের নাম with Tab autocomplete */}
                         <td
                           className={`py-2 px-3 relative min-w-[280px] sm:min-w-[320px] lg:min-w-[360px] ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          } ${
                             isSuggestionsVisible ? 'z-50' : 'z-10'
                           }`}
                         >
@@ -3503,7 +3636,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 2. পরিমাণ (Damage Qty) with C/P unit toggle */}
-                        <td className="py-2 px-1 text-center w-20 sm:w-22 shrink-0">
+                        <td
+                          className={`py-2 px-1 text-center w-20 sm:w-22 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <div className="flex items-center justify-center gap-0.5">
                             <input
                               ref={(el) => {
@@ -3611,7 +3750,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 3. ফেরত (Return) — unused / 0 for damage rows */}
-                        <td className="py-2 px-1 text-center w-14 sm:w-16 shrink-0">
+                        <td
+                          className={`py-2 px-1 text-center w-14 sm:w-16 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <input
                             type="text"
                             disabled
@@ -3621,14 +3766,32 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 4. মোট ড্যামেজ পিস (Damage Pieces) */}
-                        <td className="py-2 px-2 text-center w-20 sm:w-22 shrink-0">
-                          <span className="inline-block py-1 px-2 rounded-md bg-rose-50 border border-rose-200/50 font-mono font-black text-xs sm:text-sm text-rose-800">
+                        <td
+                          className={`py-2 px-2 text-center w-20 sm:w-22 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
+                          <span
+                            className={`inline-block py-1 px-2 rounded-md font-mono font-black text-xs sm:text-sm ${
+                              isSelected
+                                ? 'bg-white border border-rose-300 text-rose-900 shadow-2xs'
+                                : 'bg-rose-50 border border-rose-200/50 text-rose-800'
+                            }`}
+                          >
                             {row.damagePieces}
                           </span>
                         </td>
 
                         {/* 5. দর (Rate) */}
-                        <td className="py-2 px-2 w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0">
+                        <td
+                          className={`py-2 px-2 w-32 sm:w-36 min-w-[120px] sm:min-w-[135px] shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <input
                             type="number"
                             min="0"
@@ -3648,14 +3811,26 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </td>
 
                         {/* 6. মোট টাকা (Amount = Qty × Rate) */}
-                        <td className="py-2 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0">
+                        <td
+                          className={`py-2 px-3 text-right w-36 sm:w-40 min-w-[140px] sm:min-w-[155px] shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           <span className="font-mono font-black text-xs sm:text-sm text-rose-800 whitespace-nowrap block text-right">
                             {currency} {row.amount.toLocaleString()}
                           </span>
                         </td>
 
                         {/* Action: Delete */}
-                        <td className="py-2 px-2 text-center w-10 sm:w-12 shrink-0">
+                        <td
+                          className={`py-2 px-2 text-center w-10 sm:w-12 shrink-0 ${
+                            isSelected
+                              ? 'border-t-2 border-b-2 border-r-2 border-emerald-600 bg-emerald-200/80 print:bg-transparent print:border-none'
+                              : ''
+                          }`}
+                        >
                           {!isDamageLocked ? (
                             <button
                               type="button"
