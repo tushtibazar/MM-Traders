@@ -461,6 +461,25 @@ export const DueModule: React.FC<DueModuleProps> = ({
   const [modalDueNo, setModalDueNo] = useState<string | undefined>(undefined);
   const [modalDefaultAmount, setModalDefaultAmount] = useState<number | undefined>(undefined);
 
+  // Step 5: Bottom date-wise collection list filter
+  const [bottomCollectionDateFilter, setBottomCollectionDateFilter] = useState<string>('');
+
+  const bottomFilteredCollections = useMemo(() => {
+    return (db.payments || [])
+      .filter((p) => p.status !== 'void')
+      .filter((p) => {
+        if (!bottomCollectionDateFilter) return true;
+        return p.date === bottomCollectionDateFilter;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [db.payments, bottomCollectionDateFilter]);
+
+  const totalCollectedForPreview = useMemo(() => {
+    return (db.payments || [])
+      .filter((p) => p.status !== 'void')
+      .reduce((sum, p) => sum + (p.amount || 0), 0);
+  }, [db.payments]);
+
   const selectedCollectCustomer = useMemo(() => {
     return db.customers.find((c) => c.id === selectedCustomerId) || null;
   }, [db.customers, selectedCustomerId]);
@@ -496,6 +515,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
     dueNo?: string;
     amount: number;
     date: string;
+    note?: string;
   }) => {
     const cust = db.customers.find((c) => c.id === collectionData.customerId);
     if (!cust) return;
@@ -506,7 +526,8 @@ export const DueModule: React.FC<DueModuleProps> = ({
         amount: collectionData.amount,
         date: collectionData.date,
         dueNo: collectionData.dueNo || undefined,
-        note: `সরাসরি বাকি আদায় #${collectionData.dueNo || ''} [পদ্ধতি: নগদ ক্যাশ]`,
+        note: collectionData.note || `সরাসরি বাকি আদায় (${cust.shopName || cust.name})`,
+        source: 'বাকি পেজ',
       });
 
       const updatedCust = db.customers.find((c) => c.id === cust.id);
@@ -515,7 +536,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
         : Math.max(0, cust.currentDue - collectionData.amount);
 
       setCollectSuccessMsg(
-        `✅ বাকি আদায় সফল! রশিদ #${payment.receiptNo} (${cust.shopName}) — আদায়: ${currency} ${collectionData.amount.toLocaleString()} | অবশিষ্ট বকেয়া: ${currency} ${remainingDue.toLocaleString()}`
+        `✅ বাকি আদায় সফল! রশিদ #${payment.receiptNo} (${cust.shopName || cust.name}) — আদায়: ${currency} ${collectionData.amount.toLocaleString()} | অবশিষ্ট বকেয়া: ${currency} ${remainingDue.toLocaleString()}`
       );
       setCollectAmount('');
       setCollectNote('');
@@ -716,6 +737,23 @@ export const DueModule: React.FC<DueModuleProps> = ({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            {/* Primary Action Button: + বাকি জমা */}
+            <button
+              id="header-due-collection-btn"
+              type="button"
+              onClick={() => {
+                setModalCustomer(null);
+                setModalDueNo(undefined);
+                setModalDefaultAmount(undefined);
+                setIsDueConfirmModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-md shadow-emerald-900/15 cursor-pointer active:scale-[0.98]"
+              title="নতুন বাকি জমা / আদায় এন্ট্রি করুন"
+            >
+              <HandCoins className="h-4 w-4" />
+              <span>+ বাকি জমা</span>
+            </button>
+
             <button
               id="add-manual-due-btn"
               type="button"
@@ -816,6 +854,23 @@ export const DueModule: React.FC<DueModuleProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Global Success Notification Toast */}
+      {collectSuccessMsg && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <span>{collectSuccessMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCollectSuccessMsg('')}
+            className="text-emerald-700 hover:text-emerald-900 text-xs underline cursor-pointer"
+          >
+            বন্ধ করুন
+          </button>
+        </div>
+      )}
 
       {/* Navigation Sub-Tabs */}
       <div className="flex border-b border-slate-200 bg-white rounded-t-xl px-2 pt-2 gap-1 overflow-x-auto">
@@ -1122,16 +1177,18 @@ export const DueModule: React.FC<DueModuleProps> = ({
                             </button>
 
                             <button
+                              id={`collect-row-btn-${cust.id}`}
                               onClick={() => {
-                                setSelectedCustomerId(cust.id);
-                                setCollectAmount(cust.currentDue > 0 ? cust.currentDue.toString() : '');
-                                setActiveTab('search_collect');
+                                setModalCustomer(cust);
+                                setModalDueNo(undefined);
+                                setModalDefaultAmount(cust.currentDue > 0 ? cust.currentDue : undefined);
+                                setIsDueConfirmModalOpen(true);
                               }}
-                              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 shadow-xs"
-                              title="বাকি আদায় এন্ট্রি করুন"
+                              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs cursor-pointer active:scale-95"
+                              title={`${cust.shopName || cust.name}-এর বাকি জমা নিন`}
                             >
                               <HandCoins className="h-3.5 w-3.5" />
-                              <span>টাকা আদায়</span>
+                              <span>জমা নিন</span>
                             </button>
 
                             {isOwner && (
@@ -1181,6 +1238,135 @@ export const DueModule: React.FC<DueModuleProps> = ({
                     </tr>
                   )}
                 </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* STEP 5: DATE-WISE বাকি জমার তালিকা AT THE BOTTOM OF THE বাকি PAGE */}
+          <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden mt-6">
+            <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700">
+                  <HandCoins className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 font-bengali">
+                    বাকি জমার তালিকা (Due Collections)
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-bengali">
+                    তারিখ অনুযায়ী আদায়কৃত বাকি জমার পূর্ণাঙ্গ বিবরণ ও হিসাব
+                  </p>
+                </div>
+              </div>
+
+              {/* Date Filter Controls */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-slate-500 font-medium">তারিখ ফিল্টার:</span>
+                <input
+                  type="date"
+                  value={bottomCollectionDateFilter}
+                  onChange={(e) => setBottomCollectionDateFilter(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-800 focus:border-emerald-600 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setBottomCollectionDateFilter(todayDateStr)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold border transition-colors cursor-pointer ${
+                    bottomCollectionDateFilter === todayDateStr
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  আজকের জমা
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBottomCollectionDateFilter('')}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold border transition-colors cursor-pointer ${
+                    bottomCollectionDateFilter === ''
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  সব জমা
+                </button>
+              </div>
+            </div>
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-slate-700 border-collapse">
+                <thead className="bg-slate-100/80 text-[11px] font-bold text-slate-600 border-b border-slate-200 uppercase tracking-wider font-bengali">
+                  <tr>
+                    <th className="py-2.5 px-3">তারিখ</th>
+                    <th className="py-2.5 px-3">কাস্টমার ও দোকান</th>
+                    <th className="py-2.5 px-3 text-right">জমার পরিমাণ</th>
+                    <th className="py-2.5 px-3">উৎস</th>
+                    <th className="py-2.5 px-3">নোট / বিবরণ</th>
+                    <th className="py-2.5 px-3 text-right">রসিদ নং</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {bottomFilteredCollections.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400 font-bengali">
+                        {bottomCollectionDateFilter
+                          ? `${formatDate(bottomCollectionDateFilter)}-এ কোনো বাকি জমা পাওয়া যায়নি`
+                          : 'কোনো বাকি জমার রেকর্ড পাওয়া যায়নি'}
+                      </td>
+                    </tr>
+                  ) : (
+                    bottomFilteredCollections.map((col) => (
+                      <tr key={col.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-2.5 px-3 font-mono font-medium text-slate-800 whitespace-nowrap">
+                          {formatDate(col.date)}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span className="font-bold text-slate-900 block">{col.shopName || col.customerName}</span>
+                          {col.shopName && col.shopName !== col.customerName && (
+                            <span className="text-[11px] text-slate-500 font-normal">({col.customerName})</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-700 whitespace-nowrap">
+                          {currency} {col.amount.toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              col.source === 'বাকি পেজ'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                                : 'bg-blue-100 text-blue-800 border border-blue-200'
+                            }`}
+                          >
+                            {col.source || (col.note?.includes('দৈনিক হিসাব') ? 'ডেইলি হিসাব' : 'বাকি পেজ')}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">
+                          {col.note || '-'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono text-slate-500 text-[11px] whitespace-nowrap">
+                          {col.receiptNo || '-'}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+                {bottomFilteredCollections.length > 0 && (
+                  <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-xs font-bengali">
+                    <tr>
+                      <td colSpan={2} className="py-2.5 px-3 text-slate-800">
+                        মোট জমা ({bottomFilteredCollections.length}টি এন্ট্রি):
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-emerald-700 text-sm">
+                        {currency}{' '}
+                        {bottomFilteredCollections
+                          .reduce((sum, c) => sum + (c.amount || 0), 0)
+                          .toLocaleString()}
+                      </td>
+                      <td colSpan={3}></td>
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
@@ -1896,7 +2082,10 @@ export const DueModule: React.FC<DueModuleProps> = ({
         dueNo={modalDueNo}
         defaultAmount={modalDefaultAmount}
         defaultDate={collectDate || todayDateStr}
+        currency={currency}
         correctPin={db.settings.securityPin || currentUser.pin || '1234'}
+        allCustomers={db.customers}
+        allLedgers={db.customerLedgers}
         onConfirm={handleExecuteConfirmedDueCollection}
         onClose={() => {
           setIsDueConfirmModalOpen(false);
@@ -1914,6 +2103,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
         currency={currency}
         customers={filteredCustomers}
         totalDue={totalFilteredDue}
+        totalCollected={totalCollectedForPreview}
         srFilter={selectedSrFilter}
         routeFilter={selectedRouteFilter}
         customerRouteMap={customerRouteMap}

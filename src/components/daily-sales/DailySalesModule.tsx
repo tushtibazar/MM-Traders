@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   Trash2,
   CheckCircle,
@@ -134,6 +134,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     addRoute,
     updateRoute,
     deleteRoute,
+    registerUnsavedChangesGuard,
+    confirmNavigation,
   } = useApp();
   const currency = db.settings.currency || '৳';
 
@@ -545,6 +547,11 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const [historySearch, setHistorySearch] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState<'all' | 'pending' | 'completed'>('all');
 
+  // Pending sheets (sheets that have morning issues but evening return/collection is pending)
+  const pendingSheets = useMemo(() => {
+    return (db.dailySheets || []).filter((s) => s.status === 'pending');
+  }, [db.dailySheets]);
+
   // Calculations per row for MAIN SALES TABLE (converting C -> pieces, unit-aware rate & amount)
   const computedRows = useMemo(() => {
     return rows.map((row) => {
@@ -716,10 +723,181 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     return rows.some((r) => r.returned !== '' && Number(r.returned) > 0);
   }, [rows]);
 
-  // Find all pending / open sheets across the database
-  const pendingSheets = useMemo(() => {
-    return (db.dailySheets || []).filter((s) => s.status === 'pending' || s.status === 'draft');
-  }, [db.dailySheets]);
+  // -------------------------------------------------------------
+  // UNSAVED CHANGES ROBUST SNAPSHOT & NAVIGATION GUARD
+  // -------------------------------------------------------------
+  const lastSavedSnapshotRef = useRef<string>('');
+  const handleSaveSheetRef = useRef<((stage: 'morning' | 'evening') => Promise<boolean>) | null>(null);
+
+  const computeSnapshot = useCallback((override?: {
+    route?: string;
+    date?: string;
+    sr?: string;
+    dsr?: string;
+    rows?: RowData[];
+    damageRows?: RowData[];
+    todayDueRows?: DueItemRow[];
+    dueCollectionRows?: DueItemRow[];
+    cashDenominations?: DenominationMap;
+    expense?: number;
+    less?: number;
+    short?: number;
+  }): string => {
+    const curRoute = override?.route !== undefined ? override.route : selectedRoute;
+    const curDate = override?.date !== undefined ? override.date : selectedDate;
+    const curSR = override?.sr !== undefined ? override.sr : selectedSR;
+    const curDSR = override?.dsr !== undefined ? override.dsr : selectedDSR;
+    const curRows = override?.rows !== undefined ? override.rows : rows;
+    const curDamageRows = override?.damageRows !== undefined ? override.damageRows : damageRows;
+    const curTodayDue = override?.todayDueRows !== undefined ? override.todayDueRows : todayDueRows;
+    const curDueColl = override?.dueCollectionRows !== undefined ? override.dueCollectionRows : dueCollectionRows;
+    const curDenoms = override?.cashDenominations !== undefined ? override.cashDenominations : cashDenominations;
+    const curExpense = override?.expense !== undefined ? override.expense : dailyExpense;
+    const curLess = override?.less !== undefined ? override.less : dailyLess;
+    const curShort = override?.short !== undefined ? override.short : dailyShort;
+
+    // Filter out purely empty rows (e.g. blank trailing row with no product or zero values)
+    const cleanRows = (curRows || [])
+      .filter((r) => Boolean(r.productName?.trim() || r.productId || (r.quantityOut !== '' && Number(r.quantityOut) > 0) || (r.returned !== '' && Number(r.returned) > 0)))
+      .map((r) => ({
+        pId: r.productId || '',
+        pName: r.productName?.trim() || '',
+        qOut: r.quantityOut === '' ? 0 : Number(r.quantityOut),
+        qUnit: r.quantityOutUnit || 'C',
+        ret: r.returned === '' ? 0 : Number(r.returned),
+        rUnit: r.returnedUnit || 'C',
+        rate: r.rate === '' ? 0 : Number(r.rate),
+      }));
+
+    const cleanDamage = (curDamageRows || [])
+      .filter((r) => Boolean(r.productName?.trim() || r.productId || (r.quantityOut !== '' && Number(r.quantityOut) > 0)))
+      .map((r) => ({
+        pId: r.productId || '',
+        pName: r.productName?.trim() || '',
+        qOut: r.quantityOut === '' ? 0 : Number(r.quantityOut),
+        qUnit: r.quantityOutUnit || 'P',
+        rate: r.rate === '' ? 0 : Number(r.rate),
+      }));
+
+    const cleanTodayDue = (curTodayDue || [])
+      .filter((r) => Boolean(r.customerId || r.customerName?.trim() || r.shopName?.trim() || (r.amount !== '' && Number(r.amount) > 0)))
+      .map((r) => ({
+        cId: r.customerId || '',
+        cName: r.customerName?.trim() || '',
+        sName: r.shopName?.trim() || '',
+        amt: r.amount === '' ? 0 : Number(r.amount),
+      }));
+
+    const cleanDueColl = (curDueColl || [])
+      .filter((r) => Boolean(r.customerId || r.customerName?.trim() || r.shopName?.trim() || (r.amount !== '' && Number(r.amount) > 0)))
+      .map((r) => ({
+        cId: r.customerId || '',
+        cName: r.customerName?.trim() || '',
+        sName: r.shopName?.trim() || '',
+        amt: r.amount === '' ? 0 : Number(r.amount),
+      }));
+
+    const denomsClean: Record<string, number> = {};
+    if (curDenoms) {
+      [1000, 500, 200, 100, 50, 20, 10, 5].forEach((d) => {
+        const v = Number(curDenoms[d as keyof DenominationMap]) || 0;
+        if (v > 0) denomsClean[d] = v;
+      });
+      const oth = Number(curDenoms.other) || 0;
+      if (oth > 0) denomsClean['other'] = oth;
+    }
+    const cleanOtherEntries = ((curDenoms && curDenoms.otherEntries) || [])
+      .filter((e) => Boolean(Number(e.amount) > 0 || e.label?.trim()))
+      .map((e) => ({ amt: Number(e.amount) || 0, l: e.label?.trim() || '' }));
+
+    return JSON.stringify({
+      route: curRoute?.trim() || '',
+      date: curDate?.trim() || '',
+      sr: curSR?.trim() || '',
+      dsr: curDSR?.trim() || '',
+      rows: cleanRows,
+      damage: cleanDamage,
+      todayDue: cleanTodayDue,
+      dueColl: cleanDueColl,
+      denoms: denomsClean,
+      otherEntries: cleanOtherEntries,
+      expense: Number(curExpense) || 0,
+      less: Number(curLess) || 0,
+      short: Number(curShort) || 0,
+    });
+  }, [
+    selectedRoute,
+    selectedDate,
+    selectedSR,
+    selectedDSR,
+    rows,
+    damageRows,
+    todayDueRows,
+    dueCollectionRows,
+    cashDenominations,
+    dailyExpense,
+    dailyLess,
+    dailyShort,
+  ]);
+
+  const isFormDirty = useCallback((): boolean => {
+    if (!lastSavedSnapshotRef.current) return false;
+    return computeSnapshot() !== lastSavedSnapshotRef.current;
+  }, [computeSnapshot]);
+
+  // Register navigation guard with AppContext
+  useEffect(() => {
+    registerUnsavedChangesGuard({
+      hasUnsavedChanges: () => isFormDirty(),
+      save: async () => {
+        if (!handleSaveSheetRef.current) return false;
+        const hasClosingData =
+          rows.some((r) => r.returned !== '' && Number(r.returned) > 0) ||
+          totalDenominationCash > 0 ||
+          dailyExpense > 0 ||
+          dailyLess > 0 ||
+          totalTodayDueAmount > 0;
+        const stage: 'morning' | 'evening' = hasClosingData ? 'evening' : 'morning';
+        const ok = await handleSaveSheetRef.current(stage);
+        return ok;
+      },
+      discard: () => {
+        lastSavedSnapshotRef.current = computeSnapshot();
+      },
+    });
+
+    return () => {
+      registerUnsavedChangesGuard(null);
+    };
+  }, [
+    registerUnsavedChangesGuard,
+    isFormDirty,
+    computeSnapshot,
+    rows,
+    totalDenominationCash,
+    dailyExpense,
+    dailyLess,
+    totalTodayDueAmount,
+  ]);
+
+  // beforeunload protection for tab close / reload while dirty
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (isFormDirty()) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [isFormDirty]);
+
+  // Set initial snapshot on mount
+  useEffect(() => {
+    if (!lastSavedSnapshotRef.current) {
+      lastSavedSnapshotRef.current = computeSnapshot();
+    }
+  }, [computeSnapshot]);
 
   // Load a sheet into the editor form
   const loadSheetIntoForm = (sheet: DailyAccountSheet) => {
@@ -755,53 +933,51 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setIsDamageTableLocked(resolvedDamageLock);
     }
 
-    if (sheet.items && sheet.items.length > 0) {
-      const loadedRows: RowData[] = sheet.items.map((it) => ({
-        id: it.id || `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        productId: it.productId,
-        productCode: it.productCode,
-        productName: it.productName,
-        quantityOut: it.rawIssuedQty !== undefined ? it.rawIssuedQty : it.issuedQty,
-        quantityOutUnit: it.issuedUnit || (it.unit === 'কার্টন' || it.unit === 'কার্টুন' ? 'C' : 'P'),
-        returned: it.rawReturnQty !== undefined ? (it.rawReturnQty > 0 ? it.rawReturnQty : '') : (it.returnQty > 0 ? it.returnQty : ''),
-        returnedUnit: it.returnUnit || (it.unit === 'কার্টন' || it.unit === 'কার্টুন' ? 'C' : 'P'),
-        rate: it.sellingPrice,
-        showSuggestions: false,
-      }));
-      setRows(loadedRows);
+    const loadedRows: RowData[] =
+      sheet.items && sheet.items.length > 0
+        ? sheet.items.map((it) => ({
+            id: it.id || `row-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            productId: it.productId,
+            productCode: it.productCode,
+            productName: it.productName,
+            quantityOut: it.rawIssuedQty !== undefined ? it.rawIssuedQty : it.issuedQty,
+            quantityOutUnit: it.issuedUnit || (it.unit === 'কার্টন' || it.unit === 'কার্টুন' ? 'C' : 'P'),
+            returned: it.rawReturnQty !== undefined ? (it.rawReturnQty > 0 ? it.rawReturnQty : '') : (it.returnQty > 0 ? it.returnQty : ''),
+            returnedUnit: it.returnUnit || (it.unit === 'কার্টন' || it.unit === 'কার্টুন' ? 'C' : 'P'),
+            rate: it.sellingPrice,
+            showSuggestions: false,
+          }))
+        : [createEmptyRow()];
+    setRows(loadedRows);
 
-      // If opening an existing sheet with items in pending status (evening return workflow),
-      // automatically focus the return field of the first item for instant keyboard entry
-      if (status === 'pending' && loadedRows.length > 0) {
-        setTimeout(() => {
-          const firstRowId = loadedRows[0]?.id;
-          if (firstRowId && returnInputRefs.current[firstRowId]) {
-            returnInputRefs.current[firstRowId]?.focus();
-            returnInputRefs.current[firstRowId]?.select();
-          }
-        }, 150);
-      }
-    } else {
-      setRows([createEmptyRow()]);
+    // If opening an existing sheet with items in pending status (evening return workflow),
+    // automatically focus the return field of the first item for instant keyboard entry
+    if (status === 'pending' && loadedRows.length > 0) {
+      setTimeout(() => {
+        const firstRowId = loadedRows[0]?.id;
+        if (firstRowId && returnInputRefs.current[firstRowId]) {
+          returnInputRefs.current[firstRowId]?.focus();
+          returnInputRefs.current[firstRowId]?.select();
+        }
+      }, 150);
     }
 
     // Load Damage items if present
-    if (sheet.damageItems && sheet.damageItems.length > 0) {
-      const loadedDamageRows: RowData[] = sheet.damageItems.map((it) => ({
-        id: it.id || `dmg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        productId: it.productId,
-        productCode: it.productCode,
-        productName: it.productName,
-        quantityOut: it.rawDamageQty !== undefined ? it.rawDamageQty : (it.damageQty || it.issuedQty),
-        quantityOutUnit: it.damageUnit || 'P',
-        returned: '',
-        rate: it.sellingPrice,
-        showSuggestions: false,
-      }));
-      setDamageRows(loadedDamageRows);
-    } else {
-      setDamageRows([createEmptyDamageRow()]);
-    }
+    const loadedDamageRows: RowData[] =
+      sheet.damageItems && sheet.damageItems.length > 0
+        ? sheet.damageItems.map((it) => ({
+            id: it.id || `dmg-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            productId: it.productId,
+            productCode: it.productCode,
+            productName: it.productName,
+            quantityOut: it.rawDamageQty !== undefined ? it.rawDamageQty : (it.damageQty || it.issuedQty),
+            quantityOutUnit: it.damageUnit || 'P',
+            returned: '',
+            rate: it.sellingPrice,
+            showSuggestions: false,
+          }))
+        : [createEmptyDamageRow()];
+    setDamageRows(loadedDamageRows);
 
     // Load Due (বাকি) dynamic tables if present
     if (sheet.todayDueEntries && sheet.todayDueEntries.length > 0) {
@@ -855,6 +1031,20 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
     setLastSavedSheet(sheet);
     setActiveTab('entry');
+    lastSavedSnapshotRef.current = computeSnapshot({
+      route: sheet.routeOrVan,
+      date: sheet.date,
+      sr: sheet.srName,
+      dsr: sheet.dsrName,
+      rows: loadedRows,
+      damageRows: loadedDamageRows,
+      todayDueRows: sheet.todayDueEntries || (sheet.todayDue ? [{ id: 'due-init-1', dueNo: '', description: '', amount: sheet.todayDue }] : []),
+      dueCollectionRows: sheet.dueCollectionEntries || (sheet.dueCollection ? [{ id: 'coll-init-1', description: '', amount: sheet.dueCollection }] : []),
+      cashDenominations: sheet.cashDenominations as DenominationMap,
+      expense: sheet.marketExpense || 0,
+      less: sheet.lessAmount || sheet.dailyLess || 0,
+      short: sheet.shortAmount || sheet.dailyShort || 0,
+    });
   };
 
   // Check if an initialSheetId was provided or if an existing combination sheet is present
@@ -899,7 +1089,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   };
 
   // When Route, Date, SR, or DSR changes by user selection, check if an existing record exists
-  const handleHeaderFieldChange = (
+  const executeHeaderFieldChange = (
     field: 'route' | 'date' | 'sr' | 'dsr',
     newVal: string
   ) => {
@@ -939,7 +1129,30 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setDailyLess(0);
       setDailyShort(0);
       setLastSavedSheet(null);
+      lastSavedSnapshotRef.current = computeSnapshot({
+        route: newRoute,
+        date: newDate,
+        sr: newSR,
+        dsr: newDSR,
+        rows: [createEmptyRow()],
+        damageRows: [createEmptyDamageRow()],
+        todayDueRows: [createEmptyDueRow()],
+        dueCollectionRows: [createEmptyDueRow()],
+        cashDenominations: { 1000: '', 500: '', 200: '', 100: '', 50: '', 20: '', 10: '', 5: '', other: '' },
+        expense: 0,
+        less: 0,
+        short: 0,
+      });
     }
+  };
+
+  const handleHeaderFieldChange = (
+    field: 'route' | 'date' | 'sr' | 'dsr',
+    newVal: string
+  ) => {
+    confirmNavigation(() => {
+      executeHeaderFieldChange(field, newVal);
+    });
   };
 
   // Start a fresh new sheet (reset)
@@ -958,6 +1171,16 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setDailyLess(0);
     setDailyShort(0);
     setLastSavedSheet(null);
+    lastSavedSnapshotRef.current = computeSnapshot({
+      rows: [createEmptyRow()],
+      damageRows: [createEmptyDamageRow()],
+      todayDueRows: [createEmptyDueRow()],
+      dueCollectionRows: [createEmptyDueRow()],
+      cashDenominations: { 1000: '', 500: '', 200: '', 100: '', 50: '', 20: '', 10: '', 5: '', other: '' },
+      expense: 0,
+      less: 0,
+      short: 0,
+    });
     showNotification('নতুন দৈনিক হিসাব খাতা খোলা হয়েছে।', 'info');
   };
 
@@ -1722,11 +1945,11 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
   // TWO-STAGE SAVE ACTION
   // stage: 'morning' (চলমান/বিতরণ) or 'evening' (সম্পন্ন/চূড়ান্ত)
-  const handleSaveSheet = async (stage: 'morning' | 'evening') => {
-    if (isSavingStage !== null) return;
+  const handleSaveSheet = async (stage: 'morning' | 'evening'): Promise<boolean> => {
+    if (isSavingStage !== null) return false;
     if (isLockedForEdit) {
       showNotification('এই হিসাবটি সম্পন্ন ও লক করা আছে। এডিট করার জন্য আগে আনলক করুন।', 'error', 3500);
-      return;
+      return false;
     }
 
     const filledRows = computedRows.filter(
@@ -1735,7 +1958,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
     if (filledRows.length === 0) {
       showNotification('অনুগ্রহ করে অন্তত একটি পণ্যের নাম ও পরিমাণ লিখুন।', 'error', 3500);
-      return;
+      return false;
     }
 
     setIsSavingStage(stage);
@@ -1949,12 +2172,17 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
           3000
         );
       }
+      lastSavedSnapshotRef.current = computeSnapshot();
+      return true;
     } catch (err: any) {
       showNotification(`❌ সেভ হয়নি, আবার চেষ্টা করুন: ${err.message || 'অজানা ত্রুটি'}`, 'error', 4000);
+      return false;
     } finally {
       setIsSavingStage(null);
     }
   };
+
+  handleSaveSheetRef.current = handleSaveSheet;
 
   // Get complete sheet data for Print Preview and Export (works for current state and saved records)
   const getCurrentSheetData = (sheetToUse?: DailyAccountSheet): DailyAccountSheet => {
@@ -2364,7 +2592,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
             </button>
             <button
               type="button"
-              onClick={() => setActiveTab('history')}
+              onClick={() => {
+                if (activeTab === 'history') return;
+                confirmNavigation(() => setActiveTab('history'));
+              }}
               className={`flex-1 sm:flex-none px-4 py-2.5 text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
                 activeTab === 'history'
                   ? 'bg-blue-700 text-white shadow-md ring-2 ring-blue-400 ring-offset-1'
@@ -2404,7 +2635,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                   <button
                     key={ps.id}
                     type="button"
-                    onClick={() => loadSheetIntoForm(ps)}
+                    onClick={() => {
+                      if (currentSheetId === ps.id) return;
+                      confirmNavigation(() => loadSheetIntoForm(ps));
+                    }}
                     className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer ${
                       isCurrent
                         ? 'bg-amber-600 text-white border-amber-700 shadow-xs'
@@ -2480,7 +2714,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
               {currentSheetId && (
                 <button
                   type="button"
-                  onClick={handleStartNewSheet}
+                  onClick={() => confirmNavigation(() => handleStartNewSheet())}
                   className="inline-flex items-center gap-1 text-xs font-bold text-slate-600 hover:text-slate-900 px-2.5 py-1 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
@@ -4152,7 +4386,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           {/* Reopen / Edit Button */}
                           <button
                             type="button"
-                            onClick={() => loadSheetIntoForm(s)}
+                            onClick={() => confirmNavigation(() => loadSheetIntoForm(s))}
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                               !isFinal
                                 ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-xs'

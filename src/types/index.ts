@@ -105,6 +105,7 @@ export interface Payment {
   receivedBy: string;
   note?: string;
   saleId?: string; // If collected directly with a sale memo
+  source?: string; // e.g. "বাকি পেজ" | "ডেইলি হিসাব"
   status: 'completed' | 'void';
   voidReason?: string;
   voidedAt?: string;

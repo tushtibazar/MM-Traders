@@ -11,6 +11,7 @@ interface DuePrintPreviewModalProps {
   currency: string;
   customers: Customer[];
   totalDue: number;
+  totalCollected?: number;
   srFilter: string;
   routeFilter: string;
   customerRouteMap: Map<string, Set<string>> | Map<string, string>;
@@ -25,6 +26,7 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
   currency,
   customers,
   totalDue,
+  totalCollected,
   srFilter,
   routeFilter,
   customerRouteMap,
@@ -95,6 +97,10 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                         {
                           label: 'মোট বকেয়া',
                           value: `${currency} ${totalDue.toLocaleString()}`,
+                        },
+                        {
+                          label: 'মোট বাকি উত্তোলন',
+                          value: `${currency} ${(totalCollected !== undefined ? totalCollected : 0).toLocaleString()}`,
                         },
                       ]
                     : []

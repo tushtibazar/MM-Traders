@@ -87,6 +87,7 @@ interface AppContextType {
     date: string;
     receivedBy?: string;
     note?: string;
+    source?: string;
   }) => Payment;
 
   addCustomer: (customerInput: Omit<Customer, 'id' | 'currentDue' | 'createdAt' | 'updatedAt'>) => Customer;
@@ -904,6 +905,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     date: string;
     receivedBy?: string;
     note?: string;
+    source?: string;
   }): Payment => {
     const amount = Number(input.amount) || 0;
     const customer = db.customers.find((c) => c.id === input.customerId);
@@ -913,9 +915,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const newDue = Math.max(0, customer.currentDue - amount);
     const receiptNo = `REC-${input.dueNo || Date.now().toString().slice(-6)}`;
+    const collectionSource = input.source || 'বাকি পেজ';
 
     const newPayment: Payment = {
-      id: `pay-due-${Date.now()}`,
+      id: `pay-due-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       receiptNo,
       date: input.date,
       customerId: customer.id,
@@ -924,7 +927,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       amount,
       paymentMethod: 'cash',
       receivedBy: input.receivedBy || currentUser.name,
-      note: input.note || `বাকি আদায় (${input.dueNo ? `Due #${input.dueNo}` : 'দৈনিক হিসাব'})`,
+      note: input.note || `বাকি আদায় (${collectionSource})`,
+      source: collectionSource,
       status: 'completed',
       createdAt: new Date().toISOString(),
       createdBy: currentUser.id,
@@ -936,7 +940,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       date: input.date,
       type: 'payment',
       referenceId: input.dueNo || receiptNo,
-      description: `বাকি জমা # ${input.dueNo || receiptNo} (${customer.shopName || customer.name})`,
+      description: input.note
+        ? `${input.note} [${collectionSource}]`
+        : `বাকি জমা # ${input.dueNo || receiptNo} (${customer.shopName || customer.name}) [${collectionSource}]`,
       debit: 0,
       credit: amount,
       balance: newDue,

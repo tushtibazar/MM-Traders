@@ -185,10 +185,12 @@ function MainLayout() {
             {currentTab === 'damage' && currentUser.role === 'owner' && (
               <DamageModule
                 onOpenDailySheet={(sheetId) => {
-                  setSelectedDailySheetId(sheetId);
-                  setCurrentTab('daily-sale');
+                  confirmNavigation(() => {
+                    setSelectedDailySheetId(sheetId);
+                    setCurrentTab('daily-sale');
+                  });
                 }}
-                onNavigateToDailySales={() => setCurrentTab('daily-sale')}
+                onNavigateToDailySales={() => handleNavigateTab('daily-sale')}
               />
             )}
 
@@ -211,7 +213,7 @@ function MainLayout() {
             {currentTab === 'ledger' && (
               <CustomerLedger
                 customer={ledgerCustomer}
-                onBackToList={() => setCurrentTab('customers')}
+                onBackToList={() => handleNavigateTab('customers')}
                 onOpenQuickPayment={(cId) => handleOpenQuickPayment(cId)}
               />
             )}

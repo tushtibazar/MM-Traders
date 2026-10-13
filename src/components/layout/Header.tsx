@@ -40,6 +40,7 @@ export const Header: React.FC<HeaderProps> = ({
     cashBalance,
     totalOutstandingDue,
     todayDateStr,
+    confirmNavigation,
   } = useApp();
 
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
@@ -229,7 +230,7 @@ export const Header: React.FC<HeaderProps> = ({
                   id="header-switch-user-btn"
                   onClick={() => {
                     setIsUserMenuOpen(false);
-                    onOpenAuthModal();
+                    confirmNavigation(onOpenAuthModal);
                   }}
                   className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-medium text-slate-700 hover:bg-slate-100 transition-colors text-left cursor-pointer"
                 >
@@ -244,7 +245,7 @@ export const Header: React.FC<HeaderProps> = ({
                   id="header-logout-btn"
                   onClick={() => {
                     setIsUserMenuOpen(false);
-                    logout();
+                    confirmNavigation(logout);
                   }}
                   className="w-full flex items-center gap-2 rounded-lg px-2.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50 hover:text-rose-800 transition-colors text-left cursor-pointer"
                 >

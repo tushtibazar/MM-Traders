@@ -58,7 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setIsMobileOpen,
   onOpenAuthModal,
 }) => {
-  const { currentUser, db, customersWithDue, logout } = useApp();
+  const { currentUser, db, customersWithDue, logout, confirmNavigation } = useApp();
   const isOwner = currentUser.role === 'owner';
 
   const navItems: {
@@ -233,7 +233,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center gap-1 shrink-0 ml-1">
               <button
                 id="switch-role-btn"
-                onClick={onOpenAuthModal}
+                onClick={() => confirmNavigation(onOpenAuthModal)}
                 title="রোল পরিবর্তন করুন (Switch User)"
                 className="rounded p-1 text-slate-400 hover:bg-slate-700 hover:text-white transition-colors cursor-pointer"
               >
@@ -241,7 +241,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </button>
               <button
                 id="sidebar-logout-btn"
-                onClick={logout}
+                onClick={() => confirmNavigation(logout)}
                 title="লগ আউট করুন (Log Out)"
                 className="rounded p-1 text-rose-400 hover:bg-rose-950/60 hover:text-rose-200 transition-colors cursor-pointer"
               >

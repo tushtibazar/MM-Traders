@@ -33,7 +33,7 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200"
       onClick={(e) => {
         // Clicking outside the modal behaves like "এখানেই থাকুন"
         if (e.target === e.currentTarget && !isSaving) {
@@ -71,7 +71,7 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
               সেভ না করা পরিবর্তন আছে
             </h3>
             <p className="mt-1 text-xs sm:text-sm text-slate-600 font-bengali leading-relaxed">
-              আপনি এই হিসাবে কিছু তথ্য এন্ট্রি করেছেন যা এখনো সেভ করা হয়নি। পেজ ছেড়ে গেলে এগুলো হারিয়ে যেতে পারে।
+              আপনি এই হিসাবে কিছু তথ্য এন্ট্রি করেছেন যা এখনো সেভ করা হয়নি।
             </p>
           </div>
         </div>
@@ -106,7 +106,7 @@ export const UnsavedChangesModal: React.FC<UnsavedChangesModalProps> = ({
             className="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl bg-rose-50 border border-rose-200 px-3.5 py-2.5 text-xs sm:text-sm font-bold text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition-all disabled:opacity-50 cursor-pointer"
           >
             <LogOut className="h-4 w-4 text-rose-600" />
-            <span>সেভ ছাড়াই যান</span>
+            <span>সেভ ছাড়াই যান</span>
           </button>
 
           {/* Button 3: এখানেই থাকুন (Stay Here) */}
