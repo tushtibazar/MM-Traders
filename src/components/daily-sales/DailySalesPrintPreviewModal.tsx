@@ -258,6 +258,97 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
     }
   };
 
+  // Working Day Number (কার্যদিবস ক্রম) for the previewed sheet:
+  // Counts distinct dates in the same month that have a Daily হিসাব record (pending or completed),
+  // up to and including the previewed record's date.
+  const workingDayInfo = useMemo(() => {
+    if (!sheet.date) {
+      return { dayNumber: 1, ordinalBn: '১ম' };
+    }
+
+    const parseYMD = (dateVal: string | undefined | null) => {
+      if (!dateVal) return null;
+      const str = String(dateVal).split('T')[0].trim();
+      if (str.includes('-')) {
+        const parts = str.split('-');
+        if (parts.length === 3) {
+          const y = parseInt(parts[0], 10);
+          const m = parseInt(parts[1], 10);
+          const d = parseInt(parts[2], 10);
+          if (!isNaN(y) && !isNaN(m) && !isNaN(d)) return { y, m, d };
+        }
+      } else if (str.includes('/')) {
+        const parts = str.split('/');
+        if (parts.length === 3) {
+          if (parts[0].length === 4) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            const d = parseInt(parts[2], 10);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) return { y, m, d };
+          } else {
+            const d = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            const y = parseInt(parts[2], 10);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(d)) return { y, m, d };
+          }
+        }
+      }
+      const dt = new Date(dateVal);
+      if (!isNaN(dt.getTime())) {
+        return {
+          y: dt.getFullYear(),
+          m: dt.getMonth() + 1,
+          d: dt.getDate(),
+        };
+      }
+      return null;
+    };
+
+    const targetYMD = parseYMD(sheet.date);
+    if (!targetYMD) {
+      return { dayNumber: 1, ordinalBn: '১ম' };
+    }
+
+    // Combine db.dailySheets and current previewed sheet
+    const existingSheets = db.dailySheets || [];
+    const allSheets: DailyAccountSheet[] = [...existingSheets];
+    if (!allSheets.some((s) => s.id === sheet.id)) {
+      allSheets.push(sheet);
+    }
+
+    // Collect distinct day numbers in the same year and month up to and including sheet.date
+    const distinctDaysSet = new Set<number>();
+    allSheets.forEach((s) => {
+      if (!s.date) return;
+      const sYMD = parseYMD(s.date);
+      if (sYMD && sYMD.y === targetYMD.y && sYMD.m === targetYMD.m && sYMD.d <= targetYMD.d) {
+        distinctDaysSet.add(sYMD.d);
+      }
+    });
+
+    distinctDaysSet.add(targetYMD.d);
+    const dayNumber = distinctDaysSet.size || 1;
+
+    const ordinals: Record<number, string> = {
+      1: '১ম',
+      2: '২য়',
+      3: '৩য়',
+      4: '৪র্থ',
+      5: '৫ম',
+      6: '৬ষ্ঠ',
+      7: '৭ম',
+      8: '৮ম',
+      9: '৯ম',
+      10: '১০ম',
+    };
+    const ordinalBn = ordinals[dayNumber] || `${toBnDigits(dayNumber)}তম`;
+
+    return {
+      dayNumber,
+      ordinalBn,
+    };
+  }, [db.dailySheets, sheet.date, sheet.id]);
+
   // Month-to-Date Calculations for the previewed record's month (1st of month up to sheet.date)
   const monthToDateTotals = useMemo(() => {
     if (!sheet.date) {
@@ -654,7 +745,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
               দৈনিক হিসাব প্রিন্ট ও এক্সপোর্ট প্রিভিউ (A4)
             </h2>
             <p className="text-xs text-slate-300">
-              তারিখ: {formatDate(sheet.date)} • রুট: {sheet.routeOrVan || 'সব'} • {totalPages} পৃষ্ঠা
+              তারিখ: {formatDate(sheet.date)} | এই মাসের {workingDayInfo.ordinalBn} দিন • রুট: {sheet.routeOrVan || 'সব'} • {totalPages} পৃষ্ঠা
             </p>
           </div>
         </div>
@@ -746,7 +837,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                         {settings.businessName} — দৈনিক বিক্রয় খতিয়ান (চলমান)
                       </span>
                       <span>
-                        তারিখ: {formatDate(sheet.date)} • রুট: {sheet.routeOrVan}
+                        তারিখ: {formatDate(sheet.date)} | এই মাসের {workingDayInfo.ordinalBn} দিন • রুট: {sheet.routeOrVan}
                       </span>
                     </div>
                   )}
@@ -784,6 +875,11 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                             <span className="text-slate-700">মোট খরচ:</span>
                             <strong className="font-mono font-bold text-slate-900 text-[8.5px] sm:text-[9px]">{formatMoney(monthToDateTotals.totalExpense)}</strong>
                           </div>
+                          <span className="text-slate-300">•</span>
+                          <div className="flex items-center gap-0.5">
+                            <span className="text-blue-800">গাড়ি চলেছে:</span>
+                            <strong className="font-mono font-bold text-blue-900 text-[8.5px] sm:text-[9px]">{toBnDigits(workingDayInfo.dayNumber)} দিন</strong>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -795,7 +891,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                       <div>
                         <span className="text-[7.5px] text-slate-500 block leading-tight">তারিখ:</span>
                         <span className="font-bold text-slate-900 font-mono text-[9px] leading-tight block">
-                          {formatDate(sheet.date)} <span className="font-normal text-[8px] text-slate-500 font-bengali">({formatBengaliDate(sheet.date)})</span>
+                          {formatDate(sheet.date)} <span className="font-bold text-[8.5px] text-slate-700 font-bengali">| এই মাসের {workingDayInfo.ordinalBn} দিন</span>
                         </span>
                       </div>
                       <div>
