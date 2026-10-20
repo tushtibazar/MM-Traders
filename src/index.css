@@ -115,6 +115,31 @@
     break-after: auto !important;
   }
 
+  /* Specialized A4 layout for Daily Summary Sheet with exact 194mm x 281mm printable area (8mm margin) */
+  .printable-a4-page.summary-a4-page {
+    width: 194mm !important;
+    max-width: 194mm !important;
+    height: 281mm !important;
+    min-height: 281mm !important;
+    max-height: 281mm !important;
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .printable-a4-page.summary-a4-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
   /* Ensure tables and rows don't split awkwardly across pages */
   table {
     page-break-inside: auto !important;
