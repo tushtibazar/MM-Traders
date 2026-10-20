@@ -18,6 +18,8 @@ import { StockModule } from './components/stock/StockModule';
 import { ExpenseModule } from './components/expenses/ExpenseModule';
 import { ReportsModule } from './components/reports/ReportsModule';
 import { ProductSalesAnalysisModule } from './components/product-sales-analysis/ProductSalesAnalysisModule';
+import { DOModule } from './components/do/DOModule';
+import { SummaryModule } from './components/summary/SummaryModule';
 import { SettingsModule } from './components/settings/SettingsModule';
 import { AuthModal } from './components/modals/AuthModal';
 import { SaleMemoModal } from './components/modals/SaleMemoModal';
@@ -238,6 +240,10 @@ function MainLayout() {
                 }}
               />
             )}
+
+            {currentTab === 'do' && <DOModule />}
+
+            {currentTab === 'summary' && <SummaryModule />}
 
             {currentTab === 'settings' && currentUser.role === 'owner' && <SettingsModule />}
           </div>

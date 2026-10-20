@@ -172,6 +172,8 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
     lessSettlements: [],
     salesRepresentatives: [],
     deliveryRepresentatives: [],
+    doPayments: [],
+    summaryProductOrder: [],
     settings: {
       businessName: preservedSettings?.businessName || INITIAL_SETTINGS.businessName,
       subtitle: preservedSettings?.subtitle || INITIAL_SETTINGS.subtitle,
@@ -236,6 +238,8 @@ export function getInitialDatabase(): AppDatabase {
     lessSettlements: INITIAL_LESS_SETTLEMENTS,
     salesRepresentatives: INITIAL_SRS,
     deliveryRepresentatives: INITIAL_DSRS,
+    doPayments: [],
+    summaryProductOrder: [],
     settings: INITIAL_SETTINGS,
     lastUpdated: new Date().toISOString(),
   };
@@ -295,6 +299,12 @@ export class StorageService {
           }
           if (!Array.isArray(parsed.deliveryRepresentatives)) {
             parsed.deliveryRepresentatives = [];
+          }
+          if (!Array.isArray(parsed.doPayments)) {
+            parsed.doPayments = [];
+          }
+          if (!Array.isArray(parsed.summaryProductOrder)) {
+            parsed.summaryProductOrder = parsed.settings?.summaryProductOrder || [];
           }
           if (!Array.isArray(parsed.settings.customRoutes)) {
             parsed.settings.customRoutes = [];
@@ -480,6 +490,10 @@ export function validateBackupJson(jsonStr: string): BackupValidationResult {
       deliveryRepresentatives: Array.isArray(parsed.deliveryRepresentatives)
         ? parsed.deliveryRepresentatives
         : (currentDb.deliveryRepresentatives || []),
+      doPayments: Array.isArray(parsed.doPayments) ? parsed.doPayments : [],
+      summaryProductOrder: Array.isArray(parsed.summaryProductOrder)
+        ? parsed.summaryProductOrder
+        : (parsed.settings?.summaryProductOrder || currentDb.summaryProductOrder || []),
       settings: {
         ...currentDb.settings,
         ...parsed.settings,

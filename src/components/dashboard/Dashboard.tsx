@@ -17,6 +17,7 @@ import {
   Clock,
   ArrowRight,
   Trash2,
+  Building2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { TabType } from '../layout/Sidebar';
@@ -33,7 +34,7 @@ interface DashboardProps {
   onOpenAddCustomer: () => void;
   onOpenAddExpense: () => void;
   onViewMemo: (sale: Sale) => void;
-  onOpenDailySheet?: (sheetId: string) => void;
+  onOpenDailySheet: (sheetId: string) => void;
 }
 
 export const Dashboard: React.FC<DashboardProps> = ({
@@ -57,6 +58,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     totalOutstandingLess,
     totalAllTimeLess,
     cashBalance,
+    todayDOPaymentTotal,
     todayDateStr,
     customersWithDue,
     deleteDailySheet,
@@ -344,8 +346,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
-      {/* Primary Summary Cards (6 Key Metric Cards) */}
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3 xl:grid-cols-6">
+      {/* Primary Summary Cards (7 Key Metric Cards) */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-7">
         {/* Today's Sales */}
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
           <div className="flex items-center justify-between">
@@ -414,6 +416,24 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {currency} {todayExpense.toLocaleString()}
           </p>
           <span className="text-[11px] text-purple-600 font-medium">Today's Expense</span>
+        </div>
+
+        {/* Today's D.O. (Payments to Company) */}
+        <div
+          onClick={() => onNavigateTab('do')}
+          className="rounded-xl border border-blue-200 bg-blue-50/40 p-4 shadow-xs hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer"
+          title="কোম্পানি ডিও মডিউলে যেতে ক্লিক করুন"
+        >
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-blue-900">আজকের ডিও</span>
+            <div className="rounded-md bg-blue-100 p-1.5 text-blue-700">
+              <Building2 className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-lg sm:text-xl font-bold font-mono text-blue-800 truncate">
+            {currency} {todayDOPaymentTotal.toLocaleString()}
+          </p>
+          <span className="text-[11px] text-blue-600 font-medium">Today's D.O.</span>
         </div>
 
         {/* Current Cash Balance */}

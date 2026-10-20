@@ -17,6 +17,7 @@ import {
   DeliveryRepresentative,
   StockTransaction,
   User,
+  DOPayment,
 } from '../types';
 import { StorageService, DEFAULT_ROUTES } from '../services/storage';
 
@@ -143,6 +144,14 @@ interface AppContextType {
   updateRoute: (oldName: string, newName: string) => void;
   deleteRoute: (routeName: string) => void;
 
+  // D.O. Payments (Payments to Company)
+  addDOPayment: (input: { date: string; amount: number; note?: string }) => DOPayment;
+  updateDOPayment: (id: string, input: { date: string; amount: number; note?: string }) => void;
+  deleteDOPayment: (id: string, reason?: string) => void;
+
+  // Summary Product Order
+  updateSummaryProductOrder: (order: string[]) => void;
+
   resetToDemoData: () => void;
   resetToBlankData: () => void;
   importDatabase: (importedDb: AppDatabase) => void;
@@ -157,6 +166,7 @@ interface AppContextType {
   totalOutstandingLess: number;
   totalAllTimeLess: number;
   cashBalance: number;
+  todayDOPaymentTotal: number;
   todayDateStr: string;
   customersWithDue: Customer[];
 
@@ -1909,6 +1919,74 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     updateDb(imported);
   };
 
+  // D.O. Payments (Payments to Company)
+  const addDOPayment = (input: { date: string; amount: number; note?: string }): DOPayment => {
+    const newEntry: DOPayment = {
+      id: `do-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      date: input.date || todayDateStr,
+      amount: Math.max(0, Number(input.amount) || 0),
+      note: input.note?.trim() || '',
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const updatedDoPayments = [newEntry, ...(db.doPayments || [])];
+    updateDb({
+      ...db,
+      doPayments: updatedDoPayments,
+    });
+    return newEntry;
+  };
+
+  const updateDOPayment = (id: string, input: { date: string; amount: number; note?: string }) => {
+    const updatedDoPayments = (db.doPayments || []).map((d) => {
+      if (d.id === id) {
+        return {
+          ...d,
+          date: input.date || d.date,
+          amount: Math.max(0, Number(input.amount) || 0),
+          note: input.note?.trim() !== undefined ? input.note.trim() : d.note,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return d;
+    });
+    updateDb({
+      ...db,
+      doPayments: updatedDoPayments,
+    });
+  };
+
+  const deleteDOPayment = (id: string, reason?: string) => {
+    const updatedDoPayments = (db.doPayments || []).map((d) => {
+      if (d.id === id) {
+        return {
+          ...d,
+          status: 'voided' as const,
+          voidedAt: new Date().toISOString(),
+          voidReason: reason || 'মালিক কর্তৃক বাতিল',
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return d;
+    });
+    updateDb({
+      ...db,
+      doPayments: updatedDoPayments,
+    });
+  };
+
+  const updateSummaryProductOrder = (order: string[]) => {
+    updateDb({
+      ...db,
+      summaryProductOrder: order,
+      settings: {
+        ...db.settings,
+        summaryProductOrder: order,
+      },
+    });
+  };
+
   // COMPUTED DASHBOARD SUMMARIES
   const todaySales = useMemo(() => {
     const fromSales = db.sales
@@ -1979,9 +2057,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const totalCashExpenses = (db.expenses || [])
       .filter((e) => e.status === 'completed' && e.paidFrom === 'cash' && !e.sheetId && !e.id.startsWith('exp-sheet-'))
       .reduce((acc, e) => acc + e.amount, 0);
+    const totalDoPayments = (db.doPayments || [])
+      .filter((d) => d.status === 'active' || !d.status)
+      .reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
 
-    return opening + totalCashCollections + dailySheetCash - totalCashExpenses;
-  }, [db.payments, db.dailySheets, db.expenses, db.settings.openingCashBalance]);
+    return opening + totalCashCollections + dailySheetCash - totalCashExpenses - totalDoPayments;
+  }, [db.payments, db.dailySheets, db.expenses, db.settings.openingCashBalance, db.doPayments]);
+
+  const todayDOPaymentTotal = useMemo(() => {
+    return (db.doPayments || [])
+      .filter((d) => (d.status === 'active' || !d.status) && d.date === todayDateStr)
+      .reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  }, [db.doPayments, todayDateStr]);
 
   const customersWithDue = useMemo(() => {
     return db.customers
@@ -2165,6 +2252,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addRoute,
         updateRoute,
         deleteRoute,
+        addDOPayment,
+        updateDOPayment,
+        deleteDOPayment,
+        updateSummaryProductOrder,
         resetToDemoData,
         resetToBlankData,
         importDatabase,
@@ -2177,6 +2268,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         totalOutstandingLess,
         totalAllTimeLess,
         cashBalance,
+        todayDOPaymentTotal,
         todayDateStr,
         customersWithDue,
         registerUnsavedChangesGuard,

@@ -270,6 +270,7 @@ export interface BusinessSettings {
   securityPin?: string; // 4-6 digit security PIN for product deletion and due collection confirmation
   ownerPin?: string;
   businessPosition?: BusinessPositionSettings;
+  summaryProductOrder?: string[];
 }
 
 export interface DailyAccountItem {
@@ -358,6 +359,18 @@ export interface DailyAccountSheet {
   createdBy: string;
 }
 
+export interface DOPayment {
+  id: string;
+  date: string; // YYYY-MM-DD
+  amount: number;
+  note?: string; // e.g. company name or reference
+  status: 'active' | 'voided';
+  voidedAt?: string;
+  voidReason?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface AppDatabase {
   users: User[];
   customers: Customer[];
@@ -372,6 +385,8 @@ export interface AppDatabase {
   lessSettlements?: LessSettlement[];
   salesRepresentatives: SalesRepresentative[];
   deliveryRepresentatives?: DeliveryRepresentative[];
+  doPayments?: DOPayment[];
+  summaryProductOrder?: string[];
   settings: BusinessSettings;
   lastUpdated: string;
 }

@@ -20,6 +20,8 @@ import {
   AlertOctagon,
   TrendingUp,
   FileCheck,
+  ClipboardList,
+  Building2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { BrandLogo } from '../brand/BrandLogo';
@@ -41,6 +43,8 @@ export type TabType =
   | 'ledger'
   | 'reports'
   | 'product-sales-analysis'
+  | 'do'
+  | 'summary'
   | 'settings';
 
 interface SidebarProps {
@@ -176,6 +180,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
       labelBn: 'পণ্য বিক্রয় বিশ্লেষণ',
       labelEn: 'Product Sales Analysis',
       icon: TrendingUp,
+    },
+    {
+      id: 'do',
+      labelBn: 'ডিও',
+      labelEn: 'D.O. Payments',
+      icon: Building2,
+    },
+    {
+      id: 'summary',
+      labelBn: 'সামারি',
+      labelEn: 'Daily Product Sheet',
+      icon: ClipboardList,
     },
     {
       id: 'settings',
