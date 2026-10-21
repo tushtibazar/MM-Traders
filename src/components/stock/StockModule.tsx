@@ -21,6 +21,7 @@ import { generateStockValuationPDF } from '../../services/pdfGenerator';
 import { Product } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
 import { StockPrintPreviewModal } from './StockPrintPreviewModal';
+import { StockHistorySection } from './StockHistorySection';
 import { formatDate } from '../../utils/dateUtils';
 
 export const StockModule: React.FC = () => {
@@ -582,56 +583,13 @@ export const StockModule: React.FC = () => {
         </div>
       </div>
 
-      {/* Stock Adjustment Logs */}
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
-        <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-          <History className="h-4 w-4 text-slate-500" />
-          <h2 className="text-sm font-bold text-slate-900 font-bengali">
-            স্টক সমন্বয় ইতিহাস (Adjustment Logs)
-          </h2>
-        </div>
-        <div className="overflow-x-auto mt-3">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50 text-slate-600">
-                <th className="py-2 px-3">তারিখ</th>
-                <th className="py-2 px-3">পণ্য</th>
-                <th className="py-2 px-3 text-center">ধরণ</th>
-                <th className="py-2 px-3 text-center">পরিমাণ</th>
-                <th className="py-2 px-3">কারণ</th>
-                <th className="py-2 px-3">এন্ট্রি প্রদানকারী</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {db.stockTransactions.slice(0, 8).map((adj) => (
-                <tr key={adj.id} className="hover:bg-slate-50">
-                  <td className="py-2 px-3 text-slate-600 font-mono">{formatDate(adj.date)}</td>
-                  <td className="py-2 px-3 font-semibold text-slate-900">{adj.productName}</td>
-                  <td className="py-2 px-3 text-center">
-                    <span
-                      className={`inline-block rounded px-2 py-0.5 text-[10px] font-bold ${
-                        adj.quantity > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                      }`}
-                    >
-                      {adj.quantity > 0 ? `+ যোগ (${adj.type})` : `- বিয়োগ (${adj.type})`}
-                    </span>
-                  </td>
-                  <td className="py-2 px-3 text-center font-bold text-slate-900">{Math.abs(adj.quantity)}</td>
-                  <td className="py-2 px-3 text-slate-600">{adj.note || adj.type}</td>
-                  <td className="py-2 px-3 text-slate-500">{adj.createdBy}</td>
-                </tr>
-              ))}
-              {db.stockTransactions.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-4 text-center text-slate-400">
-                    কোন স্টক সমন্বয়ের রেকর্ড নেই
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      {/* Upgraded Stock History Section */}
+      <StockHistorySection
+        stockTransactions={db.stockTransactions || []}
+        products={db.products || []}
+        users={db.users || []}
+        todayDateStr={todayDateStr}
+      />
 
       {/* Stock Entry Delete PIN Modal */}
       <PinPromptModal
