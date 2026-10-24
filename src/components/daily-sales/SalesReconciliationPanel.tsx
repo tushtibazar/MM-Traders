@@ -1,7 +1,13 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Scale, CheckCircle2, AlertCircle, XCircle } from 'lucide-react';
+import {
+  isCursorAtStart,
+  isCursorAtEnd,
+  preventWheelChange,
+  sanitizeDecimalInput,
+} from '../../utils/keyboardNav';
 
-interface SalesReconciliationPanelProps {
+export interface SalesReconciliationPanelProps {
   netDailySales?: number;
   newDue: number;
   expense: number;
@@ -14,6 +20,10 @@ interface SalesReconciliationPanelProps {
   totalCash: number;
   currency?: string;
   disabled?: boolean;
+  onNavigatePrev?: () => void;
+  onNavigateNext?: () => void;
+  onNavigateLeft?: () => void;
+  focusExpenseRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> = ({
@@ -29,7 +39,24 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
   totalCash,
   currency = '৳',
   disabled = false,
+  onNavigatePrev,
+  onNavigateNext,
+  onNavigateLeft,
+  focusExpenseRef,
 }) => {
+  const expenseInputRef = useRef<HTMLInputElement>(null);
+  const lessInputRef = useRef<HTMLInputElement>(null);
+  const shortInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (focusExpenseRef) {
+      focusExpenseRef.current = () => {
+        expenseInputRef.current?.focus();
+        expenseInputRef.current?.select();
+      };
+    }
+  }, [focusExpenseRef]);
+
   const salesNet = Number(netDailySales) || 0;
   // Expected Cash = Net Daily Sales - Today's New Due - Expense - Less - Short
   const expectedCash = Math.max(0, salesNet - newDue - expense - (less || 0) - (short || 0));
@@ -40,6 +67,21 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
 
   // "সর্বমোট" (Total) = ক্যাশ + খরচ + বাকি + লেস + শর্ট
   const grandTotal = totalCash + (expense || 0) + (newDue || 0) + (less || 0) + (short || 0);
+
+  const handleExpenseChangeInternal = (raw: string) => {
+    const clean = sanitizeDecimalInput(raw);
+    onExpenseChange(clean === '' ? 0 : Math.max(0, Number(clean) || 0));
+  };
+
+  const handleLessChangeInternal = (raw: string) => {
+    const clean = sanitizeDecimalInput(raw);
+    onLessChange?.(clean === '' ? 0 : Math.max(0, Number(clean) || 0));
+  };
+
+  const handleShortChangeInternal = (raw: string) => {
+    const clean = sanitizeDecimalInput(raw);
+    onShortChange?.(clean === '' ? 0 : Math.max(0, Number(clean) || 0));
+  };
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden flex flex-col justify-between">
@@ -120,13 +162,36 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
           <div className="flex items-center gap-1.5 justify-end shrink-0 min-w-[120px]">
             <span className="text-xs font-mono font-bold text-rose-600">{currency}</span>
             <input
-              type="number"
-              min="0"
+              ref={expenseInputRef}
+              type="text"
+              inputMode="decimal"
               disabled={disabled}
               value={expense === 0 ? '' : expense}
-              onChange={(e) => onExpenseChange(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0))}
+              onChange={(e) => handleExpenseChangeInternal(e.target.value)}
+              onWheel={preventWheelChange}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  lessInputRef.current?.focus();
+                  lessInputRef.current?.select();
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  if (onNavigatePrev) {
+                    onNavigatePrev();
+                  }
+                  return;
+                }
+                if (e.key === 'ArrowLeft') {
+                  if (isCursorAtStart(e.currentTarget) && onNavigateLeft) {
+                    e.preventDefault();
+                    onNavigateLeft();
+                  }
+                }
+              }}
               placeholder="০"
-              className="w-24 sm:w-28 text-right rounded-lg border border-rose-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+              className="no-spinners w-24 sm:w-28 text-right rounded-lg border border-rose-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50 transition-colors"
             />
           </div>
         </div>
@@ -172,13 +237,35 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
           <div className="flex items-center gap-1.5 justify-end shrink-0 min-w-[120px]">
             <span className="text-xs font-mono font-bold text-purple-600">{currency}</span>
             <input
-              type="number"
-              min="0"
+              ref={lessInputRef}
+              type="text"
+              inputMode="decimal"
               disabled={disabled}
               value={less === 0 ? '' : less}
-              onChange={(e) => onLessChange?.(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0))}
+              onChange={(e) => handleLessChangeInternal(e.target.value)}
+              onWheel={preventWheelChange}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  shortInputRef.current?.focus();
+                  shortInputRef.current?.select();
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  expenseInputRef.current?.focus();
+                  expenseInputRef.current?.select();
+                  return;
+                }
+                if (e.key === 'ArrowLeft') {
+                  if (isCursorAtStart(e.currentTarget) && onNavigateLeft) {
+                    e.preventDefault();
+                    onNavigateLeft();
+                  }
+                }
+              }}
               placeholder="০"
-              className="w-24 sm:w-28 text-right rounded-lg border border-purple-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-purple-800 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+              className="no-spinners w-24 sm:w-28 text-right rounded-lg border border-purple-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-purple-800 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 focus:outline-none disabled:bg-slate-50 transition-colors"
             />
           </div>
         </div>
@@ -210,13 +297,36 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
           <div className="flex items-center gap-1.5 justify-end shrink-0 min-w-[120px]">
             <span className="text-xs font-mono font-bold text-orange-600">{currency}</span>
             <input
-              type="number"
-              min="0"
+              ref={shortInputRef}
+              type="text"
+              inputMode="decimal"
               disabled={disabled}
               value={short === 0 ? '' : short}
-              onChange={(e) => onShortChange?.(e.target.value === '' ? 0 : Math.max(0, Number(e.target.value) || 0))}
+              onChange={(e) => handleShortChangeInternal(e.target.value)}
+              onWheel={preventWheelChange}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  if (onNavigateNext) {
+                    e.preventDefault();
+                    onNavigateNext();
+                  }
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  lessInputRef.current?.focus();
+                  lessInputRef.current?.select();
+                  return;
+                }
+                if (e.key === 'ArrowLeft') {
+                  if (isCursorAtStart(e.currentTarget) && onNavigateLeft) {
+                    e.preventDefault();
+                    onNavigateLeft();
+                  }
+                }
+              }}
               placeholder="০"
-              className="w-24 sm:w-28 text-right rounded-lg border border-orange-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-orange-800 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+              className="no-spinners w-24 sm:w-28 text-right rounded-lg border border-orange-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-orange-800 focus:border-orange-500 focus:ring-1 focus:ring-orange-500 focus:outline-none disabled:bg-slate-50 transition-colors"
             />
           </div>
         </div>
@@ -242,87 +352,10 @@ export const SalesReconciliationPanel: React.FC<SalesReconciliationPanelProps> =
             </div>
           </div>
           <div className="text-right shrink-0">
-            <div className="font-mono font-black text-base sm:text-lg text-emerald-950 bg-white/90 border-2 border-emerald-500/60 px-3.5 py-1.5 rounded-xl shadow-xs min-w-[130px]">
+            <span className="font-mono font-black text-base sm:text-lg text-emerald-950 block">
               {currency} {grandTotal.toLocaleString()}
-            </div>
+            </span>
           </div>
-        </div>
-
-        {/* Reconciliation Comparison & Match Indicator */}
-        <div className="pt-3 border-t border-slate-200 space-y-2.5">
-          {/* Formula Summary Line */}
-          <div className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200/80 text-xs space-y-1">
-            <div className="flex items-center justify-between text-slate-600">
-              <span>প্রকৃত বিক্রি (Net Sales):</span>
-              <span className="font-mono font-bold text-slate-800">{currency} {salesNet.toLocaleString()}</span>
-            </div>
-            <div className="flex items-center justify-between text-slate-600">
-              <span>
-                বাদ: বাকি + খরচ {(less || 0) > 0 ? '+ লেস' : ''} {(short || 0) > 0 ? '+ শর্ট' : ''}:
-              </span>
-              <span className="font-mono font-semibold text-rose-600">
-                - {currency} {(newDue + expense + (less || 0) + (short || 0)).toLocaleString()}
-              </span>
-            </div>
-            <div className="pt-1 border-t border-slate-200 flex items-center justify-between font-bold text-slate-900 text-xs">
-              <span>প্রত্যাশিত ক্যাশ (Expected):</span>
-              <span className="font-mono text-emerald-800">{currency} {expectedCash.toLocaleString()}</span>
-            </div>
-          </div>
-
-          {/* Match Indicator Banner */}
-          {isMatch ? (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 flex items-center justify-between gap-2 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
-                <div>
-                  <span className="font-bold text-emerald-950 text-xs sm:text-sm block">
-                    ✅ হিসাব মিলেছে (Match)
-                  </span>
-                  <span className="text-[11px] text-emerald-700">
-                    বিক্রি ও ক্যাশ সম্পূর্ণ মিলে গেছে
-                  </span>
-                </div>
-              </div>
-              <span className="font-mono font-bold text-xs text-emerald-800 bg-white/80 border border-emerald-300 px-2 py-0.5 rounded">
-                পার্থক্য: {currency} ০
-              </span>
-            </div>
-          ) : isExcess ? (
-            <div className="p-3 rounded-xl bg-blue-50 border border-blue-300 flex items-center justify-between gap-2 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <AlertCircle className="h-5 w-5 text-blue-600 shrink-0" />
-                <div>
-                  <span className="font-bold text-blue-950 text-xs sm:text-sm block">
-                    ⚠️ ক্যাশ বেশি (Excess Cash)
-                  </span>
-                  <span className="text-[11px] text-blue-700">
-                    হাতে প্রত্যাশিত ক্যাশের চেয়ে বেশি জমা
-                  </span>
-                </div>
-              </div>
-              <span className="font-mono font-bold text-xs text-blue-800 bg-white/80 border border-blue-300 px-2 py-0.5 rounded">
-                +{currency} {difference.toLocaleString()}
-              </span>
-            </div>
-          ) : (
-            <div className="p-3 rounded-xl bg-rose-50 border border-rose-300 flex items-center justify-between gap-2 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <XCircle className="h-5 w-5 text-rose-600 shrink-0" />
-                <div>
-                  <span className="font-bold text-rose-950 text-xs sm:text-sm block">
-                    ❌ ক্যাশ ঘাটতি (Cash Shortage)
-                  </span>
-                  <span className="text-[11px] text-rose-700">
-                    হাতে প্রত্যাশিত ক্যাশের চেয়ে কম রয়েছে
-                  </span>
-                </div>
-              </div>
-              <span className="font-mono font-bold text-xs text-rose-800 bg-white/80 border border-rose-300 px-2 py-0.5 rounded">
-                -{currency} {Math.abs(difference).toLocaleString()}
-              </span>
-            </div>
-          )}
         </div>
       </div>
     </div>

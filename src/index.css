@@ -171,16 +171,18 @@
   }
 }
 
-/* Hide number input spinner arrows */
-input[type=number].no-spinners::-webkit-inner-spin-button,
-input[type=number].no-spinners::-webkit-outer-spin-button,
+/* Hide number input spinner arrows globally across all modern browsers */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button,
+input::-webkit-outer-spin-button,
 .no-spinners::-webkit-inner-spin-button,
 .no-spinners::-webkit-outer-spin-button {
   -webkit-appearance: none !important;
   margin: 0 !important;
 }
 
-input[type=number].no-spinners,
+input[type=number],
 .no-spinners {
   -moz-appearance: textfield !important;
   appearance: textfield !important;

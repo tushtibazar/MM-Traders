@@ -12,6 +12,8 @@ interface CustomerAutocompleteProps {
   className?: string;
   currency?: string;
   selectedCustomer?: Customer | null;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  inputRefCallback?: (el: HTMLInputElement | null) => void;
 }
 
 export const CustomerAutocomplete: React.FC<CustomerAutocompleteProps> = ({
@@ -24,6 +26,8 @@ export const CustomerAutocomplete: React.FC<CustomerAutocompleteProps> = ({
   className = '',
   currency = '৳',
   selectedCustomer,
+  onKeyDown,
+  inputRefCallback,
 }) => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [highlightedIndex, setHighlightedIndex] = useState<number>(0);
@@ -101,6 +105,11 @@ export const CustomerAutocomplete: React.FC<CustomerAutocompleteProps> = ({
     } else if (e.key === 'ArrowDown' && matches.length > 0) {
       e.preventDefault();
       setIsOpen(true);
+      return;
+    }
+
+    if (onKeyDown) {
+      onKeyDown(e);
     }
   };
 
@@ -108,7 +117,10 @@ export const CustomerAutocomplete: React.FC<CustomerAutocompleteProps> = ({
     <div ref={containerRef} className="relative w-full">
       <div className="relative">
         <input
-          ref={inputRef}
+          ref={(el) => {
+            (inputRef as any).current = el;
+            if (inputRefCallback) inputRefCallback(el);
+          }}
           type="text"
           disabled={disabled}
           value={value}

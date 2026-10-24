@@ -1,5 +1,12 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import { Banknote, Calculator, Plus, Trash2 } from 'lucide-react';
+import {
+  isCursorAtStart,
+  isCursorAtEnd,
+  preventWheelChange,
+  sanitizeDecimalInput,
+  sanitizeIntegerInput,
+} from '../../utils/keyboardNav';
 
 export const DENOMINATION_LIST = [1000, 500, 200, 100, 50, 20, 10, 5] as const;
 
@@ -15,11 +22,15 @@ export type DenominationMap = {
   otherEntries?: OtherCashRow[];
 };
 
-interface CashDenominationTableProps {
+export interface CashDenominationTableProps {
   values: DenominationMap;
   onChange: (values: DenominationMap) => void;
   currency?: string;
   disabled?: boolean;
+  onNavigateNext?: () => void;
+  onNavigatePrev?: () => void;
+  onNavigateRight?: () => void;
+  focusLastRef?: React.MutableRefObject<(() => void) | null>;
 }
 
 const BENGALI_DENOMINATION_LABELS: { [key: number]: string } = {
@@ -38,10 +49,17 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
   onChange,
   currency = '৳',
   disabled = false,
+  onNavigateNext,
+  onNavigatePrev,
+  onNavigateRight,
+  focusLastRef,
 }) => {
+  const inputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+
   const handleCountChange = (denom: number, countStr: string) => {
     if (disabled) return;
-    const countVal = countStr === '' ? '' : Math.max(0, parseInt(countStr, 10) || 0);
+    const clean = sanitizeIntegerInput(countStr);
+    const countVal = clean === '' ? '' : Math.max(0, parseInt(clean, 10) || 0);
     onChange({
       ...values,
       [denom]: countVal,
@@ -70,6 +88,26 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
     return [{ id: 'other-1', label: 'অন্যান্য ১', amount: '' }];
   }, [values.otherEntries, values.other]);
 
+  // All ordered input keys for arrow navigation
+  const allFieldKeys = useMemo(() => {
+    const list: string[] = DENOMINATION_LIST.map((d) => `denom-${d}`);
+    otherRows.forEach((r) => list.push(`other-${r.id}`));
+    return list;
+  }, [otherRows]);
+
+  // Expose focusLastInput method so SalesReconciliationPanel can navigate up back into this table
+  useEffect(() => {
+    if (focusLastRef) {
+      focusLastRef.current = () => {
+        const lastKey = allFieldKeys[allFieldKeys.length - 1];
+        if (lastKey && inputRefs.current[lastKey]) {
+          inputRefs.current[lastKey]?.focus();
+          inputRefs.current[lastKey]?.select();
+        }
+      };
+    }
+  }, [focusLastRef, allFieldKeys]);
+
   const handleAddOtherRow = () => {
     if (disabled) return;
     const nextIdx = otherRows.length + 1;
@@ -85,11 +123,20 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
       other: newOtherTotal,
       otherEntries: updated,
     });
+    // Focus the new other row input
+    setTimeout(() => {
+      const el = inputRefs.current[`other-${newRow.id}`];
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    }, 40);
   };
 
   const handleOtherRowChange = (id: string, countStr: string) => {
     if (disabled) return;
-    const val: number | '' = countStr === '' ? '' : Math.max(0, Number(countStr) || 0);
+    const clean = sanitizeDecimalInput(countStr);
+    const val: number | '' = clean === '' ? '' : Math.max(0, Number(clean) || 0);
     const updated: OtherCashRow[] = otherRows.map((r) => (r.id === id ? { ...r, amount: val } : r));
     const newOtherTotal = updated.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
     onChange({
@@ -124,6 +171,64 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
   const totalNoteCount = useMemo(() => {
     return subtotals.reduce((sum, item) => sum + item.count, 0);
   }, [subtotals]);
+
+  // Key navigation helper
+  const handleFieldKeyDown = (
+    keyIndex: number,
+    e: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (keyIndex < allFieldKeys.length - 1) {
+        const nextKey = allFieldKeys[keyIndex + 1];
+        const nextEl = inputRefs.current[nextKey];
+        if (nextEl) {
+          nextEl.focus();
+          nextEl.select();
+        }
+      } else {
+        // At the very last denomination/other row: move to the next section (খরচ in Cash Reconciliation)
+        if (onNavigateNext) {
+          onNavigateNext();
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (keyIndex > 0) {
+        const prevKey = allFieldKeys[keyIndex - 1];
+        const prevEl = inputRefs.current[prevKey];
+        if (prevEl) {
+          prevEl.focus();
+          prevEl.select();
+        }
+      } else {
+        if (onNavigatePrev) {
+          onNavigatePrev();
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowRight') {
+      if (isCursorAtEnd(e.currentTarget)) {
+        if (onNavigateRight) {
+          e.preventDefault();
+          onNavigateRight();
+        }
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowLeft') {
+      if (isCursorAtStart(e.currentTarget)) {
+        // At start of field
+      }
+      return;
+    }
+  };
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
@@ -163,6 +268,8 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
             {DENOMINATION_LIST.map((denom, idx) => {
               const count = values[denom] ?? '';
               const subtotal = denom * (Number(count) || 0);
+              const fieldKey = `denom-${denom}`;
+              const keyIndex = idx;
 
               return (
                 <tr
@@ -186,13 +293,18 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
                   {/* 2. সংখ্যা */}
                   <td className="py-2.5 px-4 text-center">
                     <input
-                      type="number"
-                      min="0"
+                      ref={(el) => {
+                        inputRefs.current[fieldKey] = el;
+                      }}
+                      type="text"
+                      inputMode="numeric"
                       disabled={disabled}
                       value={count}
                       onChange={(e) => handleCountChange(denom, e.target.value)}
+                      onWheel={preventWheelChange}
+                      onKeyDown={(e) => handleFieldKeyDown(keyIndex, e)}
                       placeholder="০"
-                      className="w-28 sm:w-36 text-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+                      className="no-spinners w-28 sm:w-36 text-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50 transition-colors"
                     />
                   </td>
 
@@ -207,64 +319,74 @@ export const CashDenominationTable: React.FC<CashDenominationTableProps> = ({
             })}
 
             {/* ৪. ডাইনামিক একাধিক অন্যান্য রো (Dynamic Multiple Other Rows) */}
-            {otherRows.map((row, idx) => (
-              <tr
-                key={row.id}
-                className="border-t border-slate-200 bg-slate-50/70 hover:bg-emerald-50/30 transition-colors"
-              >
-                <td className="py-2.5 px-4">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-mono font-bold text-slate-800 bg-slate-200/90 px-2 py-0.5 rounded border border-slate-300 text-xs">
-                      {row.label || `অন্যান্য ${idx + 1}`}
-                    </span>
-                    <span className="text-slate-500 text-xs hidden sm:inline">
-                      (কয়েন / ভাংতি)
-                    </span>
-                    {/* Small "+" (plus) button next to other row */}
-                    {idx === 0 && (
-                      <button
-                        type="button"
+            {otherRows.map((row, idx) => {
+              const fieldKey = `other-${row.id}`;
+              const keyIndex = DENOMINATION_LIST.length + idx;
+
+              return (
+                <tr
+                  key={row.id}
+                  className="border-t border-slate-200 bg-slate-50/70 hover:bg-emerald-50/30 transition-colors"
+                >
+                  <td className="py-2.5 px-4">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono font-bold text-slate-800 bg-slate-200/90 px-2 py-0.5 rounded border border-slate-300 text-xs">
+                        {row.label || `অন্যান্য ${idx + 1}`}
+                      </span>
+                      <span className="text-slate-500 text-xs hidden sm:inline">
+                        (কয়েন / ভাংতি)
+                      </span>
+                      {/* Small "+" (plus) button next to other row */}
+                      {idx === 0 && (
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          onClick={handleAddOtherRow}
+                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-xs font-bold border border-emerald-300 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
+                          title="আরেকটি অন্যান্য রো যোগ করুন"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          <span>যোগ (+)</span>
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-4 text-center">
+                    <span className="text-slate-400 font-mono text-xs select-none">—</span>
+                  </td>
+                  <td className="py-2.5 px-4 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      <span className="text-xs font-mono font-bold text-slate-500">{currency}</span>
+                      <input
+                        ref={(el) => {
+                          inputRefs.current[fieldKey] = el;
+                        }}
+                        type="text"
+                        inputMode="decimal"
                         disabled={disabled}
-                        onClick={handleAddOtherRow}
-                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 hover:bg-emerald-200 text-emerald-800 text-xs font-bold border border-emerald-300 transition-colors cursor-pointer disabled:opacity-50 shadow-2xs"
-                        title="আরেকটি অন্যান্য রো যোগ করুন"
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                        <span>যোগ (+)</span>
-                      </button>
-                    )}
-                  </div>
-                </td>
-                <td className="py-2.5 px-4 text-center">
-                  <span className="text-slate-400 font-mono text-xs select-none">—</span>
-                </td>
-                <td className="py-2.5 px-4 text-right">
-                  <div className="flex items-center justify-end gap-1.5">
-                    <span className="text-xs font-mono font-bold text-slate-500">{currency}</span>
-                    <input
-                      type="number"
-                      min="0"
-                      disabled={disabled}
-                      value={row.amount === 0 ? '' : row.amount}
-                      onChange={(e) => handleOtherRowChange(row.id, e.target.value)}
-                      placeholder="০"
-                      className="w-24 sm:w-32 text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50 transition-colors"
-                    />
-                    {otherRows.length > 1 && (
-                      <button
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => handleDeleteOtherRow(row.id)}
-                        className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                        title="এই রো মুছুন"
-                      >
-                        <Trash2 className="h-3.5 w-3.5 text-rose-500" />
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                        value={row.amount === 0 ? '' : row.amount}
+                        onChange={(e) => handleOtherRowChange(row.id, e.target.value)}
+                        onWheel={preventWheelChange}
+                        onKeyDown={(e) => handleFieldKeyDown(keyIndex, e)}
+                        placeholder="০"
+                        className="no-spinners w-24 sm:w-32 text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+                      />
+                      {otherRows.length > 1 && (
+                        <button
+                          type="button"
+                          disabled={disabled}
+                          onClick={() => handleDeleteOtherRow(row.id)}
+                          className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="এই রো মুছুন"
+                        >
+                          <Trash2 className="h-3.5 w-3.5 text-rose-500" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
 
           {/* মোট ক্যাশ ফুটার */}

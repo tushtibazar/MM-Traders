@@ -39,17 +39,23 @@ import { ProductSuggestionDropdown } from './ProductSuggestionDropdown';
 import { DailySalesPrintPreviewModal } from './DailySalesPrintPreviewModal';
 import { RouteDueModal } from './RouteDueModal';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
+import {
+  isCursorAtStart,
+  isCursorAtEnd,
+  preventWheelChange,
+  sanitizeDecimalInput,
+} from '../../utils/keyboardNav';
 
 interface RowData {
   id: string;
   productId: string;
   productCode: string;
   productName: string;
-  quantityOut: number | '';
+  quantityOut: number | string | '';
   quantityOutUnit?: 'C' | 'P';
-  returned: number | '';
+  returned: number | string | '';
   returnedUnit?: 'C' | 'P';
-  rate: number | '';
+  rate: number | string | '';
   showSuggestions: boolean;
 }
 
@@ -60,7 +66,7 @@ interface DueItemRow {
   customerName?: string;
   shopName?: string;
   description: string;
-  amount: number | '';
+  amount: number | string | '';
   isSavedToLedger?: boolean;
   pinVerified?: boolean;
 }
@@ -357,7 +363,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // Input refs for mouse-free keyboard navigation and quick focus
   const prodNameInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const qtyInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const unitToggleRefs = useRef<{ [key: string]: HTMLElement | null }>({});
   const returnInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const returnUnitToggleRefs = useRef<{ [key: string]: HTMLElement | null }>({});
   const morningSaveBtnRef = useRef<HTMLButtonElement | null>(null);
   const eveningSaveBtnRef = useRef<HTMLButtonElement | null>(null);
 
@@ -365,13 +373,23 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const [damageRows, setDamageRows] = useState<RowData[]>([createEmptyDamageRow()]);
   const damageProdNameInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const damageQtyInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const damageUnitToggleRefs = useRef<{ [key: string]: HTMLElement | null }>({});
+  const damageRateInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const [damageHighlightedSuggestionIndex, setDamageHighlightedSuggestionIndex] = useState<number>(0);
 
-  // TWO DYNAMIC DUE TABLES STATE:
+  // TWO DYNAMIC DUE TABLES STATE & REFS:
   // A) আজকের বাকি (Today's New Due)
   // B) বাকি জমা (Due Collection Today)
   const [todayDueRows, setTodayDueRows] = useState<DueItemRow[]>([createEmptyDueRow()]);
   const [dueCollectionRows, setDueCollectionRows] = useState<DueItemRow[]>([createEmptyDueRow()]);
+  const todayDueCustomerRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const todayDueAmountRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const dueCollectionCustomerRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const dueCollectionAmountRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+
+  // Reconciliation & Denomination Panel Linking Refs
+  const focusDenominationLastRef = useRef<(() => void) | null>(null);
+  const focusExpenseRef = useRef<(() => void) | null>(null);
 
   // Cash Denomination & Reconciliation State
   const [cashDenominations, setCashDenominations] = useState<DenominationMap>({
@@ -1790,7 +1808,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       prev.map((r) => {
         if (r.id === rowId) {
           const product = db.products.find((p) => p.id === r.productId);
-          let newRate: number | '' = r.rate;
+          let newRate: number | string | '' = r.rate;
           if (product) {
             const cartonPrice = product.salePrice;
             const ratio = product.piecesPerCarton || product.cartonQty || 1;
@@ -1810,10 +1828,11 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
   const handleDamageQuantityChange = (rowIndex: number, rowId: string, value: string) => {
     if (isDamageLocked) return;
-    const numVal: number | '' = value === '' ? '' : Math.max(0, Number(value) || 0);
+    const clean = sanitizeDecimalInput(value);
+    const numVal: number | '' = clean === '' ? '' : Math.max(0, Number(clean) || 0);
 
     setDamageRows((prev) => {
-      const updated = prev.map((r) => (r.id === rowId ? { ...r, quantityOut: numVal } : r));
+      const updated = prev.map((r) => (r.id === rowId ? { ...r, quantityOut: clean === '' ? '' : clean } : r));
 
       const currentRow = updated[rowIndex];
       const isLastRow = rowIndex === updated.length - 1;
@@ -1925,7 +1944,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       prev.map((r) => {
         if (r.id === rowId) {
           const product = db.products.find((p) => p.id === r.productId);
-          let newRate: number | '' = r.rate;
+          let newRate: number | string | '' = r.rate;
           if (product) {
             const cartonPrice = product.salePrice;
             const ratio = product.piecesPerCarton || product.cartonQty || 1;
@@ -1946,10 +1965,11 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // Handle quantity change with automatic row addition
   const handleQuantityChange = (rowIndex: number, rowId: string, value: string) => {
     if (isSalesLocked) return;
-    const numVal: number | '' = value === '' ? '' : Math.max(0, Number(value) || 0);
+    const clean = sanitizeDecimalInput(value);
+    const numVal: number | '' = clean === '' ? '' : Math.max(0, Number(clean) || 0);
 
     setRows((prev) => {
-      const updated = prev.map((r) => (r.id === rowId ? { ...r, quantityOut: numVal } : r));
+      const updated = prev.map((r) => (r.id === rowId ? { ...r, quantityOut: clean === '' ? '' : clean } : r));
 
       const currentRow = updated[rowIndex];
       const isLastRow = rowIndex === updated.length - 1;
@@ -3008,16 +3028,45 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               }}
                               onKeyDown={(e) => {
                                 if (e.key === 'ArrowDown') {
-                                  if (suggestions.length > 0) {
+                                  if (row.showSuggestions && suggestions.length > 0) {
                                     e.preventDefault();
                                     setHighlightedSuggestionIndex((prev) => (prev + 1) % suggestions.length);
+                                  } else {
+                                    if (idx < rows.length - 1) {
+                                      e.preventDefault();
+                                      const nextRow = rows[idx + 1];
+                                      const nextEl = prodNameInputRefs.current[nextRow.id];
+                                      if (nextEl) {
+                                        nextEl.focus();
+                                        nextEl.select();
+                                      }
+                                    }
                                   }
                                 } else if (e.key === 'ArrowUp') {
-                                  if (suggestions.length > 0) {
+                                  if (row.showSuggestions && suggestions.length > 0) {
                                     e.preventDefault();
                                     setHighlightedSuggestionIndex(
                                       (prev) => (prev - 1 + suggestions.length) % suggestions.length
                                     );
+                                  } else {
+                                    if (idx > 0) {
+                                      e.preventDefault();
+                                      const prevRow = rows[idx - 1];
+                                      const prevEl = prodNameInputRefs.current[prevRow.id];
+                                      if (prevEl) {
+                                        prevEl.focus();
+                                        prevEl.select();
+                                      }
+                                    }
+                                  }
+                                } else if (e.key === 'ArrowRight') {
+                                  if (isCursorAtEnd(e.currentTarget)) {
+                                    e.preventDefault();
+                                    const qtyEl = qtyInputRefs.current[row.id];
+                                    if (qtyEl) {
+                                      qtyEl.focus();
+                                      qtyEl.select();
+                                    }
                                   }
                                 } else if (e.key === 'Escape') {
                                   updateRowField(row.id, 'showSuggestions', false);
@@ -3093,20 +3142,53 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               ref={(el) => {
                                 qtyInputRefs.current[row.id] = el;
                               }}
-                              type="number"
-                              min="0"
+                              type="text"
+                              inputMode="decimal"
                               value={row.quantityOut}
                               disabled={isSalesLocked}
                               onChange={(e) => handleQuantityChange(idx, row.id, e.target.value)}
+                              onWheel={preventWheelChange}
                               onKeyDown={(e) => {
-                                if (e.key === 'ArrowLeft') {
+                                if (e.key === 'ArrowDown') {
                                   e.preventDefault();
-                                  handleRowUnitToggle(row.id, 'C');
+                                  if (idx < rows.length - 1) {
+                                    const nextRow = rows[idx + 1];
+                                    const nextQty = qtyInputRefs.current[nextRow.id];
+                                    if (nextQty) {
+                                      nextQty.focus();
+                                      nextQty.select();
+                                    }
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    const prevRow = rows[idx - 1];
+                                    const prevQty = qtyInputRefs.current[prevRow.id];
+                                    if (prevQty) {
+                                      prevQty.focus();
+                                      prevQty.select();
+                                    }
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowLeft') {
+                                  if (isCursorAtStart(e.currentTarget)) {
+                                    e.preventDefault();
+                                    const prodEl = prodNameInputRefs.current[row.id];
+                                    if (prodEl) {
+                                      prodEl.focus();
+                                      prodEl.select();
+                                    }
+                                  }
                                   return;
                                 }
                                 if (e.key === 'ArrowRight') {
-                                  e.preventDefault();
-                                  handleRowUnitToggle(row.id, 'P');
+                                  if (isCursorAtEnd(e.currentTarget)) {
+                                    e.preventDefault();
+                                    unitToggleRefs.current[row.id]?.focus();
+                                  }
                                   return;
                                 }
                                 if (e.key === 'Tab' || e.key === 'Enter') {
@@ -3161,10 +3243,62 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                 }
                               }}
                               placeholder="0"
-                              className="w-10 sm:w-11 text-center rounded-lg border border-slate-300 bg-white px-1 py-1.5 text-xs sm:text-sm font-mono font-bold text-blue-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
+                              className="no-spinners w-10 sm:w-11 text-center rounded-lg border border-slate-300 bg-white px-1 py-1.5 text-xs sm:text-sm font-mono font-bold text-blue-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
                             />
                             {/* C / P Unit Toggle */}
-                            <div className="inline-flex rounded border border-slate-200 bg-slate-100 p-0.5 shrink-0 shadow-2xs">
+                            <div
+                              ref={(el) => {
+                                unitToggleRefs.current[row.id] = el;
+                              }}
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowLeft') {
+                                  e.preventDefault();
+                                  handleRowUnitToggle(row.id, 'C');
+                                  return;
+                                }
+                                if (e.key === 'ArrowRight') {
+                                  e.preventDefault();
+                                  handleRowUnitToggle(row.id, 'P');
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    unitToggleRefs.current[rows[idx - 1].id]?.focus();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  if (idx < rows.length - 1) {
+                                    unitToggleRefs.current[rows[idx + 1].id]?.focus();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'Tab') {
+                                  if (e.shiftKey) {
+                                    e.preventDefault();
+                                    const qEl = qtyInputRefs.current[row.id];
+                                    if (qEl) {
+                                      qEl.focus();
+                                      qEl.select();
+                                    }
+                                  } else {
+                                    if (!isSalesLocked && returnInputRefs.current[row.id]) {
+                                      e.preventDefault();
+                                      returnInputRefs.current[row.id]?.focus();
+                                      returnInputRefs.current[row.id]?.select();
+                                    } else if (idx < rows.length - 1) {
+                                      e.preventDefault();
+                                      prodNameInputRefs.current[rows[idx + 1].id]?.focus();
+                                      prodNameInputRefs.current[rows[idx + 1].id]?.select();
+                                    }
+                                  }
+                                }
+                              }}
+                              className="inline-flex rounded border border-slate-200 bg-slate-100 p-0.5 shrink-0 shadow-2xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
                               <button
                                 type="button"
                                 disabled={isSalesLocked}
@@ -3208,26 +3342,52 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               ref={(el) => {
                                 returnInputRefs.current[row.id] = el;
                               }}
-                              type="number"
-                              min="0"
+                              type="text"
+                              inputMode="decimal"
                               value={row.returned}
                               disabled={isSalesLocked}
-                              onChange={(e) =>
-                                updateRowField(
-                                  row.id,
-                                  'returned',
-                                  e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0)
-                                )
-                              }
+                              onChange={(e) => {
+                                const clean = sanitizeDecimalInput(e.target.value);
+                                updateRowField(row.id, 'returned', clean);
+                              }}
+                              onWheel={preventWheelChange}
                               onKeyDown={(e) => {
-                                if (e.key === 'ArrowLeft') {
+                                if (e.key === 'ArrowDown') {
                                   e.preventDefault();
-                                  updateRowField(row.id, 'returnedUnit', 'C');
+                                  if (idx < rows.length - 1) {
+                                    const nextRow = rows[idx + 1];
+                                    const nextEl = returnInputRefs.current[nextRow.id];
+                                    if (nextEl) {
+                                      nextEl.focus();
+                                      nextEl.select();
+                                    }
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    const prevRow = rows[idx - 1];
+                                    const prevEl = returnInputRefs.current[prevRow.id];
+                                    if (prevEl) {
+                                      prevEl.focus();
+                                      prevEl.select();
+                                    }
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowLeft') {
+                                  if (isCursorAtStart(e.currentTarget)) {
+                                    e.preventDefault();
+                                    unitToggleRefs.current[row.id]?.focus();
+                                  }
                                   return;
                                 }
                                 if (e.key === 'ArrowRight') {
-                                  e.preventDefault();
-                                  updateRowField(row.id, 'returnedUnit', 'P');
+                                  if (isCursorAtEnd(e.currentTarget)) {
+                                    e.preventDefault();
+                                    returnUnitToggleRefs.current[row.id]?.focus();
+                                  }
                                   return;
                                 }
                                 if (e.key === 'Tab' || e.key === 'Enter') {
@@ -3267,10 +3427,65 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                 }
                               }}
                               placeholder="0"
-                              className="w-10 sm:w-11 text-center rounded-lg border border-slate-300 bg-white px-1 py-1.5 text-xs sm:text-sm font-mono font-bold text-amber-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
+                              className="no-spinners w-10 sm:w-11 text-center rounded-lg border border-slate-300 bg-white px-1 py-1.5 text-xs sm:text-sm font-mono font-bold text-amber-700 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
                             />
                             {/* C / P Unit Toggle */}
-                            <div className="inline-flex rounded border border-slate-200 bg-slate-100 p-0.5 shrink-0 shadow-2xs">
+                            <div
+                              ref={(el) => {
+                                returnUnitToggleRefs.current[row.id] = el;
+                              }}
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowLeft') {
+                                  e.preventDefault();
+                                  updateRowField(row.id, 'returnedUnit', 'C');
+                                  return;
+                                }
+                                if (e.key === 'ArrowRight') {
+                                  e.preventDefault();
+                                  updateRowField(row.id, 'returnedUnit', 'P');
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    returnUnitToggleRefs.current[rows[idx - 1].id]?.focus();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  if (idx < rows.length - 1) {
+                                    returnUnitToggleRefs.current[rows[idx + 1].id]?.focus();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'Tab') {
+                                  if (e.shiftKey) {
+                                    e.preventDefault();
+                                    const rEl = returnInputRefs.current[row.id];
+                                    if (rEl) {
+                                      rEl.focus();
+                                      rEl.select();
+                                    }
+                                  } else {
+                                    const nextIdx = idx + 1;
+                                    if (nextIdx < rows.length) {
+                                      e.preventDefault();
+                                      const nextRow = rows[nextIdx];
+                                      const nextEl = returnInputRefs.current[nextRow.id];
+                                      if (nextEl) {
+                                        nextEl.focus();
+                                        nextEl.select();
+                                      }
+                                    } else {
+                                      eveningSaveBtnRef.current?.focus();
+                                    }
+                                  }
+                                }
+                              }}
+                              className="inline-flex rounded border border-slate-200 bg-slate-100 p-0.5 shrink-0 shadow-2xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            >
                               <button
                                 type="button"
                                 disabled={isSalesLocked}
@@ -3329,20 +3544,17 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           }`}
                         >
                           <input
-                            type="number"
-                            min="0"
-                            step="any"
+                            type="text"
+                            inputMode="decimal"
                             value={row.rate}
                             disabled={isSalesLocked}
-                            onChange={(e) =>
-                              updateRowField(
-                                row.id,
-                                'rate',
-                                e.target.value === '' ? '' : Math.max(0, Number(e.target.value) || 0)
-                              )
-                            }
+                            onChange={(e) => {
+                              const clean = sanitizeDecimalInput(e.target.value);
+                              updateRowField(row.id, 'rate', clean);
+                            }}
+                            onWheel={preventWheelChange}
                             placeholder="0"
-                            className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
+                            className="no-spinners w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
                           />
                         </td>
 
@@ -3605,6 +3817,44 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                   }
                                 }
 
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  if (idx < damageRows.length - 1) {
+                                    const nextRow = damageRows[idx + 1];
+                                    const nextEl = damageProdNameInputRefs.current[nextRow.id];
+                                    if (nextEl) {
+                                      nextEl.focus();
+                                      nextEl.select();
+                                    }
+                                  }
+                                  return;
+                                }
+
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    const prevRow = damageRows[idx - 1];
+                                    const prevEl = damageProdNameInputRefs.current[prevRow.id];
+                                    if (prevEl) {
+                                      prevEl.focus();
+                                      prevEl.select();
+                                    }
+                                  }
+                                  return;
+                                }
+
+                                if (e.key === 'ArrowRight') {
+                                  if (isCursorAtEnd(e.currentTarget)) {
+                                    e.preventDefault();
+                                    const qtyEl = damageQtyInputRefs.current[row.id];
+                                    if (qtyEl) {
+                                      qtyEl.focus();
+                                      qtyEl.select();
+                                    }
+                                  }
+                                  return;
+                                }
+
                                 if (e.key === 'Tab' && !e.shiftKey) {
                                   e.preventDefault();
                                   const qtyEl = damageQtyInputRefs.current[row.id];
@@ -3648,22 +3898,55 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                               ref={(el) => {
                                 damageQtyInputRefs.current[row.id] = el;
                               }}
-                              type="number"
-                              min="0"
+                              type="text"
+                              inputMode="decimal"
                               value={row.quantityOut}
                               disabled={isDamageLocked}
                               onChange={(e) =>
                                 handleDamageQuantityChange(idx, row.id, e.target.value)
                               }
+                              onWheel={preventWheelChange}
                               onKeyDown={(e) => {
-                                if (e.key === 'ArrowLeft') {
+                                if (e.key === 'ArrowDown') {
                                   e.preventDefault();
-                                  handleDamageUnitToggle(row.id, 'C');
+                                  if (idx < damageRows.length - 1) {
+                                    const nextRow = damageRows[idx + 1];
+                                    const nextEl = damageQtyInputRefs.current[nextRow.id];
+                                    if (nextEl) {
+                                      nextEl.focus();
+                                      nextEl.select();
+                                    }
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    const prevRow = damageRows[idx - 1];
+                                    const prevEl = damageQtyInputRefs.current[prevRow.id];
+                                    if (prevEl) {
+                                      prevEl.focus();
+                                      prevEl.select();
+                                    }
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowLeft') {
+                                  if (isCursorAtStart(e.currentTarget)) {
+                                    e.preventDefault();
+                                    const prodEl = damageProdNameInputRefs.current[row.id];
+                                    if (prodEl) {
+                                      prodEl.focus();
+                                      prodEl.select();
+                                    }
+                                  }
                                   return;
                                 }
                                 if (e.key === 'ArrowRight') {
-                                  e.preventDefault();
-                                  handleDamageUnitToggle(row.id, 'P');
+                                  if (isCursorAtEnd(e.currentTarget)) {
+                                    e.preventDefault();
+                                    damageUnitToggleRefs.current[row.id]?.focus();
+                                  }
                                   return;
                                 }
                                 if (e.key === 'Tab' || e.key === 'Enter') {
@@ -3715,10 +3998,58 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                 }
                               }}
                               placeholder="0"
-                              className="w-10 sm:w-11 text-center rounded-lg border border-slate-300 bg-white px-1 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
+                              className="no-spinners w-10 sm:w-11 text-center rounded-lg border border-slate-300 bg-white px-1 py-1.5 text-xs sm:text-sm font-mono font-bold text-rose-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
                             />
                             {/* C / P Unit Toggle - Default is P */}
-                            <div className="inline-flex rounded border border-slate-200 bg-slate-100 p-0.5 shrink-0 shadow-2xs">
+                            <div
+                              ref={(el) => {
+                                damageUnitToggleRefs.current[row.id] = el;
+                              }}
+                              tabIndex={0}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowLeft') {
+                                  e.preventDefault();
+                                  handleDamageUnitToggle(row.id, 'C');
+                                  return;
+                                }
+                                if (e.key === 'ArrowRight') {
+                                  e.preventDefault();
+                                  handleDamageUnitToggle(row.id, 'P');
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    damageUnitToggleRefs.current[damageRows[idx - 1].id]?.focus();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  if (idx < damageRows.length - 1) {
+                                    damageUnitToggleRefs.current[damageRows[idx + 1].id]?.focus();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'Tab') {
+                                  if (e.shiftKey) {
+                                    e.preventDefault();
+                                    const qEl = damageQtyInputRefs.current[row.id];
+                                    if (qEl) {
+                                      qEl.focus();
+                                      qEl.select();
+                                    }
+                                  } else {
+                                    if (idx < damageRows.length - 1) {
+                                      e.preventDefault();
+                                      damageProdNameInputRefs.current[damageRows[idx + 1].id]?.focus();
+                                      damageProdNameInputRefs.current[damageRows[idx + 1].id]?.select();
+                                    }
+                                  }
+                                }
+                              }}
+                              className="inline-flex rounded border border-slate-200 bg-slate-100 p-0.5 shrink-0 shadow-2xs focus:outline-none focus:ring-1 focus:ring-rose-500"
+                            >
                               <button
                                 type="button"
                                 disabled={isDamageLocked}
@@ -3793,20 +4124,56 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           }`}
                         >
                           <input
-                            type="number"
-                            min="0"
-                            step="any"
+                            ref={(el) => {
+                              damageRateInputRefs.current[row.id] = el;
+                            }}
+                            type="text"
+                            inputMode="decimal"
                             value={row.rate}
                             disabled={isDamageLocked}
                             onChange={(e) =>
                               updateDamageRowField(
                                 row.id,
                                 'rate',
-                                e.target.value === '' ? '' : Number(e.target.value) || 0
+                                sanitizeDecimalInput(e.target.value)
                               )
                             }
+                            onWheel={preventWheelChange}
+                            onKeyDown={(e) => {
+                              if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                if (idx < damageRows.length - 1) {
+                                  const nextRow = damageRows[idx + 1];
+                                  const nextEl = damageRateInputRefs.current[nextRow.id];
+                                  if (nextEl) {
+                                    nextEl.focus();
+                                    nextEl.select();
+                                  }
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                if (idx > 0) {
+                                  const prevRow = damageRows[idx - 1];
+                                  const prevEl = damageRateInputRefs.current[prevRow.id];
+                                  if (prevEl) {
+                                    prevEl.focus();
+                                    prevEl.select();
+                                  }
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowLeft') {
+                                if (isCursorAtStart(e.currentTarget)) {
+                                  e.preventDefault();
+                                  damageUnitToggleRefs.current[row.id]?.focus();
+                                }
+                                return;
+                              }
+                            }}
                             placeholder="0.00"
-                            className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
+                            className="no-spinners w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-mono font-bold text-slate-800 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none disabled:bg-slate-50"
                           />
                         </td>
 
@@ -3998,6 +4365,33 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         {/* 1. Customer Name (Enlarged to take all flexible horizontal space) */}
                         <div className="flex-1 min-w-0">
                           <CustomerAutocomplete
+                            inputRefCallback={(el) => {
+                              todayDueCustomerRefs.current[row.id] = el;
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                if (idx < todayDueRows.length - 1) {
+                                  todayDueCustomerRefs.current[todayDueRows[idx + 1].id]?.focus();
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                if (idx > 0) {
+                                  todayDueCustomerRefs.current[todayDueRows[idx - 1].id]?.focus();
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowRight') {
+                                if (isCursorAtEnd(e.currentTarget)) {
+                                  e.preventDefault();
+                                  todayDueAmountRefs.current[row.id]?.focus();
+                                  todayDueAmountRefs.current[row.id]?.select();
+                                }
+                                return;
+                              }
+                            }}
                             value={row.description}
                             customers={db.customers}
                             selectedCustomer={matchedCustomer || null}
@@ -4019,19 +4413,48 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           {/* Amount Input */}
                           <div className="flex-1 sm:flex-initial sm:w-28 sm:w-32 shrink-0">
                             <input
-                              type="number"
-                              min="0"
+                              ref={(el) => {
+                                todayDueAmountRefs.current[row.id] = el;
+                              }}
+                              type="text"
+                              inputMode="decimal"
                               disabled={isLockedForEdit || row.isSavedToLedger}
-                              value={row.amount === 0 ? '' : row.amount}
+                              value={row.amount === 0 || row.amount === '' ? '' : row.amount}
                               onChange={(e) =>
                                 handleUpdateTodayDueRow(
                                   row.id,
                                   'amount',
-                                  e.target.value === '' ? 0 : Number(e.target.value) || 0
+                                  sanitizeDecimalInput(e.target.value)
                                 )
                               }
+                              onWheel={preventWheelChange}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  if (idx < todayDueRows.length - 1) {
+                                    todayDueAmountRefs.current[todayDueRows[idx + 1].id]?.focus();
+                                    todayDueAmountRefs.current[todayDueRows[idx + 1].id]?.select();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    todayDueAmountRefs.current[todayDueRows[idx - 1].id]?.focus();
+                                    todayDueAmountRefs.current[todayDueRows[idx - 1].id]?.select();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowLeft') {
+                                  if (isCursorAtStart(e.currentTarget)) {
+                                    e.preventDefault();
+                                    todayDueCustomerRefs.current[row.id]?.focus();
+                                  }
+                                  return;
+                                }
+                              }}
                               placeholder="টাকা (০.০০)"
-                              className="w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono font-bold text-amber-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+                              className="no-spinners w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono font-bold text-amber-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-none disabled:bg-slate-50 transition-colors"
                             />
                           </div>
 
@@ -4164,6 +4587,33 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           ) : (
                             <div>
                               <CustomerAutocomplete
+                                inputRefCallback={(el) => {
+                                  dueCollectionCustomerRefs.current[row.id] = el;
+                                }}
+                                onKeyDown={(e) => {
+                                  if (e.key === 'ArrowDown') {
+                                    e.preventDefault();
+                                    if (idx < dueCollectionRows.length - 1) {
+                                      dueCollectionCustomerRefs.current[dueCollectionRows[idx + 1].id]?.focus();
+                                    }
+                                    return;
+                                  }
+                                  if (e.key === 'ArrowUp') {
+                                    e.preventDefault();
+                                    if (idx > 0) {
+                                      dueCollectionCustomerRefs.current[dueCollectionRows[idx - 1].id]?.focus();
+                                    }
+                                    return;
+                                  }
+                                  if (e.key === 'ArrowRight') {
+                                    if (isCursorAtEnd(e.currentTarget)) {
+                                      e.preventDefault();
+                                      dueCollectionAmountRefs.current[row.id]?.focus();
+                                      dueCollectionAmountRefs.current[row.id]?.select();
+                                    }
+                                    return;
+                                  }
+                                }}
                                 value={row.description}
                                 customers={db.customers}
                                 selectedCustomer={matchedCustomer || null}
@@ -4197,19 +4647,48 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                             </span>
                           ) : (
                             <input
-                              type="number"
-                              min="0"
+                              ref={(el) => {
+                                dueCollectionAmountRefs.current[row.id] = el;
+                              }}
+                              type="text"
+                              inputMode="decimal"
                               disabled={isLockedForEdit}
-                              value={row.amount === 0 ? '' : row.amount}
+                              value={row.amount === 0 || row.amount === '' ? '' : row.amount}
                               onChange={(e) =>
                                 handleUpdateDueCollectionRow(
                                   row.id,
                                   'amount',
-                                  e.target.value === '' ? 0 : Number(e.target.value) || 0
+                                  sanitizeDecimalInput(e.target.value)
                                 )
                               }
+                              onWheel={preventWheelChange}
+                              onKeyDown={(e) => {
+                                if (e.key === 'ArrowDown') {
+                                  e.preventDefault();
+                                  if (idx < dueCollectionRows.length - 1) {
+                                    dueCollectionAmountRefs.current[dueCollectionRows[idx + 1].id]?.focus();
+                                    dueCollectionAmountRefs.current[dueCollectionRows[idx + 1].id]?.select();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowUp') {
+                                  e.preventDefault();
+                                  if (idx > 0) {
+                                    dueCollectionAmountRefs.current[dueCollectionRows[idx - 1].id]?.focus();
+                                    dueCollectionAmountRefs.current[dueCollectionRows[idx - 1].id]?.select();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'ArrowLeft') {
+                                  if (isCursorAtStart(e.currentTarget)) {
+                                    e.preventDefault();
+                                    dueCollectionCustomerRefs.current[row.id]?.focus();
+                                  }
+                                  return;
+                                }
+                              }}
                               placeholder="0.00"
-                              className="w-full text-right rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-mono font-bold text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
+                              className="no-spinners w-full text-right rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-mono font-bold text-emerald-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 focus:outline-none disabled:bg-slate-50"
                             />
                           )}
                         </div>
@@ -4352,6 +4831,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     onChange={setCashDenominations}
                     currency={currency}
                     disabled={isLockedForEdit}
+                    focusLastRef={focusDenominationLastRef}
+                    onNavigateNext={() => focusExpenseRef.current?.()}
+                    onNavigateRight={() => focusExpenseRef.current?.()}
                   />
                 </div>
 
@@ -4370,6 +4852,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     totalCash={totalDenominationCash}
                     currency={currency}
                     disabled={isLockedForEdit}
+                    focusExpenseRef={focusExpenseRef}
+                    onNavigatePrev={() => focusDenominationLastRef.current?.()}
+                    onNavigateLeft={() => focusDenominationLastRef.current?.()}
                   />
                 </div>
               </div>
