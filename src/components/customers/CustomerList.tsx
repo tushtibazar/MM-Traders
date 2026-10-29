@@ -18,6 +18,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { Customer } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { CustomerEditModal } from '../modals/CustomerEditModal';
 
 interface CustomerListProps {
   onSelectCustomer: (customer: Customer) => void;
@@ -36,9 +37,14 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [srFilter, setSrFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  // Add / Edit Modal state
+  // Add Modal state
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+
+  // Edit Modal state (Shared with Due page)
+  const [isCustomerEditModalOpen, setIsCustomerEditModalOpen] = useState<boolean>(false);
+  const [selectedCustomerToEdit, setSelectedCustomerToEdit] = useState<Customer | null>(null);
+  const [customerSuccessMsg, setCustomerSuccessMsg] = useState<string>('');
 
   // Delete Customer with PIN confirmation
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
@@ -67,16 +73,8 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   };
 
   const openEditModal = (cust: Customer) => {
-    setEditingCustomer(cust);
-    setFormName(cust.name);
-    setFormShopName(cust.shopName);
-    setFormPhone(cust.phone);
-    setFormAddress(cust.address);
-    setFormSrId(cust.assignedSrId || db.salesRepresentatives[0]?.id || '');
-    setFormOpeningBalance(cust.openingBalance);
-    setFormNotes(cust.notes || '');
-    setFormStatus(cust.status);
-    setIsModalOpen(true);
+    setSelectedCustomerToEdit(cust);
+    setIsCustomerEditModalOpen(true);
   };
 
   const handleSaveCustomer = (e: React.FormEvent) => {
@@ -177,6 +175,23 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           )}
         </div>
       </div>
+
+      {/* Global Success Notification Toast */}
+      {customerSuccessMsg && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <span>{customerSuccessMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCustomerSuccessMsg('')}
+            className="text-emerald-700 hover:text-emerald-900 text-xs underline cursor-pointer"
+          >
+            বন্ধ করুন
+          </button>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
@@ -490,6 +505,20 @@ export const CustomerList: React.FC<CustomerListProps> = ({
           }}
         />
       )}
+
+      {/* Customer Edit Modal (Shared with Due page) */}
+      <CustomerEditModal
+        isOpen={isCustomerEditModalOpen}
+        customer={selectedCustomerToEdit}
+        onClose={() => {
+          setIsCustomerEditModalOpen(false);
+          setSelectedCustomerToEdit(null);
+        }}
+        onSuccess={(msg) => {
+          setCustomerSuccessMsg(msg);
+          setTimeout(() => setCustomerSuccessMsg(''), 6000);
+        }}
+      />
     </div>
   );
 };

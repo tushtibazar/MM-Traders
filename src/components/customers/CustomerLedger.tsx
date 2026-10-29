@@ -14,11 +14,14 @@ import {
   ArrowUpRight,
   ArrowDownLeft,
   AlertCircle,
+  Edit,
+  CheckCircle2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { Customer } from '../../types';
+import { Customer, CustomerLedgerEntry } from '../../types';
 import { generateCustomerLedgerPDF } from '../../services/pdfGenerator';
 import { formatDate } from '../../utils/dateUtils';
+import { LedgerEntryEditModal } from '../modals/LedgerEntryEditModal';
 
 interface CustomerLedgerProps {
   customer: Customer | null;
@@ -41,6 +44,11 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [startDate, setStartDate] = useState<string>('');
   const [endDate, setEndDate] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
+
+  // Edit individual due entry state
+  const [entryToEdit, setEntryToEdit] = useState<CustomerLedgerEntry | null>(null);
+  const [isEntryEditModalOpen, setIsEntryEditModalOpen] = useState(false);
+  const [ledgerSuccessMsg, setLedgerSuccessMsg] = useState('');
 
   // Customer transactions from ledger
   const customerEntries = useMemo(() => {
@@ -132,6 +140,23 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Global Success Notification Toast */}
+      {ledgerSuccessMsg && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-900 text-xs sm:text-sm font-bold flex items-center justify-between gap-2 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-5 w-5 text-emerald-600 shrink-0" />
+            <span>{ledgerSuccessMsg}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setLedgerSuccessMsg('')}
+            className="text-emerald-700 hover:text-emerald-900 text-xs underline cursor-pointer"
+          >
+            বন্ধ করুন
+          </button>
+        </div>
+      )}
 
       {/* Customer Switcher & Summary Card */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
@@ -258,6 +283,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
               <option value="sale">শুধু বিক্রয় (Sale)</option>
               <option value="payment">শুধু টাকা আদায় (Payment)</option>
               <option value="opening">প্রারম্ভিক বকেয়া (Opening)</option>
+              <option value="adjustment">সংশোধন (Adjustment)</option>
             </select>
           </div>
 
@@ -289,18 +315,23 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                 <th className="py-3 px-3 font-semibold text-right text-emerald-800">বিক্রয় / বৃদ্ধি (Debit)</th>
                 <th className="py-3 px-3 font-semibold text-right text-blue-800">জমা / আদায় (Credit)</th>
                 <th className="py-3 px-4 font-semibold text-right text-rose-800">অবশিষ্ট বাকি (Balance)</th>
+                <th className="py-3 px-4 font-semibold text-right">অ্যাকশন</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {customerEntries.map((entry) => {
                 const isSale = entry.type === 'sale';
                 const isPayment = entry.type === 'payment';
+                const isAdjustment = entry.type === 'adjustment';
+                const isSettled = entry.type === 'settled_due';
+                const isVoid = entry.type === 'void_due';
+                const isEditableDue = entry.debit > 0 && entry.type !== 'payment';
 
                 return (
                   <tr key={entry.id} className="hover:bg-slate-50 transition-colors">
                     <td className="py-2.5 px-4 font-mono font-medium text-slate-800">{formatDate(entry.date)}</td>
                     <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         {isSale && (
                           <span className="inline-flex items-center gap-1 rounded bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-800 border border-emerald-200/60">
                             <ArrowUpRight className="h-3 w-3" /> বিক্রয়
@@ -316,10 +347,27 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                             প্রারম্ভিক
                           </span>
                         )}
+                        {isAdjustment && (
+                          <span className="inline-flex items-center gap-1 rounded bg-amber-50 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-200/60">
+                            সংশোধন
+                          </span>
+                        )}
+                        {isSettled && (
+                          <span className="inline-flex items-center gap-1 rounded bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-800 border border-purple-200/60">
+                            নিষ্পত্তি
+                          </span>
+                        )}
+                        {isVoid && (
+                          <span className="inline-flex items-center gap-1 rounded bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-800 border border-rose-200/60">
+                            বাতিল
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="py-2.5 px-3 font-bold text-slate-900">{entry.referenceId || '-'}</td>
-                    <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">{entry.description}</td>
+                    <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate" title={entry.description}>
+                      {entry.description}
+                    </td>
                     <td className="py-2.5 px-3 text-right font-semibold text-emerald-700">
                       {entry.debit > 0 ? `${currency} ${entry.debit.toLocaleString()}` : '-'}
                     </td>
@@ -331,13 +379,32 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                         {currency} {entry.balance.toLocaleString()}
                       </span>
                     </td>
+                    <td className="py-2.5 px-4 text-right">
+                      {isEditableDue ? (
+                        <button
+                          onClick={() => {
+                            setEntryToEdit(entry);
+                            setIsEntryEditModalOpen(true);
+                          }}
+                          className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition cursor-pointer"
+                          title="এই ভাউচার এন্ট্রি সংশোধন করুন (পিন আবশ্যক)"
+                        >
+                          <Edit className="h-3 w-3" />
+                          <span>এডিট</span>
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-400 italic">
+                          {isPayment ? 'কালেকশন' : '-'}
+                        </span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
 
               {customerEntries.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-400 text-xs">
+                  <td colSpan={8} className="py-8 text-center text-slate-400 text-xs">
                     এই কাস্টমারের কোন লেজার এন্ট্রি পাওয়া যায়নি
                   </td>
                 </tr>
@@ -346,6 +413,21 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Individual Due Entry Edit Modal */}
+      <LedgerEntryEditModal
+        isOpen={isEntryEditModalOpen}
+        entry={entryToEdit}
+        customer={activeCustomer}
+        onClose={() => {
+          setIsEntryEditModalOpen(false);
+          setEntryToEdit(null);
+        }}
+        onSuccess={(msg) => {
+          setLedgerSuccessMsg(msg);
+          setTimeout(() => setLedgerSuccessMsg(''), 6000);
+        }}
+      />
     </div>
   );
 };

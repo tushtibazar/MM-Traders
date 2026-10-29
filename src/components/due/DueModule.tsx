@@ -25,6 +25,7 @@ import {
   Printer,
   Plus,
   X,
+  Edit,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DEFAULT_ROUTES } from '../../services/storage';
@@ -35,6 +36,7 @@ import { PinPromptModal } from '../modals/PinPromptModal';
 import { DueSmartSearch, DueSearchResultItem } from '../common/DueSmartSearch';
 import { DueCollectionConfirmModal } from '../modals/DueCollectionConfirmModal';
 import { DuePrintPreviewModal } from './DuePrintPreviewModal';
+import { CustomerEditModal } from '../modals/CustomerEditModal';
 
 interface DueModuleProps {
   onOpenQuickPayment: (customerId: string) => void;
@@ -96,6 +98,10 @@ export const DueModule: React.FC<DueModuleProps> = ({
   // Customer delete state
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
   const [isDeleteCustomerPinModalOpen, setIsDeleteCustomerPinModalOpen] = useState<boolean>(false);
+
+  // Customer edit state
+  const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
+  const [isCustomerEditModalOpen, setIsCustomerEditModalOpen] = useState<boolean>(false);
 
   // Sub-tabs: 'customers' | 'search_collect' | 'collection_history' | 'due_vouchers'
   const [activeTab, setActiveTab] = useState<
@@ -237,6 +243,18 @@ export const DueModule: React.FC<DueModuleProps> = ({
               addRouteToCustomer(c.id, terr);
             }
           }
+        }
+      }
+    });
+
+    // 5. Authoritative customer.route assignment
+    // If a route is explicitly saved on the customer record, use that as the single source of truth
+    db.customers.forEach((c) => {
+      if (c.route !== undefined) {
+        if (c.route.trim()) {
+          map.set(c.id, new Set([c.route.trim()]));
+        } else {
+          map.set(c.id, new Set());
         }
       }
     });
@@ -1191,6 +1209,19 @@ export const DueModule: React.FC<DueModuleProps> = ({
                               <span>জমা নিন</span>
                             </button>
 
+                            <button
+                              id={`edit-customer-btn-${cust.id}`}
+                              onClick={() => {
+                                setCustomerToEdit(cust);
+                                setIsCustomerEditModalOpen(true);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 hover:border-amber-400 transition cursor-pointer"
+                              title={`${cust.shopName || cust.name}-এর তথ্য ও হিসাব এডিট করুন`}
+                            >
+                              <Edit className="h-3.5 w-3.5 text-amber-600" />
+                              <span>এডিট</span>
+                            </button>
+
                             {isOwner && (
                               <button
                                 onClick={() => {
@@ -2074,6 +2105,20 @@ export const DueModule: React.FC<DueModuleProps> = ({
           }}
         />
       )}
+
+      {/* Customer Edit Modal */}
+      <CustomerEditModal
+        isOpen={isCustomerEditModalOpen}
+        customer={customerToEdit}
+        onClose={() => {
+          setIsCustomerEditModalOpen(false);
+          setCustomerToEdit(null);
+        }}
+        onSuccess={(msg) => {
+          setCollectSuccessMsg(msg);
+          setTimeout(() => setCollectSuccessMsg(''), 6000);
+        }}
+      />
 
       {/* 4. Due Collection Confirmation & PIN Modal (New Unified Flow) */}
       <DueCollectionConfirmModal

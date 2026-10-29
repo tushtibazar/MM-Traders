@@ -22,6 +22,7 @@ export interface Customer {
   currentDue: number;
   status: 'active' | 'inactive';
   notes?: string;
+  route?: string;
   createdAt: string;
   updatedAt: string;
 }

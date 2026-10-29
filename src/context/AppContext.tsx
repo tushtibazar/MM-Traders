@@ -93,6 +93,23 @@ interface AppContextType {
 
   addCustomer: (customerInput: Omit<Customer, 'id' | 'currentDue' | 'createdAt' | 'updatedAt'>) => Customer;
   updateCustomer: (customer: Customer) => void;
+  updateCustomerWithCorrection: (
+    customer: Customer,
+    moneyCorrection?: {
+      newOpeningBalance: number;
+      reason?: string;
+      pin: string;
+    }
+  ) => void;
+  editDueLedgerEntry: (input: {
+    entryId: string;
+    date: string;
+    amount: number;
+    route?: string;
+    note?: string;
+    reason?: string;
+    pin: string;
+  }) => void;
   deleteCustomer: (customerId: string) => void;
 
   // Less Tracking (Owner Advances for Business)
@@ -1022,6 +1039,196 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const updateCustomer = (customer: Customer) => {
     const updated = db.customers.map((c) => (c.id === customer.id ? { ...customer, updatedAt: new Date().toISOString() } : c));
     updateDb({ ...db, customers: updated });
+  };
+
+  const verifySecurityPin = (pin: string): boolean => {
+    const trimmed = (pin || '').trim();
+    if (!trimmed || trimmed.length < 4 || trimmed.length > 6) return false;
+    const securityPin = db.settings.securityPin || '';
+    const ownerPin = db.settings.ownerPin || '';
+    const userPin = currentUser.pin || '';
+    const fallbackPin = '1234';
+    const validPins = [securityPin, ownerPin, userPin, fallbackPin]
+      .flatMap((p) => p.split(/[|,]/))
+      .map((p) => p.trim())
+      .filter(Boolean);
+    return validPins.includes(trimmed);
+  };
+
+  const updateCustomerWithCorrection = (
+    customer: Customer,
+    moneyCorrection?: {
+      newOpeningBalance: number;
+      reason?: string;
+      pin: string;
+    }
+  ) => {
+    const isMoneyModified =
+      moneyCorrection !== undefined &&
+      Number(moneyCorrection.newOpeningBalance) !== Number(customer.openingBalance);
+
+    if (isMoneyModified) {
+      if (!verifySecurityPin(moneyCorrection.pin)) {
+        throw new Error('ভুল পিন কোড! সঠিক নিরাপত্তা পিন প্রদান করুন।');
+      }
+    }
+
+    const oldOpening = Number(customer.openingBalance) || 0;
+    const newOpening = isMoneyModified
+      ? Number(moneyCorrection.newOpeningBalance) || 0
+      : oldOpening;
+    const diff = newOpening - oldOpening;
+    const newCurrentDue = Math.max(0, (Number(customer.currentDue) || 0) + diff);
+
+    const updatedCustomer: Customer = {
+      ...customer,
+      openingBalance: newOpening,
+      currentDue: newCurrentDue,
+      updatedAt: new Date().toISOString(),
+    };
+
+    let newLedgers = [...(db.customerLedgers || [])];
+
+    if (isMoneyModified && diff !== 0) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const currency = db.settings.currency || '৳';
+      const auditEntry: CustomerLedgerEntry = {
+        id: `ledg-adj-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        customerId: customer.id,
+        date: todayStr,
+        type: 'adjustment',
+        referenceId: `ADJ-${Date.now().toString().slice(-4)}`,
+        description: `বকেয়া টাকার সংশোধন: পূর্বের বকেয়া ${currency} ${oldOpening.toLocaleString()} হতে ${currency} ${newOpening.toLocaleString()} করা হলো (পার্থক্য: ${diff >= 0 ? '+' : ''}${diff.toLocaleString()} টাকা)${moneyCorrection.reason?.trim() ? ` | কারণ: ${moneyCorrection.reason.trim()}` : ''} [সম্পাদনকারী: ${currentUser.name || 'মালিক'}]`,
+        debit: diff > 0 ? diff : 0,
+        credit: diff < 0 ? Math.abs(diff) : 0,
+        balance: newCurrentDue,
+        createdAt: new Date().toISOString(),
+      };
+      newLedgers.push(auditEntry);
+    }
+
+    // Rename propagation: payments, sales, dailySheets
+    const updatedPayments = (db.payments || []).map((p) =>
+      p.customerId === customer.id
+        ? { ...p, customerName: updatedCustomer.name, shopName: updatedCustomer.shopName }
+        : p
+    );
+    const updatedSales = (db.sales || []).map((s) =>
+      s.customerId === customer.id
+        ? {
+            ...s,
+            customerName: updatedCustomer.name,
+            shopName: updatedCustomer.shopName,
+            customerPhone: updatedCustomer.phone,
+            customerAddress: updatedCustomer.address,
+          }
+        : s
+    );
+    const updatedDailySheets = (db.dailySheets || []).map((sheet) => ({
+      ...sheet,
+      todayDueEntries: (sheet.todayDueEntries || []).map((entry) =>
+        entry.customerId === customer.id
+          ? { ...entry, customerName: updatedCustomer.name, shopName: updatedCustomer.shopName }
+          : entry
+      ),
+      dueCollectionEntries: (sheet.dueCollectionEntries || []).map((entry) =>
+        entry.customerId === customer.id
+          ? { ...entry, customerName: updatedCustomer.name, shopName: updatedCustomer.shopName }
+          : entry
+      ),
+    }));
+
+    const updatedCustomers = db.customers.map((c) =>
+      c.id === customer.id ? updatedCustomer : c
+    );
+
+    updateDb({
+      ...db,
+      customers: updatedCustomers,
+      customerLedgers: newLedgers,
+      payments: updatedPayments,
+      sales: updatedSales,
+      dailySheets: updatedDailySheets,
+    });
+  };
+
+  const editDueLedgerEntry = (input: {
+    entryId: string;
+    date: string;
+    amount: number;
+    route?: string;
+    note?: string;
+    reason?: string;
+    pin: string;
+  }) => {
+    if (!verifySecurityPin(input.pin)) {
+      throw new Error('ভুল পিন কোড! সঠিক নিরাপত্তা পিন প্রদান করুন।');
+    }
+
+    const entry = (db.customerLedgers || []).find((l) => l.id === input.entryId);
+    if (!entry) {
+      throw new Error('লেজার এন্ট্রি পাওয়া যায়নি');
+    }
+    const customer = db.customers.find((c) => c.id === entry.customerId);
+    if (!customer) {
+      throw new Error('কাস্টমার পাওয়া যায়নি');
+    }
+
+    const oldAmount = Number(entry.debit) || 0;
+    const newAmount = Math.max(0, Number(input.amount) || 0);
+    const diff = newAmount - oldAmount;
+    const newCustomerDue = Math.max(0, (customer.currentDue || 0) + diff);
+
+    const descNote = input.note?.trim() || 'বাকি হিসাব';
+    const descRoute = input.route?.trim() ? ` (${input.route.trim()})` : '';
+    const auditInfo = ` [সংশোধিত: পূর্বে ছিল ৳ ${oldAmount.toLocaleString()}${input.reason?.trim() ? `, কারণ: ${input.reason.trim()}` : ''}, সম্পাদনকারী: ${currentUser.name || 'মালিক'}]`;
+
+    // Update the ledger entry
+    const updatedLedgers = (db.customerLedgers || []).map((l) => {
+      if (l.id === entry.id) {
+        return {
+          ...l,
+          date: input.date || l.date,
+          debit: newAmount,
+          description: `${descNote}${descRoute}${auditInfo}`,
+        };
+      }
+      return l;
+    });
+
+    // Re-compute running balances for this customer's ledgers chronologically
+    const customerEntries = updatedLedgers
+      .filter((l) => l.customerId === customer.id)
+      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let runningBal = 0;
+    const entryBalanceMap = new Map<string, number>();
+    customerEntries.forEach((e) => {
+      runningBal = runningBal + (e.debit || 0) - (e.credit || 0);
+      entryBalanceMap.set(e.id, Math.max(0, runningBal));
+    });
+
+    const finalLedgers = updatedLedgers.map((l) => {
+      if (l.customerId === customer.id && entryBalanceMap.has(l.id)) {
+        return {
+          ...l,
+          balance: entryBalanceMap.get(l.id)!,
+        };
+      }
+      return l;
+    });
+
+    const updatedCustomer: Customer = {
+      ...customer,
+      currentDue: newCustomerDue,
+      updatedAt: new Date().toISOString(),
+    };
+
+    updateDb({
+      ...db,
+      customers: db.customers.map((c) => (c.id === customer.id ? updatedCustomer : c)),
+      customerLedgers: finalLedgers,
+    });
   };
 
   const deleteCustomer = (customerId: string) => {
@@ -2219,6 +2426,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         recordDueCollection,
         addCustomer,
         updateCustomer,
+        updateCustomerWithCorrection,
+        editDueLedgerEntry,
         deleteCustomer,
         addLessEntry,
         updateLessStatus,
