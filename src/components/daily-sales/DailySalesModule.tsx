@@ -26,6 +26,7 @@ import {
   Edit2,
   X,
   Loader2,
+  Copy,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { DailyAccountItem, DailyAccountSheet, DailyDueEntry, Product, Customer } from '../../types';
@@ -39,6 +40,7 @@ import { ProductSuggestionDropdown } from './ProductSuggestionDropdown';
 import { DailySalesPrintPreviewModal } from './DailySalesPrintPreviewModal';
 import { RouteDueModal } from './RouteDueModal';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
+import { formatDueNumber, formatShortDueNumber, matchesDueNumber, toEnglishDigits } from '../../utils/dueUtils';
 import {
   isCursorAtStart,
   isCursorAtEnd,
@@ -468,30 +470,42 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   };
 
   // Helper to generate next sequential Due Number (e.g. DUE-0001, DUE-0002)
-  const getNextDueNumber = (existingRows?: DueItemRow[]) => {
+  const getNextDueNumber = (existingRows?: DueItemRow[], offset: number = 0) => {
     let maxSeq = 0;
     (db.customerLedgers || []).forEach((l) => {
-      if (l.referenceId && l.referenceId.startsWith('DUE-')) {
-        const num = parseInt(l.referenceId.replace('DUE-', ''), 10);
-        if (!isNaN(num) && num > maxSeq) maxSeq = num;
+      if (l.referenceId) {
+        const eng = toEnglishDigits(l.referenceId);
+        const match = eng.match(/\d+/);
+        if (match) {
+          const num = parseInt(match[0], 10);
+          if (!isNaN(num) && num > maxSeq) maxSeq = num;
+        }
       }
     });
     (db.dailySheets || []).forEach((s) => {
       (s.todayDueEntries || []).forEach((e) => {
-        if (e.dueNo && e.dueNo.startsWith('DUE-')) {
-          const num = parseInt(e.dueNo.replace('DUE-', ''), 10);
-          if (!isNaN(num) && num > maxSeq) maxSeq = num;
+        if (e.dueNo) {
+          const eng = toEnglishDigits(e.dueNo);
+          const match = eng.match(/\d+/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            if (!isNaN(num) && num > maxSeq) maxSeq = num;
+          }
         }
       });
     });
     const checkRows = existingRows || todayDueRows;
     checkRows.forEach((r) => {
-      if (r.dueNo && r.dueNo.startsWith('DUE-')) {
-        const num = parseInt(r.dueNo.replace('DUE-', ''), 10);
-        if (!isNaN(num) && num > maxSeq) maxSeq = num;
+      if (r.dueNo) {
+        const eng = toEnglishDigits(r.dueNo);
+        const match = eng.match(/\d+/);
+        if (match) {
+          const num = parseInt(match[0], 10);
+          if (!isNaN(num) && num > maxSeq) maxSeq = num;
+        }
       }
     });
-    return `DUE-${String(maxSeq + 1).padStart(4, '0')}`;
+    return `DUE-${String(maxSeq + 1 + offset).padStart(4, '0')}`;
   };
 
   // List of all outstanding dues for Due Number / Customer lookup in Table B
@@ -1048,9 +1062,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         }))
       );
     } else if (sheet.todayDue && sheet.todayDue > 0) {
-      setTodayDueRows([{ id: `due-init-1`, dueNo: getNextDueNumber(), description: sheet.dueNotes || 'আজকের বাকি', amount: sheet.todayDue, isSavedToLedger: true }]);
+      setTodayDueRows([{ id: `due-init-1`, dueNo: '', description: sheet.dueNotes || 'আজকের বাকি', amount: sheet.todayDue, isSavedToLedger: true }]);
     } else {
-      setTodayDueRows([createEmptyDueRow(getNextDueNumber())]);
+      setTodayDueRows([createEmptyDueRow()]);
     }
 
     if (sheet.dueCollectionEntries && sheet.dueCollectionEntries.length > 0) {
@@ -1222,7 +1236,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setSelectedDamageRowId(null);
     setRows([createEmptyRow()]);
     setDamageRows([createEmptyDamageRow()]);
-    setTodayDueRows([createEmptyDueRow(getNextDueNumber())]);
+    setTodayDueRows([createEmptyDueRow()]);
     setDueCollectionRows([createEmptyDueRow()]);
     setCashDenominations({ 1000: '', 500: '', 200: '', 100: '', 50: '', 20: '', 10: '', 5: '', other: '' });
     setDailyExpense(0);
@@ -1245,8 +1259,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // Dynamic Due Table Handlers
   const handleAddTodayDueRow = () => {
     if (isLockedForEdit) return;
-    const nextDue = getNextDueNumber(todayDueRows);
-    setTodayDueRows((prev) => [...prev, createEmptyDueRow(nextDue)]);
+    setTodayDueRows((prev) => [...prev, createEmptyDueRow()]);
   };
 
   const handleUpdateTodayDueRow = (id: string, field: keyof DueItemRow, value: any) => {
@@ -1322,7 +1335,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const handleDeleteTodayDueRow = (id: string) => {
     if (isLockedForEdit) return;
     setTodayDueRows((prev) => {
-      if (prev.length <= 1) return [createEmptyDueRow(getNextDueNumber())];
+      if (prev.length <= 1) return [createEmptyDueRow()];
       return prev.filter((r) => r.id !== id);
     });
   };
@@ -2118,11 +2131,20 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       const sheetStatus = stage === 'evening' ? 'completed' : 'pending';
       const shouldUpdateStock = stage === 'evening';
 
-      // When saving evening stage, ensure any unsaved today's due rows are synced to central ledger
+      // When saving (either morning distribution or evening final), ensure valid due rows have sequential Due Numbers assigned
+      let assignedDueOffset = 0;
       const syncedTodayDueRows = todayDueRows.map((r) => {
         const amt = Number(r.amount) || 0;
+        const hasContent = Boolean(r.description.trim() || amt > 0);
+        if (!hasContent) return r;
+
+        let assignedDueNo = r.dueNo;
+        if (!assignedDueNo) {
+          assignedDueNo = getNextDueNumber(todayDueRows, assignedDueOffset);
+          assignedDueOffset++;
+        }
+
         if (stage === 'evening' && amt > 0 && !r.isSavedToLedger) {
-          const assignedDueNo = r.dueNo || getNextDueNumber();
           const res = recordCustomerDue({
             dueNo: assignedDueNo,
             customerId: r.customerId,
@@ -2135,18 +2157,21 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
           });
           return {
             ...r,
-            dueNo: res.dueNo,
+            dueNo: res.dueNo || assignedDueNo,
             customerId: res.customer.id,
             customerName: res.customer.name,
             shopName: res.customer.shopName,
             isSavedToLedger: true,
           };
         }
-        return r;
+        return {
+          ...r,
+          dueNo: assignedDueNo,
+        };
       });
-      if (stage === 'evening') {
-        setTodayDueRows(syncedTodayDueRows);
-      }
+
+      // Update state immediately so Table A displays the assigned numbers on screen
+      setTodayDueRows(syncedTodayDueRows);
 
       const validTodayDue: DailyDueEntry[] = syncedTodayDueRows
         .filter((r) => r.description.trim() || Number(r.amount) > 0)
@@ -4324,7 +4349,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     <span className="w-7 text-center shrink-0">#</span>
                     <span className="flex-1">দোকান / কাস্টমার নাম</span>
                     <span className="w-28 sm:w-32 text-right shrink-0">বাকি টাকা ({currency})</span>
-                    <span className="w-20 text-center shrink-0">লেজার এন্ট্রি</span>
+                    <span className="w-28 sm:w-32 text-center shrink-0">বাকি নং</span>
+                    <span className="w-16 text-center shrink-0">লেজার</span>
                     <span className="w-7 shrink-0"></span>
                   </div>
 
@@ -4347,9 +4373,18 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           {toBengaliDigits(idx + 1)}
                         </span>
 
-                        {/* Mobile Header: Index & Delete button */}
+                        {/* Mobile Header: Index, Due No & Delete button */}
                         <div className="flex sm:hidden items-center justify-between text-xs text-slate-500 font-medium">
-                          <span className="font-bold text-slate-700">বাকি এন্ট্রি #{toBengaliDigits(idx + 1)}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-slate-700">বাকি এন্ট্রি #{toBengaliDigits(idx + 1)}</span>
+                            {row.dueNo ? (
+                              <span className="inline-flex items-center gap-1 font-mono font-bold text-[10px] bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200">
+                                {formatDueNumber(row.dueNo)}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">সেভের পর আসবে</span>
+                            )}
+                          </div>
                           {!isLockedForEdit && todayDueRows.length > 1 && (
                             <button
                               type="button"
@@ -4408,89 +4443,122 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           )}
                         </div>
 
-                        {/* 2. Amount & Actions (Paired on mobile, inline on desktop) */}
-                        <div className="flex items-center gap-2 sm:contents">
-                          {/* Amount Input */}
-                          <div className="flex-1 sm:flex-initial sm:w-28 sm:w-32 shrink-0">
-                            <input
-                              ref={(el) => {
-                                todayDueAmountRefs.current[row.id] = el;
-                              }}
-                              type="text"
-                              inputMode="decimal"
-                              disabled={isLockedForEdit || row.isSavedToLedger}
-                              value={row.amount === 0 || row.amount === '' ? '' : row.amount}
-                              onChange={(e) =>
-                                handleUpdateTodayDueRow(
-                                  row.id,
-                                  'amount',
-                                  sanitizeDecimalInput(e.target.value)
-                                )
+                        {/* 2. Amount Input */}
+                        <div className="w-full sm:w-28 sm:w-32 shrink-0">
+                          <input
+                            ref={(el) => {
+                              todayDueAmountRefs.current[row.id] = el;
+                            }}
+                            type="text"
+                            inputMode="decimal"
+                            disabled={isLockedForEdit || row.isSavedToLedger}
+                            value={row.amount === 0 || row.amount === '' ? '' : row.amount}
+                            onChange={(e) =>
+                              handleUpdateTodayDueRow(
+                                row.id,
+                                'amount',
+                                sanitizeDecimalInput(e.target.value)
+                              )
+                            }
+                            onWheel={preventWheelChange}
+                            onKeyDown={(e) => {
+                              if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                if (idx < todayDueRows.length - 1) {
+                                  todayDueAmountRefs.current[todayDueRows[idx + 1].id]?.focus();
+                                  todayDueAmountRefs.current[todayDueRows[idx + 1].id]?.select();
+                                }
+                                return;
                               }
-                              onWheel={preventWheelChange}
-                              onKeyDown={(e) => {
-                                if (e.key === 'ArrowDown') {
+                              if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                if (idx > 0) {
+                                  todayDueAmountRefs.current[todayDueRows[idx - 1].id]?.focus();
+                                  todayDueAmountRefs.current[todayDueRows[idx - 1].id]?.select();
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowLeft') {
+                                if (isCursorAtStart(e.currentTarget)) {
                                   e.preventDefault();
-                                  if (idx < todayDueRows.length - 1) {
-                                    todayDueAmountRefs.current[todayDueRows[idx + 1].id]?.focus();
-                                    todayDueAmountRefs.current[todayDueRows[idx + 1].id]?.select();
-                                  }
-                                  return;
+                                  todayDueCustomerRefs.current[row.id]?.focus();
                                 }
-                                if (e.key === 'ArrowUp') {
-                                  e.preventDefault();
-                                  if (idx > 0) {
-                                    todayDueAmountRefs.current[todayDueRows[idx - 1].id]?.focus();
-                                    todayDueAmountRefs.current[todayDueRows[idx - 1].id]?.select();
-                                  }
-                                  return;
-                                }
-                                if (e.key === 'ArrowLeft') {
-                                  if (isCursorAtStart(e.currentTarget)) {
-                                    e.preventDefault();
-                                    todayDueCustomerRefs.current[row.id]?.focus();
-                                  }
-                                  return;
-                                }
-                              }}
-                              placeholder="টাকা (০.০০)"
-                              className="no-spinners w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono font-bold text-amber-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-none disabled:bg-slate-50 transition-colors"
-                            />
-                          </div>
+                                return;
+                              }
+                            }}
+                            placeholder="টাকা (০.০০)"
+                            className="no-spinners w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono font-bold text-amber-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-none disabled:bg-slate-50 transition-colors"
+                          />
+                        </div>
 
-                          {/* Save / Status Badge */}
-                          <div className="w-20 shrink-0 text-center flex justify-center">
-                            {row.isSavedToLedger ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-md">
-                                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
-                                যুক্ত
-                              </span>
-                            ) : (
+                        {/* 3. বাকি নং (Read-only, short form DUE-০০০১, soft placeholder for unsaved) */}
+                        <div className="w-full sm:w-28 sm:w-32 shrink-0">
+                          {row.dueNo ? (
+                            <div
+                              tabIndex={-1}
+                              className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-100/90 border border-slate-200 text-slate-800 font-mono text-[11px] font-bold select-all focus:outline-none"
+                              title="স্বয়ংক্রিয় বাকি নম্বর"
+                            >
+                              <span className="truncate">{formatDueNumber(row.dueNo)}</span>
                               <button
                                 type="button"
-                                onClick={() => handleSaveTodayDueRowToLedger(row.id)}
-                                disabled={isLockedForEdit || !row.description.trim() || Number(row.amount) <= 0}
-                                className="w-full px-2.5 py-1.5 text-[11px] font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap shadow-xs"
-                                title="সেন্ট্রাল কাস্টমার লেজারে যোগ করুন"
+                                tabIndex={-1}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (navigator.clipboard) {
+                                    navigator.clipboard.writeText(formatDueNumber(row.dueNo));
+                                    showNotification(`বাকি নং কপি হয়েছে: ${formatDueNumber(row.dueNo)}`, 'info', 2000);
+                                  }
+                                }}
+                                className="ml-1 p-0.5 text-slate-400 hover:text-slate-700 rounded transition-colors cursor-pointer shrink-0"
+                                title="কপি করুন"
                               >
-                                সেভ
+                                <Copy className="h-3 w-3" />
                               </button>
-                            )}
-                          </div>
+                            </div>
+                          ) : (
+                            <div
+                              tabIndex={-1}
+                              className="text-center px-1.5 py-1.5 rounded-lg bg-slate-50 border border-dashed border-slate-200 text-[11px] text-slate-400 italic select-none focus:outline-none"
+                              title="সেভ করার পর স্বয়ংক্রিয়ভাবে বাকি নং তৈরি হবে"
+                            >
+                              সেভের পর আসবে
+                            </div>
+                          )}
+                        </div>
 
-                          {/* Delete action (Desktop) */}
-                          <div className="hidden sm:flex w-7 justify-center shrink-0">
-                            {!isLockedForEdit && todayDueRows.length > 1 && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteTodayDueRow(row.id)}
-                                className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
-                                title="মুছুন"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
+                        {/* 4. Save / Status Badge */}
+                        <div className="w-16 shrink-0 text-center flex justify-center">
+                          {row.isSavedToLedger ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-md">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                              যুক্ত
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSaveTodayDueRowToLedger(row.id)}
+                              disabled={isLockedForEdit || !row.description.trim() || Number(row.amount) <= 0}
+                              className="w-full px-2 py-1.5 text-[11px] font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition-colors disabled:opacity-40 cursor-pointer whitespace-nowrap shadow-xs"
+                              title="সেন্ট্রাল কাস্টমার লেজারে যোগ করুন"
+                            >
+                              সেভ
+                            </button>
+                          )}
+                        </div>
+
+                        {/* 5. Delete action (Desktop) */}
+                        <div className="hidden sm:flex w-7 justify-center shrink-0">
+                          {!isLockedForEdit && todayDueRows.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTodayDueRow(row.id)}
+                              className="p-1 text-slate-400 hover:text-rose-600 rounded transition-colors cursor-pointer"
+                              title="মুছুন"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -4580,7 +4648,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                   <span className="font-mono">{matchedCustomer.phone}</span>
                                 )}
                                 {row.dueNo && (
-                                  <span className="font-mono text-slate-400">({row.dueNo})</span>
+                                  <span className="font-mono text-slate-500 font-bold bg-slate-100 px-1 py-0.2 rounded border border-slate-200 text-[10px]">
+                                    {formatDueNumber(row.dueNo)}
+                                  </span>
                                 )}
                               </div>
                             </div>

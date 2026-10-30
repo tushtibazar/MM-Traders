@@ -21,6 +21,7 @@ import { useApp } from '../../context/AppContext';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { generateCustomerLedgerPDF } from '../../services/pdfGenerator';
 import { formatDate } from '../../utils/dateUtils';
+import { formatDueNumber } from '../../utils/dueUtils';
 import { LedgerEntryEditModal } from '../modals/LedgerEntryEditModal';
 
 interface CustomerLedgerProps {
@@ -364,7 +365,15 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                         )}
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 font-bold text-slate-900">{entry.referenceId || '-'}</td>
+                    <td className="py-2.5 px-3">
+                      {entry.referenceId ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono font-bold text-slate-800 text-[11px]">
+                          {formatDueNumber(entry.referenceId)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 font-mono">-</span>
+                      )}
+                    </td>
                     <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate" title={entry.description}>
                       {entry.description}
                     </td>

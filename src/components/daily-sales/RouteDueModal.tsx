@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
+import { formatDueNumber, matchesDueNumber } from '../../utils/dueUtils';
 
 interface RouteDueModalProps {
   isOpen: boolean;
@@ -36,30 +37,45 @@ export const RouteDueModal: React.FC<RouteDueModalProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // 1. Build a map of latest transaction date per customer
-  const lastTxDateMap = useMemo(() => {
-    const map = new Map<string, string>();
+  // 1. Build a map of latest transaction date and due number per customer
+  const { lastTxDateMap, customerDueNumberMap } = useMemo(() => {
+    const dateMap = new Map<string, string>();
+    const dueMap = new Map<string, string>();
+
     (ledgers || []).forEach((entry) => {
-      const existing = map.get(entry.customerId);
-      if (!existing || new Date(entry.date).getTime() > new Date(existing).getTime()) {
-        map.set(entry.customerId, entry.date);
+      const existingDate = dateMap.get(entry.customerId);
+      if (!existingDate || new Date(entry.date).getTime() > new Date(existingDate).getTime()) {
+        dateMap.set(entry.customerId, entry.date);
+      }
+      if (entry.referenceId && entry.referenceId.startsWith('DUE-') && entry.debit > 0) {
+        if (!dueMap.has(entry.customerId)) {
+          dueMap.set(entry.customerId, entry.referenceId);
+        }
       }
     });
-    return map;
+    return { lastTxDateMap: dateMap, customerDueNumberMap: dueMap };
   }, [ledgers]);
 
-  // 2. Filter customers with search query
+  // 2. Filter customers with search query (including due number matching)
   const filteredList = useMemo(() => {
-    if (!searchQuery.trim()) return customers;
-    const q = searchQuery.toLowerCase().trim();
-    return customers.filter(
-      (c) =>
-        c.shopName.toLowerCase().includes(q) ||
-        c.name.toLowerCase().includes(q) ||
-        c.phone.includes(q) ||
-        (c.address && c.address.toLowerCase().includes(q))
-    );
-  }, [customers, searchQuery]);
+    const rawQuery = searchQuery.trim();
+    if (!rawQuery) return customers;
+    const qLower = rawQuery.toLowerCase();
+
+    return customers.filter((c) => {
+      const nameMatch = c.name.toLowerCase().includes(qLower);
+      const shopMatch = c.shopName.toLowerCase().includes(qLower);
+      const phoneMatch = c.phone.includes(rawQuery);
+      const addrMatch = c.address ? c.address.toLowerCase().includes(qLower) : false;
+      const custDueNo = customerDueNumberMap.get(c.id);
+      const dueMatch = matchesDueNumber(custDueNo, rawQuery);
+      const ledgerMatch = (ledgers || []).some(
+        (l) => l.customerId === c.id && matchesDueNumber(l.referenceId, rawQuery)
+      );
+
+      return nameMatch || shopMatch || phoneMatch || addrMatch || dueMatch || ledgerMatch;
+    });
+  }, [customers, searchQuery, customerDueNumberMap, ledgers]);
 
   const totalOutstandingOnRoute = useMemo(() => {
     return customers.reduce((sum, c) => sum + (Number(c.currentDue) || 0), 0);
@@ -171,6 +187,11 @@ export const RouteDueModal: React.FC<RouteDueModalProps> = ({
                     <span className="text-xs text-slate-500 font-bengali">
                       ({customer.name})
                     </span>
+                    {customerDueNumberMap.get(customer.id) && (
+                      <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                        {formatDueNumber(customerDueNumberMap.get(customer.id))}
+                      </span>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">

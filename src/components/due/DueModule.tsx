@@ -30,6 +30,7 @@ import {
 import { useApp } from '../../context/AppContext';
 import { DEFAULT_ROUTES } from '../../services/storage';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
+import { formatDueNumber, matchesDueNumber, toEnglishDigits } from '../../utils/dueUtils';
 import { generateDueReportPDF } from '../../services/pdfGenerator';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
@@ -71,13 +72,26 @@ export const DueModule: React.FC<DueModuleProps> = ({
   const getNextDueNumber = () => {
     let maxSeq = 0;
     (db.customerLedgers || []).forEach((l) => {
-      if (l.referenceId && l.referenceId.startsWith('DUE-')) {
-        const match = l.referenceId.match(/^DUE-(\d+)/);
+      if (l.referenceId) {
+        const eng = toEnglishDigits(l.referenceId);
+        const match = eng.match(/\d+/);
         if (match) {
-          const num = parseInt(match[1], 10);
+          const num = parseInt(match[0], 10);
           if (!isNaN(num) && num > maxSeq) maxSeq = num;
         }
       }
+    });
+    (db.dailySheets || []).forEach((s) => {
+      (s.todayDueEntries || []).forEach((e) => {
+        if (e.dueNo) {
+          const eng = toEnglishDigits(e.dueNo);
+          const match = eng.match(/\d+/);
+          if (match) {
+            const num = parseInt(match[0], 10);
+            if (!isNaN(num) && num > maxSeq) maxSeq = num;
+          }
+        }
+      });
     });
     return `DUE-${String(maxSeq + 1).padStart(4, '0')}`;
   };
@@ -262,6 +276,26 @@ export const DueModule: React.FC<DueModuleProps> = ({
     return map;
   }, [db.dailySheets, db.customerLedgers, db.customers, db.salesRepresentatives, availableRoutes]);
 
+  // Customer Due Number mapping (for badges and quick lookup)
+  const customerDueNumberMap = useMemo(() => {
+    const map = new Map<string, string>();
+    (db.customerLedgers || []).forEach((l) => {
+      if (l.referenceId && l.referenceId.startsWith('DUE-') && l.debit > 0) {
+        if (!map.has(l.customerId)) {
+          map.set(l.customerId, l.referenceId);
+        }
+      }
+    });
+    (db.dailySheets || []).forEach((s) => {
+      (s.todayDueEntries || []).forEach((e) => {
+        if (e.customerId && e.dueNo && !map.has(e.customerId)) {
+          map.set(e.customerId, e.dueNo);
+        }
+      });
+    });
+    return map;
+  }, [db.customerLedgers, db.dailySheets]);
+
   // 1. Filtered and sorted customers
   const filteredCustomers = useMemo(() => {
     let list = db.customers.filter((c) => c.status === 'active');
@@ -294,21 +328,36 @@ export const DueModule: React.FC<DueModuleProps> = ({
     }
 
     if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter(
-        (c) =>
-          c.name.toLowerCase().includes(q) ||
-          c.shopName.toLowerCase().includes(q) ||
-          c.phone.includes(q) ||
-          (c.address && c.address.toLowerCase().includes(q)),
-      );
+      const rawQuery = searchQuery.trim();
+      const qLower = rawQuery.toLowerCase();
+      list = list.filter((c) => {
+        const directMatch =
+          c.name.toLowerCase().includes(qLower) ||
+          c.shopName.toLowerCase().includes(qLower) ||
+          c.phone.includes(rawQuery) ||
+          (c.address && c.address.toLowerCase().includes(qLower));
+        if (directMatch) return true;
+
+        const custDue = customerDueNumberMap.get(c.id);
+        if (custDue && matchesDueNumber(custDue, rawQuery)) return true;
+
+        const ledgerMatch = (db.customerLedgers || []).some(
+          (l) => l.customerId === c.id && matchesDueNumber(l.referenceId, rawQuery)
+        );
+        if (ledgerMatch) return true;
+
+        const sheetMatch = (db.dailySheets || []).some(
+          (s) => (s.todayDueEntries || []).some((e) => e.customerId === c.id && matchesDueNumber(e.dueNo, rawQuery))
+        );
+        return sheetMatch;
+      });
     }
 
     // Sort by currentDue
     return list.sort((a, b) => {
       return sortOrder === 'desc' ? b.currentDue - a.currentDue : a.currentDue - b.currentDue;
     });
-  }, [db.customers, isOwner, currentUser, selectedSrFilter, selectedRouteFilter, customerRouteMap, searchQuery, sortOrder]);
+  }, [db.customers, isOwner, currentUser, selectedSrFilter, selectedRouteFilter, customerRouteMap, customerDueNumberMap, searchQuery, sortOrder, db.customerLedgers, db.dailySheets]);
 
   const totalFilteredDue = useMemo(() => {
     return filteredCustomers.reduce((sum, c) => sum + (c.currentDue || 0), 0);
@@ -690,14 +739,15 @@ export const DueModule: React.FC<DueModuleProps> = ({
     }
 
     if (dueVoucherSearch.trim()) {
-      const q = dueVoucherSearch.toLowerCase();
+      const rawQ = dueVoucherSearch.trim();
+      const q = rawQ.toLowerCase();
       filtered = filtered.filter((l) => {
         const cust = db.customers.find((c) => c.id === l.customerId);
         return (
+          matchesDueNumber(l.referenceId, rawQ) ||
           l.referenceId?.toLowerCase().includes(q) ||
           l.description?.toLowerCase().includes(q) ||
-          cust?.shopName.toLowerCase().includes(q) ||
-          cust?.name.toLowerCase().includes(q)
+          (cust && (cust.shopName.toLowerCase().includes(q) || cust.name.toLowerCase().includes(q) || cust.phone.includes(rawQ)))
         );
       });
     }
@@ -1123,9 +1173,14 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                         {/* Customer / Shop */}
                         <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                            <Store className="h-3.5 w-3.5 text-slate-400" />
+                          <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                            <Store className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                             <span>{cust.shopName}</span>
+                            {customerDueNumberMap.get(cust.id) && (
+                              <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200" title="বাকি নং">
+                                {formatDueNumber(customerDueNumberMap.get(cust.id))}
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">{cust.name}</p>
                         </td>
@@ -1921,7 +1976,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                         {/* Voucher / Ref */}
                         <td className="py-3 px-3 font-mono font-bold text-slate-900">
-                          {entry.referenceId || entry.id}
+                          {entry.referenceId ? formatDueNumber(entry.referenceId) : entry.id}
                         </td>
 
                         {/* Customer / Shop */}

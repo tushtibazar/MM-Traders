@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, Store, Phone, FileText, ChevronRight, X } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Customer } from '../../types';
+import { matchesDueNumber, formatDueNumber } from '../../utils/dueUtils';
 
 export interface DueSearchResultItem {
   customer: Customer;
@@ -53,8 +54,9 @@ export const DueSmartSearch: React.FC<DueSmartSearchProps> = ({
 
   // Search filtered results
   const searchResults = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
+    const rawQuery = query.trim();
+    if (!rawQuery) return [];
+    const qLower = rawQuery.toLowerCase();
 
     const matches: DueSearchResultItem[] = [];
     const seenCustomerIds = new Set<string>();
@@ -64,17 +66,22 @@ export const DueSmartSearch: React.FC<DueSmartSearchProps> = ({
       if (c.status === 'inactive') return;
 
       const associatedDue = customerDueNumbersMap.get(c.id) || '';
-      const nameMatch = (c.name || '').toLowerCase().includes(q);
-      const shopMatch = (c.shopName || '').toLowerCase().includes(q);
-      const phoneMatch = (c.phone || '').includes(q);
-      const dueNoMatch = associatedDue.toLowerCase().includes(q);
+      const nameMatch = (c.name || '').toLowerCase().includes(qLower);
+      const shopMatch = (c.shopName || '').toLowerCase().includes(qLower);
+      const phoneMatch = (c.phone || '').includes(rawQuery);
+      const dueNoMatch = matchesDueNumber(associatedDue, rawQuery);
 
       // Check ledger entries for any matching DUE- number for this customer
       const ledgerDueMatch = (db.customerLedgers || []).some(
-        (l) => l.customerId === c.id && l.referenceId?.toLowerCase().includes(q)
+        (l) => l.customerId === c.id && matchesDueNumber(l.referenceId, rawQuery)
       );
 
-      if (nameMatch || shopMatch || phoneMatch || dueNoMatch || ledgerDueMatch) {
+      // Check daily sheets for matching today's due entry
+      const sheetDueMatch = (db.dailySheets || []).some(
+        (s) => (s.todayDueEntries || []).some((e) => e.customerId === c.id && matchesDueNumber(e.dueNo, rawQuery))
+      );
+
+      if (nameMatch || shopMatch || phoneMatch || dueNoMatch || ledgerDueMatch || sheetDueMatch) {
         matches.push({
           customer: c,
           dueNo: associatedDue || undefined,
@@ -90,7 +97,7 @@ export const DueSmartSearch: React.FC<DueSmartSearchProps> = ({
       if (a.totalDue <= 0 && b.totalDue > 0) return 1;
       return b.totalDue - a.totalDue;
     }).slice(0, 12);
-  }, [query, db.customers, customerDueNumbersMap, db.customerLedgers]);
+  }, [query, db.customers, customerDueNumbersMap, db.customerLedgers, db.dailySheets]);
 
   const handleSelect = (item: DueSearchResultItem) => {
     onSelectRecord(item);
@@ -169,7 +176,7 @@ export const DueSmartSearch: React.FC<DueSmartSearchProps> = ({
                         {dueNo && (
                           <span className="inline-flex items-center gap-1 font-mono rounded bg-slate-100 px-1.5 py-0.2 text-[10px] font-bold text-slate-700">
                             <FileText className="h-2.5 w-2.5 text-slate-500" />
-                            {dueNo}
+                            {formatDueNumber(dueNo)}
                           </span>
                         )}
                       </div>

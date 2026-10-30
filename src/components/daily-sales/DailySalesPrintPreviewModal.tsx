@@ -16,6 +16,7 @@ import html2canvas from 'html2canvas';
 import { useApp } from '../../context/AppContext';
 import { BusinessSettings, DailyAccountSheet, DailyAccountItem } from '../../types';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
+import { formatDueNumber } from '../../utils/dueUtils';
 import { DENOMINATION_LIST } from './CashDenominationTable';
 import {
   downloadCanvasAsPNG,
@@ -1108,11 +1109,12 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                           <table className="w-full text-left border-collapse text-[8.5px]">
                             <thead>
                               <tr className="bg-amber-50/80 border-b border-amber-200 text-amber-900 font-bold leading-tight">
-                                <th className="py-[2px] px-1 text-center w-5 border-r border-amber-200">#</th>
+                                <th className="py-[2px] px-1 text-center w-5 border-r border-amber-200">ক্রমিক</th>
+                                <th className="py-[2px] px-1 text-center w-16 border-r border-amber-200">বাকি নং</th>
                                 <th className="py-[2px] px-1.5 border-r border-amber-200">
                                   কাস্টমার/দোকানের নাম
                                 </th>
-                                <th className="py-[2px] px-1.5 text-right w-16">টাকা</th>
+                                <th className="py-[2px] px-1.5 text-right w-14">টাকা</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-amber-100">
@@ -1121,6 +1123,9 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                                   <tr key={due.id || dIdx} className="hover:bg-amber-50/30">
                                     <td className="py-[1.5px] px-1 text-center font-mono text-slate-500 border-r border-amber-100">
                                       {toBengaliDigits(dIdx + 1)}
+                                    </td>
+                                    <td className="py-[1.5px] px-1 text-center font-mono font-bold text-slate-700 border-r border-amber-100">
+                                      {due.dueNo ? formatDueNumber(due.dueNo) : '—'}
                                     </td>
                                     <td className="py-[1.5px] px-1.5 text-slate-800 border-r border-amber-100 font-medium">
                                       {formatCustomerShopName(due)}
@@ -1133,6 +1138,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                               ) : (
                                 <tr>
                                   <td className="py-[1.5px] px-1 text-center font-mono text-slate-400 border-r border-amber-100">১</td>
+                                  <td className="py-[1.5px] px-1 text-center font-mono text-slate-400 border-r border-amber-100">—</td>
                                   <td className="py-[1.5px] px-1.5 text-slate-700 italic border-r border-amber-100">
                                     সাধারণ বাকি খতিয়ান
                                   </td>
@@ -1144,7 +1150,7 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
                             </tbody>
                             <tfoot>
                               <tr className="bg-amber-100/90 font-black border-t border-amber-300 text-amber-950 leading-tight">
-                                <td colSpan={2} className="py-[2px] px-1.5 font-bengali border-r border-amber-200">
+                                <td colSpan={3} className="py-[2px] px-1.5 font-bengali border-r border-amber-200">
                                   মোট নতুন বাকি:
                                 </td>
                                 <td className="py-[2px] px-1.5 text-right font-mono font-bold">

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { formatDate } from '../../utils/dateUtils';
+import { formatDueNumber, matchesDueNumber } from '../../utils/dueUtils';
 
 interface DueCollectionConfirmModalProps {
   isOpen: boolean;
@@ -96,7 +97,7 @@ export const DueCollectionConfirmModal: React.FC<DueCollectionConfirmModalProps>
         const dueNoMatch = allLedgers.some(
           (l) =>
             l.customerId === c.id &&
-            l.referenceId?.toLowerCase().includes(q)
+            matchesDueNumber(l.referenceId, customerSearchQuery)
         );
         return nameMatch || shopMatch || phoneMatch || dueNoMatch;
       })
@@ -322,7 +323,7 @@ export const DueCollectionConfirmModal: React.FC<DueCollectionConfirmModalProps>
                 )}
                 {dueNo && (
                   <span className="rounded bg-emerald-200/70 px-1.5 py-0.5 text-[10px] font-mono font-bold text-emerald-900">
-                    বাকি নং: {dueNo}
+                    বাকি নং: {formatDueNumber(dueNo)}
                   </span>
                 )}
               </div>
