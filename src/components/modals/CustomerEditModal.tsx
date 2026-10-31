@@ -16,13 +16,25 @@ import {
   Check,
   AlertCircle,
   ArrowRight,
+  Hash,
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import { Customer } from '../../types';
 import { useApp } from '../../context/AppContext';
+import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
+import {
+  formatDueNumber,
+  sanitizeDueNumberInput,
+  findDueNumberDuplicate,
+  getNextFreeAutomaticDueNumber,
+  normalizeDueNumber,
+} from '../../utils/dueUtils';
 
 interface CustomerEditModalProps {
   isOpen: boolean;
   customer: Customer | null;
+  initialTargetDueNo?: string;
   onClose: () => void;
   onSuccess?: (msg: string) => void;
 }
@@ -30,10 +42,11 @@ interface CustomerEditModalProps {
 export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
   isOpen,
   customer,
+  initialTargetDueNo,
   onClose,
   onSuccess,
 }) => {
-  const { db, updateCustomerWithCorrection, currentUser } = useApp();
+  const { db, updateCustomerWithCorrection, updateCustomerDueNumbers, currentUser } = useApp();
   const currency = db.settings.currency || '৳';
 
   // Form Fields
@@ -134,6 +147,222 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
     }
     return '';
   }, [phone]);
+
+  // Customer Dues list (sorted oldest first, with calculated FIFO status)
+  const customerDues = useMemo(() => {
+    if (!customer) return [];
+    const dues = (db.customerLedgers || [])
+      .filter((l) => l.customerId === customer.id && Boolean(l.debit && l.debit > 0))
+      .slice()
+      .sort((a, b) => {
+        if (a.date !== b.date) return a.date.localeCompare(b.date);
+        return a.id.localeCompare(b.id);
+      });
+
+    const totalPayments = (db.customerLedgers || [])
+      .filter((l) => l.customerId === customer.id && (l.type === 'payment' || (l.credit && l.credit > 0)))
+      .reduce((sum, l) => sum + (l.credit || 0), 0);
+
+    let cumulativeDues = 0;
+    return dues.map((due) => {
+      const dueAmt = due.debit || 0;
+      const dueStart = cumulativeDues;
+      const dueEnd = cumulativeDues + dueAmt;
+      cumulativeDues = dueEnd;
+
+      let status: 'settled' | 'partial' | 'due' = 'due';
+      if (due.status === 'settled' || totalPayments >= dueEnd) {
+        status = 'settled';
+      } else if (totalPayments > dueStart) {
+        status = 'partial';
+      } else {
+        status = 'due';
+      }
+
+      return {
+        ...due,
+        calculatedStatus: status,
+      };
+    });
+  }, [customer, db.customerLedgers]);
+
+  // Due Number Editing States (No PIN needed)
+  const [dueNumberInputs, setDueNumberInputs] = useState<Record<string, string>>({});
+  const [dueNumberErrors, setDueNumberErrors] = useState<Record<string, string>>({});
+  const [dueSaveSuccessMsg, setDueSaveSuccessMsg] = useState('');
+  const [dueSaveErrorMsg, setDueSaveErrorMsg] = useState('');
+  const [isSavingDueNumbers, setIsSavingDueNumbers] = useState(false);
+
+  // Sync due numbers when customer or modal opens
+  useEffect(() => {
+    if (customer && isOpen) {
+      const initialMap: Record<string, string> = {};
+      customerDues.forEach((d) => {
+        initialMap[d.id] = d.referenceId || '';
+      });
+      setDueNumberInputs(initialMap);
+      setDueNumberErrors({});
+      setDueSaveSuccessMsg('');
+      setDueSaveErrorMsg('');
+    }
+  }, [customer, isOpen, customerDues]);
+
+  // Auto-scroll to target due when opened via chip click
+  useEffect(() => {
+    if (isOpen && initialTargetDueNo && customerDues.length > 0) {
+      const targetNorm = normalizeDueNumber(initialTargetDueNo);
+      const matched = customerDues.find((d) => {
+        if (!d.referenceId) return false;
+        return (
+          d.referenceId === initialTargetDueNo ||
+          normalizeDueNumber(d.referenceId) === targetNorm ||
+          formatDueNumber(d.referenceId) === initialTargetDueNo
+        );
+      });
+
+      if (matched) {
+        setTimeout(() => {
+          const rowEl = document.getElementById(`customer-due-row-${matched.id}`);
+          if (rowEl) {
+            rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const inputEl = document.getElementById(`due-input-${matched.id}`) as HTMLInputElement | null;
+            if (inputEl) {
+              inputEl.focus();
+              inputEl.select();
+            }
+          }
+        }, 250);
+      }
+    }
+  }, [isOpen, initialTargetDueNo, customerDues]);
+
+  const handleDueNumberChange = (dueId: string, val: string) => {
+    const sanitized = sanitizeDueNumberInput(val);
+    setDueNumberInputs((prev) => ({ ...prev, [dueId]: sanitized }));
+    setDueNumberErrors((prev) => {
+      const copy = { ...prev };
+      delete copy[dueId];
+      return copy;
+    });
+    setDueSaveErrorMsg('');
+    setDueSaveSuccessMsg('');
+  };
+
+  const handleClearDueNumber = (dueId: string) => {
+    setDueNumberInputs((prev) => ({ ...prev, [dueId]: '' }));
+    setDueNumberErrors((prev) => {
+      const copy = { ...prev };
+      delete copy[dueId];
+      return copy;
+    });
+    setDueSaveErrorMsg('');
+  };
+
+  const handleAutoFillDueNumber = (dueId: string) => {
+    const nextFree = getNextFreeAutomaticDueNumber(db);
+    setDueNumberInputs((prev) => ({ ...prev, [dueId]: nextFree.dueNo }));
+    setDueNumberErrors((prev) => {
+      const copy = { ...prev };
+      delete copy[dueId];
+      return copy;
+    });
+    setDueSaveErrorMsg('');
+  };
+
+  const handleSaveDueNumbersOnly = () => {
+    if (!customer) return;
+    setDueSaveErrorMsg('');
+    setDueSaveSuccessMsg('');
+    const errors: Record<string, string> = {};
+
+    // 1. Resolve effective values
+    // If user left input empty, treat as "keep current" (due.referenceId)
+    const effectiveMap: Record<string, string> = {};
+    customerDues.forEach((due) => {
+      const typed = dueNumberInputs[due.id] !== undefined ? dueNumberInputs[due.id].trim() : (due.referenceId || '');
+      effectiveMap[due.id] = typed || (due.referenceId || '');
+    });
+
+    // 2. Intra-popup duplicate check: check across all rows of this customer
+    const seenNos: Record<string, string> = {}; // norm -> dueId
+    for (const due of customerDues) {
+      const effNo = effectiveMap[due.id];
+      if (effNo) {
+        const norm = normalizeDueNumber(effNo);
+        if (seenNos[norm]) {
+          const firstId = seenNos[norm];
+          errors[due.id] = 'একই কাস্টমারের দুটি বাকিতে একই নম্বর হতে পারবে না';
+          errors[firstId] = 'একই কাস্টমারের দুটি বাকিতে একই নম্বর হতে পারবে না';
+        } else {
+          seenNos[norm] = due.id;
+        }
+      }
+    }
+
+    // 3. External duplicate check (belonging to another customer or deleted/voided due)
+    for (const due of customerDues) {
+      const effNo = effectiveMap[due.id];
+      if (effNo && !errors[due.id]) {
+        const dup = findDueNumberDuplicate(effNo, db, {
+          excludeCustomerId: customer.id,
+          excludeLedgerId: due.id,
+        });
+        if (dup.isDuplicate) {
+          errors[due.id] = dup.message || 'এই বাকি নম্বরটি অন্য কাস্টমারে ব্যবহৃত হচ্ছে';
+        }
+      }
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setDueNumberErrors(errors);
+      setDueSaveErrorMsg('অনুগ্রহ করে চিহ্নিত বাকি নম্বরগুলোর সমস্যা সংশোধন করুন');
+      return;
+    }
+
+    // 4. Collect changed updates
+    const updates: { ledgerId: string; oldDueNo: string; newDueNo: string }[] = [];
+    customerDues.forEach((due) => {
+      const effNo = effectiveMap[due.id];
+      if (effNo && effNo !== (due.referenceId || '')) {
+        updates.push({
+          ledgerId: due.id,
+          oldDueNo: due.referenceId || '',
+          newDueNo: effNo,
+        });
+      }
+    });
+
+    if (updates.length === 0) {
+      setDueSaveSuccessMsg('বাকি নম্বরে কোনো পরিবর্তন করা হয়নি');
+      return;
+    }
+
+    setIsSavingDueNumbers(true);
+    try {
+      const res = updateCustomerDueNumbers(
+        customer.id,
+        updates,
+        'কাস্টমার এডিট পপআপ থেকে বাকি নং পরিবর্তন'
+      );
+      if (!res.success) {
+        setDueSaveErrorMsg(res.error || 'বাকি নম্বর সংরক্ষণ করতে ব্যর্থ হয়েছে');
+        setIsSavingDueNumbers(false);
+        return;
+      }
+
+      setDueSaveSuccessMsg('✅ বাকি নম্বর সফলভাবে আপডেট করা হয়েছে!');
+      if (onSuccess) {
+        onSuccess(`কাস্টমার "${customer.shopName || customer.name}"-এর বাকি নম্বর সফলভাবে সেভ করা হয়েছে!`);
+      }
+      setTimeout(() => {
+        setDueSaveSuccessMsg('');
+      }, 5000);
+    } catch (err: any) {
+      setDueSaveErrorMsg(`ত্রুটি: ${err.message || 'অজানা সমস্যা'}`);
+    } finally {
+      setIsSavingDueNumbers(false);
+    }
+  };
 
   if (!isOpen || !customer) return null;
 
@@ -401,6 +630,165 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
                 />
               </div>
             </div>
+          </div>
+
+          {/* Section: Customer Dues List & Due Number Editing (No PIN Required) */}
+          <div className="rounded-xl border border-amber-200 bg-amber-50/30 p-4 space-y-3.5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-amber-200/60">
+              <div className="flex items-center gap-2">
+                <Hash className="h-4 w-4 text-amber-700 shrink-0" />
+                <div>
+                  <h4 className="font-bold text-amber-950 font-bengali text-xs sm:text-sm">
+                    এই কাস্টমারের বাকির তালিকা (Due Numbers)
+                  </h4>
+                  <p className="text-[11px] text-amber-800/80 font-bengali">
+                    খাতার নম্বর অনুযায়ী বাকি নং পরিবর্তন বা অদলবদল (Swap) করুন
+                  </p>
+                </div>
+              </div>
+              <span className="self-start sm:self-auto text-[10.5px] bg-emerald-100 text-emerald-800 font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                পিন প্রয়োজন নেই
+              </span>
+            </div>
+
+            {/* Success / Error Banners for Due Numbers */}
+            {dueSaveSuccessMsg && (
+              <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-900 font-bold flex items-center gap-2 animate-in fade-in">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>{dueSaveSuccessMsg}</span>
+              </div>
+            )}
+            {dueSaveErrorMsg && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-800 font-bold flex items-center gap-2 animate-in fade-in">
+                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{dueSaveErrorMsg}</span>
+              </div>
+            )}
+
+            {customerDues.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-amber-200 bg-white/70 py-6 px-4 text-center text-xs text-slate-500 font-bengali">
+                এই কাস্টমারের কোনো বাকির এন্ট্রি নেই
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="overflow-x-auto max-h-64 overflow-y-auto border border-amber-200/80 rounded-xl bg-white shadow-2xs">
+                  <table className="w-full text-left text-xs border-collapse">
+                    <thead className="bg-amber-100/60 sticky top-0 z-10 text-[11px] font-bold text-amber-950 uppercase border-b border-amber-200">
+                      <tr>
+                        <th className="py-2 px-2.5 text-center w-10">ক্রমিক</th>
+                        <th className="py-2 px-3">তারিখ</th>
+                        <th className="py-2 px-3 text-right">টাকা</th>
+                        <th className="py-2 px-3">রুট</th>
+                        <th className="py-2 px-3 min-w-[170px]">বাকি নং</th>
+                        <th className="py-2 px-2.5 text-center">অবস্থা</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100/60">
+                      {customerDues.map((due, idx) => {
+                        const inputVal = dueNumberInputs[due.id] !== undefined ? dueNumberInputs[due.id] : (due.referenceId || '');
+                        const rowError = dueNumberErrors[due.id];
+                        const isSettled = due.calculatedStatus === 'settled';
+                        const isPartial = due.calculatedStatus === 'partial';
+
+                        return (
+                          <tr
+                            key={due.id}
+                            id={`customer-due-row-${due.id}`}
+                            className="hover:bg-amber-50/50 transition-colors"
+                          >
+                            <td className="py-2.5 px-2.5 text-center font-mono font-medium text-slate-500">
+                              {toBengaliDigits(idx + 1)}
+                            </td>
+                            <td className="py-2.5 px-3 whitespace-nowrap text-slate-700 font-medium">
+                              {formatDate(due.date)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono font-bold text-rose-700">
+                              {currency} {(due.debit || 0).toLocaleString()}
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-600 truncate max-w-[110px]" title={customer.route || 'রুট নেই'}>
+                              {customer.route || '-'}
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    id={`due-input-${due.id}`}
+                                    maxLength={12}
+                                    value={inputVal}
+                                    placeholder="অটো"
+                                    onChange={(e) => handleDueNumberChange(due.id, e.target.value)}
+                                    className={`w-28 sm:w-32 rounded-lg border px-2.5 py-1 text-xs font-mono font-bold text-slate-900 bg-white focus:outline-hidden ${
+                                      rowError
+                                        ? 'border-rose-400 bg-rose-50/50 focus:border-rose-600'
+                                        : 'border-slate-300 focus:border-amber-500'
+                                    }`}
+                                    title="বাকি নং (সর্বোচ্চ ১২ অক্ষর, স্পেস ছাড়া)"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleClearDueNumber(due.id)}
+                                    className="px-2 py-1 text-[10.5px] font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg transition-colors cursor-pointer shrink-0"
+                                    title="নম্বর ফাঁকা করুন (নতুন নম্বর টাইপ করতে বা অদলবদল করতে)"
+                                  >
+                                    ফাঁকা
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAutoFillDueNumber(due.id)}
+                                    className="p-1 text-amber-700 hover:text-amber-900 hover:bg-amber-100 rounded-lg border border-amber-200/60 transition-colors cursor-pointer shrink-0"
+                                    title="পরবর্তী অটো নম্বর দিন"
+                                  >
+                                    <Sparkles className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                                {rowError && (
+                                  <p className="text-[10px] text-rose-600 font-bold leading-tight">
+                                    {rowError}
+                                  </p>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                              {isSettled ? (
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  পরিশোধিত
+                                </span>
+                              ) : isPartial ? (
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                  আংশিক জমা
+                                </span>
+                              ) : (
+                                <span className="inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-200">
+                                  বাকি
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Save Due Numbers Only Button */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+                  <p className="text-[11px] text-slate-500 font-bengali">
+                    💡 খালি রাখলে পূর্বের নম্বর অপরিবর্তিত থাকবে। নম্বর পরিবর্তন বা অদলবদলে পিন প্রয়োজন নেই।
+                  </p>
+                  <button
+                    type="button"
+                    id="save-customer-due-numbers-btn"
+                    onClick={handleSaveDueNumbersOnly}
+                    disabled={isSavingDueNumbers}
+                    className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition-colors cursor-pointer disabled:opacity-50 active:scale-95 shrink-0"
+                  >
+                    <Check className="h-4 w-4" />
+                    <span>{isSavingDueNumbers ? 'সেভ হচ্ছে...' : 'নম্বর সেভ করুন'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Section 2: Money Figure Correction (PIN Required) */}

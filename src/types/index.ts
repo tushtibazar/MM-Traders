@@ -382,6 +382,7 @@ export interface DueNumberAuditEntry {
   customerId?: string;
   customerName?: string;
   sheetId?: string;
+  ledgerId?: string;
   date: string;
   changedAt: string;
   changedBy: string;

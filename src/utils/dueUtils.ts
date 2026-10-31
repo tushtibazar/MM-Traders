@@ -141,6 +141,7 @@ export function matchesDueNumber(targetDueNo?: string | null, searchInput?: stri
 export interface DueNumberUsageInfo {
   normalized: string;
   raw: string;
+  customerId?: string;
   customerName?: string;
   date?: string;
   sourceType: 'ledger' | 'sheet' | 'audit_reserved' | 'unsaved_row';
@@ -156,18 +157,26 @@ export function getAllUsedDueNumbers(
     excludeLedgerId?: string;
     excludeSheetId?: string;
     excludeRowId?: string;
+    excludeDueNos?: string[];
+    excludeCustomerId?: string;
   }
 ): Map<string, DueNumberUsageInfo> {
   const map = new Map<string, DueNumberUsageInfo>();
+  const excludeNormSet = new Set<string>(
+    (options?.excludeDueNos || []).map((n) => normalizeDueNumber(n)).filter(Boolean)
+  );
 
   // 1. Customer Ledgers
   if (Array.isArray(db.customerLedgers)) {
     for (const entry of db.customerLedgers) {
       if (options?.excludeLedgerId && entry.id === options.excludeLedgerId) continue;
+      if (options?.excludeCustomerId && entry.customerId === options.excludeCustomerId) continue;
+      if (entry.status === 'voided') continue; // Handled via audit trail if deleted
+
       const refDueNo = entry.dueNo || (entry.referenceId && (entry.referenceId.startsWith('DUE-') || /^[0-9]+$/.test(entry.referenceId)) ? entry.referenceId : '');
       if (refDueNo) {
         const norm = normalizeDueNumber(refDueNo);
-        if (norm && !map.has(norm)) {
+        if (norm && !excludeNormSet.has(norm) && !map.has(norm)) {
           let custName = entry.customerName;
           if (!custName && entry.customerId && Array.isArray(db.customers)) {
             const c = db.customers.find((cust) => cust.id === entry.customerId);
@@ -176,6 +185,7 @@ export function getAllUsedDueNumbers(
           map.set(norm, {
             normalized: norm,
             raw: refDueNo,
+            customerId: entry.customerId,
             customerName: custName,
             date: entry.date,
             sourceType: 'ledger',
@@ -196,12 +206,14 @@ export function getAllUsedDueNumbers(
       ];
       for (const row of combinedEntries) {
         if (options?.excludeRowId && row.id === options.excludeRowId) continue;
+        if (options?.excludeCustomerId && row.customerId === options.excludeCustomerId) continue;
         if (row.dueNo) {
           const norm = normalizeDueNumber(row.dueNo);
-          if (norm && !map.has(norm)) {
+          if (norm && !excludeNormSet.has(norm) && !map.has(norm)) {
             map.set(norm, {
               normalized: norm,
               raw: row.dueNo,
+              customerId: row.customerId,
               customerName: row.customerName || row.shopName,
               date: sheet.date,
               sourceType: 'sheet',
@@ -213,22 +225,25 @@ export function getAllUsedDueNumbers(
     }
   }
 
-  // 3. Audit trail (includes voided / deleted due numbers which are reserved)
+  // 3. Audit trail: deleted/voided due numbers remain strictly reserved
   if (Array.isArray(db.dueNumberAuditTrail)) {
     for (const trail of db.dueNumberAuditTrail) {
-      const candidates = [trail.newDueNo, trail.oldDueNo];
-      for (const cand of candidates) {
-        if (!cand) continue;
-        const norm = normalizeDueNumber(cand);
-        if (norm && !map.has(norm)) {
-          map.set(norm, {
-            normalized: norm,
-            raw: cand,
-            customerName: trail.customerName,
-            date: trail.changedAt ? trail.changedAt.split('T')[0] : (trail.date || undefined),
-            sourceType: 'audit_reserved',
-            sourceId: trail.id,
-          });
+      if (trail.isDeleted) {
+        const candidates = [trail.newDueNo, trail.oldDueNo];
+        for (const cand of candidates) {
+          if (!cand) continue;
+          const norm = normalizeDueNumber(cand);
+          if (norm && !map.has(norm)) {
+            map.set(norm, {
+              normalized: norm,
+              raw: cand,
+              customerId: trail.customerId,
+              customerName: trail.customerName,
+              date: trail.changedAt ? trail.changedAt.split('T')[0] : (trail.date || undefined),
+              sourceType: 'audit_reserved',
+              sourceId: trail.id,
+            });
+          }
         }
       }
     }
@@ -248,6 +263,8 @@ export function findDueNumberDuplicate(
     excludeLedgerId?: string;
     excludeSheetId?: string;
     excludeRowId?: string;
+    excludeDueNos?: string[];
+    excludeCustomerId?: string;
     currentUnsavedRows?: Array<{ id: string; dueNo?: string; customerName?: string }>;
   }
 ): { isDuplicate: boolean; message?: string; existingCustomerName?: string; existingDate?: string } {
@@ -279,10 +296,20 @@ export function findDueNumberDuplicate(
     excludeLedgerId: options?.excludeLedgerId,
     excludeSheetId: options?.excludeSheetId,
     excludeRowId: options?.excludeRowId,
+    excludeDueNos: options?.excludeDueNos,
+    excludeCustomerId: options?.excludeCustomerId,
   });
 
   const existing = usedMap.get(normCandidate);
   if (existing) {
+    if (existing.sourceType === 'audit_reserved') {
+      return {
+        isDuplicate: true,
+        message: `এই নম্বরটি পূর্বে বাতিল বা মুছে ফেলা বাকিতে সংরক্ষিত রয়েছে`,
+        existingCustomerName: existing.customerName,
+        existingDate: existing.date,
+      };
+    }
     const custName = existing.customerName || 'অন্য কাস্টমার';
     const dateFormatted = existing.date ? formatDate(existing.date) : 'আগে';
     return {

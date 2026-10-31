@@ -16,6 +16,8 @@ import {
   AlertCircle,
   Edit,
   CheckCircle2,
+  Check,
+  X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Customer, CustomerLedgerEntry } from '../../types';
@@ -105,6 +107,55 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
     const free = getNextFreeAutomaticDueNumber(db);
     setDueNoEditValue(free.dueNo);
     setDueNoEditError('');
+  };
+
+  // Inline Due Number Editing state
+  const [inlineEditingLedgerId, setInlineEditingLedgerId] = useState<string | null>(null);
+  const [inlineDueValue, setInlineDueValue] = useState<string>('');
+  const [inlineDueError, setInlineDueError] = useState<string>('');
+
+  const handleStartInlineEdit = (entry: CustomerLedgerEntry) => {
+    setInlineEditingLedgerId(entry.id);
+    setInlineDueValue(entry.referenceId || '');
+    setInlineDueError('');
+  };
+
+  const handleCancelInlineEdit = () => {
+    setInlineEditingLedgerId(null);
+    setInlineDueValue('');
+    setInlineDueError('');
+  };
+
+  const handleSaveInlineEdit = (entry: CustomerLedgerEntry) => {
+    const sanitized = sanitizeDueNumberInput(inlineDueValue);
+    if (!sanitized) {
+      setInlineDueError('বাকি নং দিন');
+      return;
+    }
+    const dup = findDueNumberDuplicate(sanitized, db, {
+      excludeCustomerId: entry.customerId,
+      excludeLedgerId: entry.id,
+    });
+    if (dup.isDuplicate) {
+      setInlineDueError(dup.message || 'ডুপ্লিকেট নম্বর');
+      return;
+    }
+    const res = updateDueNumber(
+      { ledgerId: entry.id, oldDueNo: entry.referenceId },
+      sanitized,
+      'কাস্টমার খতিয়ান লাইন থেকে ইনলাইন পরিবর্তন'
+    );
+    if (!res.success) {
+      setInlineDueError(res.error || 'ব্যর্থ হয়েছে');
+      return;
+    }
+    setLedgerSuccessMsg(`বাকি নম্বর সফলভাবে '${sanitized}'-এ পরিবর্তন করা হয়েছে`);
+    setInlineEditingLedgerId(null);
+    setInlineDueValue('');
+    setInlineDueError('');
+    setTimeout(() => {
+      setLedgerSuccessMsg('');
+    }, 4000);
   };
 
   // Customer transactions from ledger
@@ -422,15 +473,83 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                       </div>
                     </td>
                     <td className="py-2.5 px-3">
-                      {entry.referenceId ? (
+                      {inlineEditingLedgerId === entry.id ? (
+                        <div className="flex flex-col gap-1">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="text"
+                              autoFocus
+                              maxLength={12}
+                              value={inlineDueValue}
+                              placeholder="বাকি নং"
+                              onChange={(e) => {
+                                const s = sanitizeDueNumberInput(e.target.value);
+                                setInlineDueValue(s);
+                                if (s) {
+                                  const dup = findDueNumberDuplicate(s, db, {
+                                    excludeCustomerId: entry.customerId,
+                                    excludeLedgerId: entry.id,
+                                  });
+                                  setInlineDueError(dup.isDuplicate ? (dup.message || 'ডুপ্লিকেট') : '');
+                                } else {
+                                  setInlineDueError('');
+                                }
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleSaveInlineEdit(entry);
+                                } else if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  handleCancelInlineEdit();
+                                }
+                              }}
+                              className={`w-24 sm:w-28 rounded border px-1.5 py-0.5 text-xs font-mono font-bold text-slate-900 bg-white focus:outline-hidden ${
+                                inlineDueError ? 'border-rose-400 bg-rose-50' : 'border-amber-400 focus:border-amber-600'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveInlineEdit(entry)}
+                              disabled={Boolean(inlineDueError) || !inlineDueValue.trim()}
+                              className="p-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 transition cursor-pointer"
+                              title="সেভ করুন (Enter)"
+                            >
+                              <Check className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCancelInlineEdit}
+                              className="p-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 transition cursor-pointer"
+                              title="বাতিল (Esc)"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                          {inlineDueError && (
+                            <span className="text-[10px] text-rose-600 font-bold leading-tight">
+                              {inlineDueError}
+                            </span>
+                          )}
+                        </div>
+                      ) : entry.referenceId ? (
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono font-bold text-slate-800 text-[11px]">
+                          <button
+                            type="button"
+                            onClick={() => entry.debit > 0 && handleStartInlineEdit(entry)}
+                            className={`inline-flex items-center px-1.5 py-0.5 rounded font-mono font-bold text-[11px] transition cursor-pointer ${
+                              entry.debit > 0
+                                ? 'bg-slate-100 hover:bg-amber-100 hover:border-amber-300 border border-slate-200 text-slate-800'
+                                : 'bg-slate-100 border border-slate-200 text-slate-800 cursor-default'
+                            }`}
+                            title={entry.debit > 0 ? 'ক্লিক করে বাকি নং এডিট করুন (কোনো পিন প্রয়োজন নেই)' : 'ভাউচার নং'}
+                          >
                             {formatDueNumber(entry.referenceId)}
-                          </span>
+                          </button>
                           {entry.debit > 0 && (
                             <button
                               type="button"
-                              onClick={() => handleOpenDueNoEdit(entry)}
+                              onClick={() => handleStartInlineEdit(entry)}
                               className="p-1 rounded text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition cursor-pointer"
                               title="বাকি নং পরিবর্তন (কোনো পিন কোড প্রয়োজন নেই)"
                             >

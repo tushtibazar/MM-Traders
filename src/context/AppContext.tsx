@@ -137,6 +137,11 @@ interface AppContextType {
     newDueNo: string,
     reason?: string
   ) => { success: boolean; error?: string };
+  updateCustomerDueNumbers: (
+    customerId: string,
+    updates: Array<{ ledgerId?: string; oldDueNo: string; newDueNo: string }>,
+    reason?: string
+  ) => { success: boolean; updatedCount: number; error?: string };
 
   addProduct: (productInput: Omit<Product, 'id' | 'currentStock' | 'createdAt'>) => Product;
   updateProduct: (product: Product) => void;
@@ -1519,6 +1524,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const dup = findDueNumberDuplicate(rawClean, db, {
         excludeLedgerId: target.ledgerId,
         excludeSheetId: target.sheetId,
+        excludeDueNos: [target.oldDueNo],
       });
       if (dup.isDuplicate) {
         return { success: false, error: dup.message || 'এই নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে' };
@@ -1589,6 +1595,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerId: targetCustId,
       customerName: targetCustName,
       sheetId: target.sheetId,
+      ledgerId: target.ledgerId,
       date: new Date().toISOString().slice(0, 10),
       changedAt: new Date().toISOString(),
       changedBy: currentUser.name || 'মালিক',
@@ -1603,6 +1610,140 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     return { success: true };
+  };
+
+  const updateCustomerDueNumbers = (
+    customerId: string,
+    updates: Array<{ ledgerId?: string; oldDueNo: string; newDueNo: string }>,
+    reason?: string
+  ): { success: boolean; updatedCount: number; error?: string } => {
+    const cust = db.customers.find((c) => c.id === customerId);
+    const custName = cust ? (cust.shopName || cust.name) : 'কাস্টমার';
+
+    // Filter to changed items with non-empty numbers
+    const validChanges = updates
+      .map((u) => ({
+        ledgerId: u.ledgerId,
+        oldDueNo: u.oldDueNo.trim(),
+        newDueNo: sanitizeDueNumberInput(u.newDueNo),
+      }))
+      .filter((u) => u.newDueNo && normalizeDueNumber(u.oldDueNo) !== normalizeDueNumber(u.newDueNo));
+
+    if (validChanges.length === 0) {
+      return { success: true, updatedCount: 0 };
+    }
+
+    // 1. Check for duplicates AMONG the new numbers being saved together in this popup
+    const candidateNormSet = new Set<string>();
+    for (const u of validChanges) {
+      const norm = normalizeDueNumber(u.newDueNo);
+      if (candidateNormSet.has(norm)) {
+        return {
+          success: false,
+          updatedCount: 0,
+          error: `একই নম্বর (${u.newDueNo}) এই কাস্টমারের একাধিক বাকিতে দেওয়া হয়েছে`,
+        };
+      }
+      candidateNormSet.add(norm);
+    }
+
+    // 2. Collect all old numbers being replaced for this customer so they can be swapped without clashing
+    const oldDueNosBeingReplaced = validChanges.map((u) => u.oldDueNo);
+
+    // 3. Validate against external records (other customers, deleted reserved dues)
+    for (const u of validChanges) {
+      const dup = findDueNumberDuplicate(u.newDueNo, db, {
+        excludeLedgerId: u.ledgerId,
+        excludeCustomerId: customerId,
+        excludeDueNos: oldDueNosBeingReplaced,
+      });
+      if (dup.isDuplicate) {
+        return {
+          success: false,
+          updatedCount: 0,
+          error: dup.message || `নম্বর ${u.newDueNo} ইতিমধ্যে ব্যবহৃত হয়েছে`,
+        };
+      }
+    }
+
+    // 4. Perform updates
+    let updatedLedgers = [...(db.customerLedgers || [])];
+    let updatedSheets = [...(db.dailySheets || [])];
+    const newAuditEntries: DueNumberAuditEntry[] = [];
+    const today = new Date().toISOString().slice(0, 10);
+    const nowIso = new Date().toISOString();
+
+    for (const change of validChanges) {
+      const { ledgerId, oldDueNo, newDueNo } = change;
+
+      // Update matching ledgers
+      updatedLedgers = updatedLedgers.map((l) => {
+        const isMatch = (ledgerId && l.id === ledgerId) ||
+          (oldDueNo && (l.referenceId === oldDueNo || l.dueNo === oldDueNo));
+        if (isMatch) {
+          const oldRef = l.referenceId || oldDueNo;
+          const newDesc = l.description ? l.description.replace(oldRef, newDueNo) : l.description;
+          return {
+            ...l,
+            referenceId: newDueNo,
+            dueNo: newDueNo,
+            description: newDesc,
+          };
+        }
+        return l;
+      });
+
+      // Update matching daily sheets
+      updatedSheets = updatedSheets.map((s) => {
+        let sheetChanged = false;
+        const updatedTodayDue = (s.todayDueEntries || []).map((e) => {
+          if (e.dueNo === oldDueNo) {
+            sheetChanged = true;
+            return { ...e, dueNo: newDueNo };
+          }
+          return e;
+        });
+        const updatedDueCollection = (s.dueCollectionEntries || []).map((e) => {
+          if (e.dueNo === oldDueNo) {
+            sheetChanged = true;
+            return { ...e, dueNo: newDueNo };
+          }
+          return e;
+        });
+        if (sheetChanged) {
+          return {
+            ...s,
+            todayDueEntries: updatedTodayDue,
+            dueCollectionEntries: updatedDueCollection,
+            updatedAt: nowIso,
+          };
+        }
+        return s;
+      });
+
+      // Create audit trail entry
+      newAuditEntries.push({
+        id: `audit-due-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        oldDueNo,
+        newDueNo,
+        ledgerId,
+        customerId,
+        customerName: custName,
+        date: today,
+        changedAt: nowIso,
+        changedBy: currentUser.name || 'মালিক',
+        reason: reason || 'কাস্টমার এডিট পপআপ থেকে বাকি নম্বর পরিবর্তন',
+      });
+    }
+
+    updateDb({
+      ...db,
+      customerLedgers: updatedLedgers,
+      dailySheets: updatedSheets,
+      dueNumberAuditTrail: [...newAuditEntries, ...(db.dueNumberAuditTrail || [])],
+    });
+
+    return { success: true, updatedCount: validChanges.length };
   };
 
   // 6. PRODUCT CRUD
@@ -2622,6 +2763,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         settleDueEntry,
         voidDueEntry,
         updateDueNumber,
+        updateCustomerDueNumbers,
         addProduct,
         updateProduct,
         deleteProduct,

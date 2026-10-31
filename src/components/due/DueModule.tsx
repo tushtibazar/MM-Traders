@@ -108,7 +108,14 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
   // Customer edit state
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
+  const [customerEditTargetDueNo, setCustomerEditTargetDueNo] = useState<string | undefined>(undefined);
   const [isCustomerEditModalOpen, setIsCustomerEditModalOpen] = useState<boolean>(false);
+
+  const handleOpenCustomerEdit = (cust: Customer, targetDueNo?: string) => {
+    setCustomerToEdit(cust);
+    setCustomerEditTargetDueNo(targetDueNo);
+    setIsCustomerEditModalOpen(true);
+  };
 
   // Sub-tabs: 'customers' | 'search_collect' | 'collection_history' | 'due_vouchers'
   const [activeTab, setActiveTab] = useState<
@@ -283,6 +290,32 @@ export const DueModule: React.FC<DueModuleProps> = ({
       (s.todayDueEntries || []).forEach((e) => {
         if (e.customerId && e.dueNo && !map.has(e.customerId)) {
           map.set(e.customerId, e.dueNo);
+        }
+      });
+    });
+    return map;
+  }, [db.customerLedgers, db.dailySheets]);
+
+  // List of all active/distinct due numbers for each customer (for clickable chips)
+  const customerDueNumbersListMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    (db.customerLedgers || []).forEach((l) => {
+      if (l.customerId && l.referenceId && Boolean(l.debit && l.debit > 0)) {
+        const existing = map.get(l.customerId) || [];
+        if (!existing.includes(l.referenceId)) {
+          existing.push(l.referenceId);
+          map.set(l.customerId, existing);
+        }
+      }
+    });
+    (db.dailySheets || []).forEach((s) => {
+      (s.todayDueEntries || []).forEach((e) => {
+        if (e.customerId && e.dueNo) {
+          const existing = map.get(e.customerId) || [];
+          if (!existing.includes(e.dueNo)) {
+            existing.push(e.dueNo);
+            map.set(e.customerId, existing);
+          }
         }
       });
     });
@@ -1237,11 +1270,29 @@ export const DueModule: React.FC<DueModuleProps> = ({
                           <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
                             <Store className="h-3.5 w-3.5 text-slate-400 shrink-0" />
                             <span>{cust.shopName}</span>
-                            {customerDueNumberMap.get(cust.id) && (
-                              <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200" title="বাকি নং">
-                                {formatDueNumber(customerDueNumberMap.get(cust.id))}
-                              </span>
-                            )}
+                            {/* Clickable Due Number Chips */}
+                            {(() => {
+                              const dueNos = (customerDueNumbersListMap.get(cust.id) || []).slice();
+                              if (dueNos.length === 0 && customerDueNumberMap.get(cust.id)) {
+                                dueNos.push(customerDueNumberMap.get(cust.id)!);
+                              }
+                              if (dueNos.length === 0) return null;
+                              return (
+                                <div className="flex items-center gap-1 flex-wrap">
+                                  {dueNos.map((no) => (
+                                    <button
+                                      key={no}
+                                      type="button"
+                                      onClick={() => handleOpenCustomerEdit(cust, no)}
+                                      className="inline-flex items-center font-mono text-[10px] font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 px-1.5 py-0.5 rounded border border-amber-200 transition-colors cursor-pointer"
+                                      title={`বাকি নং ${formatDueNumber(no)} — ক্লিক করে এডিট পপআপে যান`}
+                                    >
+                                      {formatDueNumber(no)}
+                                    </button>
+                                  ))}
+                                </div>
+                              );
+                            })()}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5">{cust.name}</p>
                         </td>
@@ -1328,8 +1379,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                             <button
                               id={`edit-customer-btn-${cust.id}`}
                               onClick={() => {
-                                setCustomerToEdit(cust);
-                                setIsCustomerEditModalOpen(true);
+                                handleOpenCustomerEdit(cust);
                               }}
                               className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 hover:border-amber-400 transition cursor-pointer"
                               title={`${cust.shopName || cust.name}-এর তথ্য ও হিসাব এডিট করুন`}
@@ -2240,9 +2290,11 @@ export const DueModule: React.FC<DueModuleProps> = ({
       <CustomerEditModal
         isOpen={isCustomerEditModalOpen}
         customer={customerToEdit}
+        initialTargetDueNo={customerEditTargetDueNo}
         onClose={() => {
           setIsCustomerEditModalOpen(false);
           setCustomerToEdit(null);
+          setCustomerEditTargetDueNo(undefined);
         }}
         onSuccess={(msg) => {
           setCollectSuccessMsg(msg);
