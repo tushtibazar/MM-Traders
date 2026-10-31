@@ -45,6 +45,7 @@ export const INITIAL_SETTINGS: BusinessSettings = {
   securityPin: '1234',
   customRoutes: DEFAULT_ROUTES,
   dsrList: [],
+  nextDueNumberCounter: 1,
   businessPosition: {
     stockAdjustment: 0,
     stockNote: '',
@@ -174,6 +175,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
     deliveryRepresentatives: [],
     doPayments: [],
     summaryProductOrder: [],
+    dueNumberAuditTrail: [],
     settings: {
       businessName: preservedSettings?.businessName || INITIAL_SETTINGS.businessName,
       subtitle: preservedSettings?.subtitle || INITIAL_SETTINGS.subtitle,
@@ -187,6 +189,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
       securityPin: preservedSettings?.securityPin || '1234',
       customRoutes: [],
       dsrList: [],
+      nextDueNumberCounter: 1,
       businessPosition: {
         stockAdjustment: 0,
         stockNote: '',
@@ -240,6 +243,7 @@ export function getInitialDatabase(): AppDatabase {
     deliveryRepresentatives: INITIAL_DSRS,
     doPayments: [],
     summaryProductOrder: [],
+    dueNumberAuditTrail: [],
     settings: INITIAL_SETTINGS,
     lastUpdated: new Date().toISOString(),
   };
@@ -305,6 +309,12 @@ export class StorageService {
           }
           if (!Array.isArray(parsed.summaryProductOrder)) {
             parsed.summaryProductOrder = parsed.settings?.summaryProductOrder || [];
+          }
+          if (!Array.isArray(parsed.dueNumberAuditTrail)) {
+            parsed.dueNumberAuditTrail = [];
+          }
+          if (!parsed.settings.nextDueNumberCounter || parsed.settings.nextDueNumberCounter < 1) {
+            parsed.settings.nextDueNumberCounter = 1;
           }
           if (!Array.isArray(parsed.settings.customRoutes)) {
             parsed.settings.customRoutes = [];
@@ -494,9 +504,15 @@ export function validateBackupJson(jsonStr: string): BackupValidationResult {
       summaryProductOrder: Array.isArray(parsed.summaryProductOrder)
         ? parsed.summaryProductOrder
         : (parsed.settings?.summaryProductOrder || currentDb.summaryProductOrder || []),
+      dueNumberAuditTrail: Array.isArray(parsed.dueNumberAuditTrail)
+        ? parsed.dueNumberAuditTrail
+        : (currentDb.dueNumberAuditTrail || []),
       settings: {
         ...currentDb.settings,
         ...parsed.settings,
+        nextDueNumberCounter: typeof parsed.settings?.nextDueNumberCounter === 'number' && parsed.settings.nextDueNumberCounter >= 1
+          ? parsed.settings.nextDueNumberCounter
+          : (currentDb.settings.nextDueNumberCounter || 1),
         businessPosition: parsed.settings?.businessPosition || currentDb.settings.businessPosition,
       },
       lastUpdated: new Date().toISOString(),

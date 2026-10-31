@@ -121,6 +121,8 @@ export interface CustomerLedgerEntry {
   date: string;
   type: 'opening' | 'sale' | 'payment' | 'return' | 'adjustment' | 'void_sale' | 'void_payment' | 'settled_due' | 'void_due';
   referenceId: string;
+  dueNo?: string;
+  customerName?: string;
   description: string;
   debit: number; // increases customer due (e.g., sales)
   credit: number; // decreases customer due (e.g., payments, returns)
@@ -272,6 +274,7 @@ export interface BusinessSettings {
   ownerPin?: string;
   businessPosition?: BusinessPositionSettings;
   summaryProductOrder?: string[];
+  nextDueNumberCounter?: number; // Starting counter for automatic sequential due numbers
 }
 
 export interface DailyAccountItem {
@@ -372,6 +375,20 @@ export interface DOPayment {
   updatedAt?: string;
 }
 
+export interface DueNumberAuditEntry {
+  id: string;
+  oldDueNo: string;
+  newDueNo: string;
+  customerId?: string;
+  customerName?: string;
+  sheetId?: string;
+  date: string;
+  changedAt: string;
+  changedBy: string;
+  isDeleted?: boolean;
+  reason?: string;
+}
+
 export interface AppDatabase {
   users: User[];
   customers: Customer[];
@@ -388,6 +405,7 @@ export interface AppDatabase {
   deliveryRepresentatives?: DeliveryRepresentative[];
   doPayments?: DOPayment[];
   summaryProductOrder?: string[];
+  dueNumberAuditTrail?: DueNumberAuditEntry[];
   settings: BusinessSettings;
   lastUpdated: string;
 }

@@ -30,7 +30,14 @@ import {
 import { useApp } from '../../context/AppContext';
 import { DEFAULT_ROUTES } from '../../services/storage';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
-import { formatDueNumber, matchesDueNumber, toEnglishDigits } from '../../utils/dueUtils';
+import {
+  formatDueNumber,
+  matchesDueNumber,
+  toEnglishDigits,
+  sanitizeDueNumberInput,
+  findDueNumberDuplicate,
+  getNextFreeAutomaticDueNumber,
+} from '../../utils/dueUtils';
 import { generateDueReportPDF } from '../../services/pdfGenerator';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
@@ -63,37 +70,15 @@ export const DueModule: React.FC<DueModuleProps> = ({
     settleDueEntry,
     voidDueEntry,
     deleteCustomer,
+    updateDueNumber,
   } = useApp();
 
   const isOwner = currentUser.role === 'owner';
   const currency = db.settings.currency || '৳';
 
-  // Helper to generate next sequential Due Number (e.g. DUE-0001, DUE-0002)
+  // Helper to generate next sequential Due Number using persistent counter & gap-free allocator
   const getNextDueNumber = () => {
-    let maxSeq = 0;
-    (db.customerLedgers || []).forEach((l) => {
-      if (l.referenceId) {
-        const eng = toEnglishDigits(l.referenceId);
-        const match = eng.match(/\d+/);
-        if (match) {
-          const num = parseInt(match[0], 10);
-          if (!isNaN(num) && num > maxSeq) maxSeq = num;
-        }
-      }
-    });
-    (db.dailySheets || []).forEach((s) => {
-      (s.todayDueEntries || []).forEach((e) => {
-        if (e.dueNo) {
-          const eng = toEnglishDigits(e.dueNo);
-          const match = eng.match(/\d+/);
-          if (match) {
-            const num = parseInt(match[0], 10);
-            if (!isNaN(num) && num > maxSeq) maxSeq = num;
-          }
-        }
-      });
-    });
-    return `DUE-${String(maxSeq + 1).padStart(4, '0')}`;
+    return getNextFreeAutomaticDueNumber(db);
   };
 
   // Manual Due Entry Modal State ("+ বাকি এন্ট্রি" - Add Existing/Opening Due)
@@ -103,11 +88,19 @@ export const DueModule: React.FC<DueModuleProps> = ({
   const [addDuePhone, setAddDuePhone] = useState<string>('');
   const [addDueRoute, setAddDueRoute] = useState<string>('');
   const [addDueAmount, setAddDueAmount] = useState<string>('');
+  const [addDueNumberInput, setAddDueNumberInput] = useState<string>('');
+  const [addDueNumberError, setAddDueNumberError] = useState<string>('');
   const [addDueDate, setAddDueDate] = useState<string>(todayDateStr);
   const [addDueNote, setAddDueNote] = useState<string>('');
   const [addDueSuccessMsg, setAddDueSuccessMsg] = useState<string>('');
   const [addDueErrorMsg, setAddDueErrorMsg] = useState<string>('');
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState<boolean>(false);
+
+  // Due Number Edit Modal State for Due Vouchers (No PIN needed)
+  const [voucherToEditDueNo, setVoucherToEditDueNo] = useState<CustomerLedgerEntry | null>(null);
+  const [editDueNoInput, setEditDueNoInput] = useState<string>('');
+  const [editDueNoError, setEditDueNoError] = useState<string>('');
+  const [editDueNoSuccess, setEditDueNoSuccess] = useState<string>('');
 
   // Customer delete state
   const [customerToDelete, setCustomerToDelete] = useState<Customer | null>(null);
@@ -471,12 +464,31 @@ export const DueModule: React.FC<DueModuleProps> = ({
       return;
     }
 
-    const dueNo = getNextDueNumber();
+    let targetDueNo = '';
+    let counterUsed: number | undefined = undefined;
+
+    if (addDueNumberInput.trim()) {
+      const sanitized = sanitizeDueNumberInput(addDueNumberInput);
+      const dup = findDueNumberDuplicate(sanitized, db);
+      if (dup.isDuplicate) {
+        setAddDueNumberError(dup.message || 'এই নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে');
+        setAddDueErrorMsg(dup.message || 'এই বাকি নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে');
+        return;
+      }
+      targetDueNo = sanitized;
+      counterUsed = undefined;
+    } else {
+      const freeAuto = getNextFreeAutomaticDueNumber(db);
+      targetDueNo = freeAuto.dueNo;
+      counterUsed = freeAuto.counterUsed;
+    }
+
     const noteText = addDueNote.trim() || 'পূর্বের বকেয়া বাকি এন্ট্রি';
 
     try {
       const res = recordCustomerDue({
-        dueNo,
+        dueNo: targetDueNo,
+        counterUsed,
         customerId: addDueSelectedCustomer ? addDueSelectedCustomer.id : undefined,
         customerName: targetName,
         shopName: targetShop,
@@ -488,7 +500,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
       });
 
       setAddDueSuccessMsg(
-        `✅ বাকি এন্ট্রি সফল হয়েছে! ভাউচার #${dueNo} | কাস্টমার: ${res.customer.shopName || res.customer.name} | পরিমাণ: ${currency} ${amt.toLocaleString()}`
+        `✅ বাকি এন্ট্রি সফল হয়েছে! ভাউচার #${targetDueNo} | কাস্টমার: ${res.customer.shopName || res.customer.name} | পরিমাণ: ${currency} ${amt.toLocaleString()}`
       );
 
       // Reset form
@@ -496,6 +508,8 @@ export const DueModule: React.FC<DueModuleProps> = ({
       setAddDueSelectedCustomer(null);
       setAddDuePhone('');
       setAddDueAmount('');
+      setAddDueNumberInput('');
+      setAddDueNumberError('');
       setAddDueRoute('');
       setAddDueDate(todayDateStr);
       setAddDueNote('');
@@ -507,6 +521,53 @@ export const DueModule: React.FC<DueModuleProps> = ({
     } catch (err: any) {
       setAddDueErrorMsg(`সংরক্ষণ করতে সমস্যা হয়েছে: ${err.message || 'অজানা ত্রুটি'}`);
     }
+  };
+
+  // -------------------------------------------------------------
+  // VOUCHER DUE NUMBER EDIT HANDLERS (No PIN needed)
+  // -------------------------------------------------------------
+  const handleOpenEditVoucherDueNo = (entry: CustomerLedgerEntry) => {
+    setVoucherToEditDueNo(entry);
+    setEditDueNoInput(entry.referenceId || '');
+    setEditDueNoError('');
+    setEditDueNoSuccess('');
+  };
+
+  const handleSaveVoucherDueNo = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!voucherToEditDueNo) return;
+    const sanitized = sanitizeDueNumberInput(editDueNoInput);
+    if (!sanitized) {
+      setEditDueNoError('অনুগ্রহ করে বাকি নম্বর দিন');
+      return;
+    }
+    const dup = findDueNumberDuplicate(sanitized, db, { excludeLedgerId: voucherToEditDueNo.id });
+    if (dup.isDuplicate) {
+      setEditDueNoError(dup.message || 'এই নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে');
+      return;
+    }
+    const result = updateDueNumber(
+      { ledgerId: voucherToEditDueNo.id, oldDueNo: voucherToEditDueNo.referenceId },
+      sanitized,
+      'বাকি ভাউচার তালিকা থেকে পরিবর্তন'
+    );
+    if (!result.success) {
+      setEditDueNoError(result.error || 'নম্বর পরিবর্তন করা যায়নি');
+      return;
+    }
+    setEditDueNoSuccess(`বাকি নম্বর সফলভাবে '${sanitized}'-এ পরিবর্তন করা হয়েছে!`);
+    setTimeout(() => {
+      setVoucherToEditDueNo(null);
+      setEditDueNoInput('');
+      setEditDueNoError('');
+      setEditDueNoSuccess('');
+    }, 1200);
+  };
+
+  const handleAutoFillNextFreeForVoucher = () => {
+    const free = getNextFreeAutomaticDueNumber(db);
+    setEditDueNoInput(free.dueNo);
+    setEditDueNoError('');
   };
 
   // -------------------------------------------------------------
@@ -1976,7 +2037,21 @@ export const DueModule: React.FC<DueModuleProps> = ({
 
                         {/* Voucher / Ref */}
                         <td className="py-3 px-3 font-mono font-bold text-slate-900">
-                          {entry.referenceId ? formatDueNumber(entry.referenceId) : entry.id}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="bg-slate-100 text-slate-900 px-1.5 py-0.5 rounded border border-slate-200">
+                              {entry.referenceId ? formatDueNumber(entry.referenceId) : entry.id}
+                            </span>
+                            {isOwner && entry.referenceId && (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditVoucherDueNo(entry)}
+                                className="p-1 rounded text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition cursor-pointer"
+                                title="বাকি নং পরিবর্তন করুন (কোনো পিন কোড প্রয়োজন নেই)"
+                              >
+                                <Edit className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
                         </td>
 
                         {/* Customer / Shop */}
@@ -2420,12 +2495,12 @@ export const DueModule: React.FC<DueModuleProps> = ({
                 </p>
               </div>
 
-              {/* Field 4 & 5: Amount and Date (in 2 cols) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Field 4, 5 & 6: Amount, Due No and Date (in 3 cols on desktop) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {/* Amount */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
-                    বাকির পরিমাণ (টাকা) *
+                    বাকির পরিমাণ ({currency}) *
                   </label>
                   <input
                     type="number"
@@ -2435,7 +2510,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                     value={addDueAmount}
                     onChange={(e) => setAddDueAmount(e.target.value)}
                     placeholder="যেমন: 5000"
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-rose-700 focus:border-rose-500 focus:outline-none font-mono"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-rose-700 focus:border-rose-500 focus:outline-none font-mono"
                   />
                   {addDueAmount && !isNaN(parseFloat(addDueAmount)) && (
                     <p className="mt-0.5 text-[11px] font-semibold text-rose-600">
@@ -2444,13 +2519,63 @@ export const DueModule: React.FC<DueModuleProps> = ({
                   )}
                 </div>
 
+                {/* বাকি নং (Editable with 'অটো' placeholder & duplicate check) */}
+                <div className="relative">
+                  <label className="block text-xs font-bold text-slate-700 mb-1 font-bengali">
+                    বাকি নং
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={12}
+                    value={addDueNumberInput}
+                    onChange={(e) => {
+                      const sanitized = sanitizeDueNumberInput(e.target.value);
+                      setAddDueNumberInput(sanitized);
+                      if (sanitized) {
+                        const dup = findDueNumberDuplicate(sanitized, db);
+                        setAddDueNumberError(dup.isDuplicate ? (dup.message || 'ডুপ্লিকেট নম্বর') : '');
+                      } else {
+                        setAddDueNumberError('');
+                      }
+                    }}
+                    placeholder="অটো"
+                    className={`w-full rounded-xl border px-3 py-2 text-xs font-mono font-bold focus:outline-none transition-colors ${
+                      addDueNumberError
+                        ? 'border-rose-500 bg-rose-50 text-rose-900 focus:ring-1 focus:ring-rose-500'
+                        : 'border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:border-rose-500'
+                    }`}
+                  />
+                  {addDueNumberError ? (
+                    <div className="mt-1">
+                      <p className="text-[10px] text-rose-600 font-semibold leading-tight mb-1">
+                        {addDueNumberError}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const free = getNextFreeAutomaticDueNumber(db);
+                          setAddDueNumberInput(free.dueNo);
+                          setAddDueNumberError('');
+                        }}
+                        className="text-[10px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded border border-amber-300 cursor-pointer"
+                      >
+                        পরবর্তী ফাঁকা নম্বর বসান
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="mt-0.5 text-[10px] text-slate-400">
+                      খালি রাখলে স্বয়ংক্রিয় বসবে
+                    </p>
+                  )}
+                </div>
+
                 {/* Date */}
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block text-xs font-bold text-slate-700 font-bengali">
-                      তারিখ (Date) *
+                      তারিখ *
                     </label>
-                    <span className="text-[11px] font-bold font-mono text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                    <span className="text-[10px] font-bold font-mono text-rose-700 bg-rose-50 px-1 py-0.2 rounded border border-rose-200">
                       {formatDate(addDueDate)}
                     </span>
                   </div>
@@ -2459,11 +2584,8 @@ export const DueModule: React.FC<DueModuleProps> = ({
                     required
                     value={addDueDate}
                     onChange={(e) => setAddDueDate(e.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs text-slate-900 focus:border-rose-500 focus:outline-none"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 focus:border-rose-500 focus:outline-none"
                   />
-                  <p className="mt-0.5 text-[10.5px] text-slate-400">
-                    পূর্বের কোনো তারিখের বাকি হলে তারিখটি পরিবর্তন করে দিতে পারেন।
-                  </p>
                 </div>
               </div>
 
@@ -2505,6 +2627,141 @@ export const DueModule: React.FC<DueModuleProps> = ({
                 >
                   <Plus className="h-4 w-4" />
                   <span>বাকি সংরক্ষণ করুন</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 7. Due Number Edit Modal (No PIN needed, auto audit logged) */}
+      {voucherToEditDueNo && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <Edit className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">বাকি নং পরিবর্তন (Edit Due No)</h3>
+                  <p className="text-[11px] text-slate-500">কোনো পিন কোড প্রয়োজন নেই</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setVoucherToEditDueNo(null);
+                  setEditDueNoInput('');
+                  setEditDueNoError('');
+                  setEditDueNoSuccess('');
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {editDueNoSuccess && (
+              <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>{editDueNoSuccess}</span>
+              </div>
+            )}
+
+            {editDueNoError && (
+              <div className="mb-3 rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-800 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{editDueNoError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveVoucherDueNo} className="space-y-4">
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">বর্তমান বাকি নং:</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {formatDueNumber(voucherToEditDueNo.referenceId || voucherToEditDueNo.id)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">কাস্টমার:</span>
+                  <span className="font-semibold text-slate-800">
+                    {db.customers.find((c) => c.id === voucherToEditDueNo.customerId)?.shopName ||
+                      voucherToEditDueNo.customerName ||
+                      'কাস্টমার'}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">বাকির পরিমাণ:</span>
+                  <span className="font-mono font-bold text-rose-700">
+                    {currency} {voucherToEditDueNo.debit.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  নতুন বাকি নং (New Due Number) *
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    maxLength={12}
+                    required
+                    value={editDueNoInput}
+                    onChange={(e) => {
+                      const sanitized = sanitizeDueNumberInput(e.target.value);
+                      setEditDueNoInput(sanitized);
+                      if (sanitized) {
+                        const dup = findDueNumberDuplicate(sanitized, db, {
+                          excludeLedgerId: voucherToEditDueNo.id,
+                        });
+                        setEditDueNoError(dup.isDuplicate ? (dup.message || 'ডুপ্লিকেট নম্বর') : '');
+                      } else {
+                        setEditDueNoError('');
+                      }
+                    }}
+                    placeholder="যেমন: 125, A-45, DUE-0125"
+                    className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:border-amber-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAutoFillNextFreeForVoucher}
+                    className="px-2.5 py-2 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-xl border border-amber-300 transition whitespace-nowrap cursor-pointer"
+                    title="পরবর্তী ফাঁকা স্বয়ংক্রিয় নম্বর বসান"
+                  >
+                    ফাঁকা নম্বর
+                  </button>
+                </div>
+                <p className="mt-1 text-[10.5px] text-slate-400">
+                  সর্বোচ্চ ১২ অক্ষর, স্পেস ছাড়া। বাংলা সংখ্যা লিখলে স্বয়ংক্রিয় ইংরেজি হবে।
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-amber-50/70 border border-amber-200 p-2.5 text-[11px] text-amber-900">
+                ℹ️ বাকি নম্বর পরিবর্তনে টাকার পরিমাণ পরিবর্তন হয় না। পরিবর্তনের সম্পূর্ণ ইতিহাস অডিট ট্রেইলে সংরক্ষিত থাকবে।
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVoucherToEditDueNo(null);
+                    setEditDueNoInput('');
+                    setEditDueNoError('');
+                    setEditDueNoSuccess('');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={Boolean(editDueNoError) || !editDueNoInput.trim()}
+                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition disabled:opacity-40 cursor-pointer"
+                >
+                  নম্বর পরিবর্তন করুন
                 </button>
               </div>
             </form>

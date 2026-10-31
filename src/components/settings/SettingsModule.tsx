@@ -42,6 +42,7 @@ import {
 } from '../../services/localBackupFolder';
 import { PinPromptModal } from '../modals/PinPromptModal';
 import { formatDate } from '../../utils/dateUtils';
+import { findDueNumberDuplicate, toEnglishDigits } from '../../utils/dueUtils';
 
 export const SettingsModule: React.FC = () => {
   const { db, currentUser, updateSettings, refreshFromStorage, importDatabase, addRoute, updateRoute, deleteRoute, resetToBlankData } = useApp();
@@ -53,6 +54,10 @@ export const SettingsModule: React.FC = () => {
   const [address, setAddress] = useState(db.settings.address);
   const [currency, setCurrency] = useState(db.settings.currency || '৳');
   const [securityPin, setSecurityPin] = useState(db.settings.securityPin || '1234');
+  const [nextDueNumberCounter, setNextDueNumberCounter] = useState<string>(
+    String(db.settings.nextDueNumberCounter || 1)
+  );
+  const [dueCounterWarning, setDueCounterWarning] = useState<string>('');
   const [saveMsg, setSaveMsg] = useState('');
 
   // Local Folder Auto-Save states (File System Access API)
@@ -107,6 +112,7 @@ export const SettingsModule: React.FC = () => {
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
+    const parsedCounter = parseInt(toEnglishDigits(nextDueNumberCounter), 10) || 1;
     updateSettings({
       ...db.settings,
       businessName,
@@ -116,6 +122,7 @@ export const SettingsModule: React.FC = () => {
       address,
       currency,
       securityPin: securityPin.trim() || '1234',
+      nextDueNumberCounter: Math.max(1, parsedCounter),
     });
     setSaveMsg('সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
     setTimeout(() => setSaveMsg(''), 3500);
@@ -425,6 +432,49 @@ export const SettingsModule: React.FC = () => {
                 placeholder="••••"
                 className="w-full rounded-lg border border-rose-300 bg-white px-3 py-2 font-mono font-bold tracking-widest text-sm text-slate-900 focus:border-rose-500 focus:ring-2 focus:ring-rose-200 focus:outline-none"
               />
+            </div>
+          </div>
+
+          {/* Next Automatic Due Number */}
+          <div className="sm:col-span-2 rounded-xl border border-amber-200 bg-amber-50/40 p-3.5">
+            <div className="flex items-center gap-2 mb-1.5">
+              <label className="font-bold text-slate-900">
+                পরবর্তী বাকি নম্বর (Next Automatic Due Number) *
+              </label>
+            </div>
+            <p className="text-[11px] text-slate-600 mb-2">
+              নতুন বাকিতে 'অটো' নম্বর যেখান থেকে শুরু হবে (যেমন: 1 বা 125)। ম্যানুয়ালি কোনো বড় নম্বর টাইপ করলেও এই অটো কাউন্টার লাফ দেয় না। নতুন খাতার পাতার সাথে মিলিয়ে আপনি কাউন্টার বাড়াতে বা কমাতে পারেন।
+            </p>
+            <div className="max-w-xs">
+              <input
+                type="text"
+                inputMode="numeric"
+                required
+                value={nextDueNumberCounter}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '');
+                  setNextDueNumberCounter(val);
+                  if (val) {
+                    const num = parseInt(val, 10);
+                    const formatted = `DUE-${String(num).padStart(4, '0')}`;
+                    const dup = findDueNumberDuplicate(formatted, db);
+                    if (dup.isDuplicate) {
+                      setDueCounterWarning(`সতর্কতা: নম্বর ${formatted} ইতিমধ্যে ব্যবহৃত হয়েছে। এটি সেট করলে পরবর্তীতে ফাঁকা নম্বর স্বয়ংক্রিয়ভাবে ব্যবহার করা হবে।`);
+                    } else {
+                      setDueCounterWarning('');
+                    }
+                  } else {
+                    setDueCounterWarning('');
+                  }
+                }}
+                placeholder="1"
+                className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 font-mono font-bold text-sm text-slate-900 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 focus:outline-none"
+              />
+              {dueCounterWarning && (
+                <p className="mt-1 text-[11px] font-semibold text-amber-900 bg-amber-100/70 p-1.5 rounded border border-amber-200">
+                  {dueCounterWarning}
+                </p>
+              )}
             </div>
           </div>
         </div>

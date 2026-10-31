@@ -18,8 +18,16 @@ import {
   StockTransaction,
   User,
   DOPayment,
+  DueNumberAuditEntry,
 } from '../types';
 import { StorageService, DEFAULT_ROUTES } from '../services/storage';
+import {
+  sanitizeDueNumberInput,
+  normalizeDueNumber,
+  findDueNumberDuplicate,
+  getNextFreeAutomaticDueNumber,
+  toEnglishDigits,
+} from '../utils/dueUtils';
 
 export interface UnsavedChangesGuard {
   hasUnsavedChanges: () => boolean;
@@ -70,7 +78,8 @@ interface AppContextType {
   voidPayment: (paymentId: string, reason: string) => boolean;
 
   recordCustomerDue: (input: {
-    dueNo: string;
+    dueNo?: string;
+    counterUsed?: number;
     customerId?: string;
     customerName: string;
     shopName?: string;
@@ -120,9 +129,14 @@ interface AppContextType {
   deleteLessSettlement: (id: string) => void;
   resetLessAccount: () => void;
 
-  // Due Entry Actions (Settlement / Void with trace)
+  // Due Entry Actions (Settlement / Void with trace & Due Number edit)
   settleDueEntry: (referenceId: string, note?: string) => void;
   voidDueEntry: (referenceId: string, note?: string) => void;
+  updateDueNumber: (
+    target: { ledgerId?: string; oldDueNo: string; sheetId?: string },
+    newDueNo: string,
+    reason?: string
+  ) => { success: boolean; error?: string };
 
   addProduct: (productInput: Omit<Product, 'id' | 'currentStock' | 'createdAt'>) => Product;
   updateProduct: (product: Product) => void;
@@ -843,7 +857,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // 4b. CENTRALIZED DUE FLOW FROM DAILY HISHAB
   const recordCustomerDue = (input: {
-    dueNo: string;
+    dueNo?: string;
+    counterUsed?: number;
     customerId?: string;
     customerName: string;
     shopName?: string;
@@ -901,15 +916,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedCustomers = updatedCustomers.map((c) => (c.id === customer.id ? customer : c));
     }
 
+    // Determine due number and counter update
+    let finalDueNo = input.dueNo ? sanitizeDueNumberInput(input.dueNo) : '';
+    let nextCounter = db.settings.nextDueNumberCounter || 1;
+
+    if (!finalDueNo) {
+      const auto = getNextFreeAutomaticDueNumber(db);
+      finalDueNo = auto.dueNumber;
+      nextCounter = Math.max(nextCounter, auto.counterUsed + 1);
+    } else if (input.counterUsed) {
+      nextCounter = Math.max(nextCounter, input.counterUsed + 1);
+    }
+
     const ledgerEntry: CustomerLedgerEntry = {
       id: `ledg-due-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       customerId: customer.id,
       date: input.date,
       type: 'sale',
-      referenceId: input.dueNo,
+      referenceId: finalDueNo,
+      dueNo: finalDueNo,
       description: input.note
         ? `${input.note}${input.routeOrVan ? ` (${input.routeOrVan})` : ''}`
-        : `বাকি হিসাব # ${input.dueNo}${input.routeOrVan ? ` (${input.routeOrVan})` : ''}`,
+        : `বাকি হিসাব # ${finalDueNo}${input.routeOrVan ? ` (${input.routeOrVan})` : ''}`,
       debit: amount,
       credit: 0,
       balance: customer.currentDue,
@@ -920,9 +948,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ...db,
       customers: updatedCustomers,
       customerLedgers: [...db.customerLedgers, ledgerEntry],
+      settings: {
+        ...db.settings,
+        nextDueNumberCounter: nextCounter,
+      },
     });
 
-    return { customer, dueNo: input.dueNo, ledgerEntry };
+    return { customer, dueNo: finalDueNo, ledgerEntry };
   };
 
   const recordDueCollection = (input: {
@@ -1243,10 +1275,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         : l
     );
+
+    const customerDues = (db.customerLedgers || []).filter(
+      (l) => l.customerId === customerId && (l.dueNo || (l.referenceId && l.referenceId.startsWith('DUE-')))
+    );
+    const newAuditEntries: DueNumberAuditEntry[] = customerDues.map((l) => ({
+      id: `audit-delcust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      oldDueNo: l.dueNo || l.referenceId,
+      newDueNo: l.dueNo || l.referenceId,
+      customerId,
+      customerName: customerToDelete?.name || customerToDelete?.shopName,
+      date: new Date().toISOString().slice(0, 10),
+      changedAt: new Date().toISOString(),
+      changedBy: currentUser.name || 'মালিক',
+      isDeleted: true,
+      reason: `কাস্টমার মুছে ফেলা হয়েছে (${customerToDelete?.shopName || customerToDelete?.name})`,
+    }));
+
     updateDb({
       ...db,
       customers: updatedCustomers,
       customerLedgers: updatedLedgers,
+      dueNumberAuditTrail: [...newAuditEntries, ...(db.dueNumberAuditTrail || [])],
     });
   };
 
@@ -1432,11 +1482,127 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       c.id === customer.id ? { ...c, currentDue: newDue, updatedAt: new Date().toISOString() } : c
     );
 
+    const voidAudit: DueNumberAuditEntry = {
+      id: `audit-void-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      oldDueNo: referenceId,
+      newDueNo: referenceId,
+      customerId: customer.id,
+      customerName: customer.name || customer.shopName,
+      date: today,
+      changedAt: new Date().toISOString(),
+      changedBy: currentUser.name || 'মালিক',
+      isDeleted: true,
+      reason: note || 'ভুলবশত এন্ট্রি বাতিল/মুছে ফেলা',
+    };
+
     updateDb({
       ...db,
       customers: updatedCustomers,
       customerLedgers: [...updatedLedgers, traceEntry],
+      dueNumberAuditTrail: [voidAudit, ...(db.dueNumberAuditTrail || [])],
     });
+  };
+
+  const updateDueNumber = (
+    target: { ledgerId?: string; oldDueNo: string; sheetId?: string },
+    newDueNo: string,
+    reason?: string
+  ): { success: boolean; error?: string } => {
+    const rawClean = sanitizeDueNumberInput(newDueNo);
+    if (!rawClean) {
+      return { success: false, error: 'বাকি নম্বর খালি হতে পারে না' };
+    }
+    const oldNorm = normalizeDueNumber(target.oldDueNo);
+    const newNorm = normalizeDueNumber(rawClean);
+
+    if (oldNorm !== newNorm) {
+      const dup = findDueNumberDuplicate(rawClean, db, {
+        excludeLedgerId: target.ledgerId,
+        excludeSheetId: target.sheetId,
+      });
+      if (dup.isDuplicate) {
+        return { success: false, error: dup.message || 'এই নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে' };
+      }
+    }
+
+    let targetCustId: string | undefined;
+    let targetCustName: string | undefined;
+
+    // Update matching customer ledger entries
+    const updatedLedgers = (db.customerLedgers || []).map((l) => {
+      const isMatch = (target.ledgerId && l.id === target.ledgerId) ||
+        (target.oldDueNo && (l.referenceId === target.oldDueNo || l.dueNo === target.oldDueNo));
+      if (isMatch) {
+        targetCustId = targetCustId || l.customerId;
+        targetCustName = targetCustName || l.customerName;
+        const oldRef = l.referenceId || target.oldDueNo;
+        const newDesc = l.description ? l.description.replace(oldRef, rawClean) : l.description;
+        return {
+          ...l,
+          referenceId: rawClean,
+          dueNo: rawClean,
+          description: newDesc,
+        };
+      }
+      return l;
+    });
+
+    // Update matching daily sheets
+    const updatedSheets = (db.dailySheets || []).map((s) => {
+      let sheetChanged = false;
+      const updatedTodayDue = (s.todayDueEntries || []).map((e) => {
+        if (e.dueNo === target.oldDueNo) {
+          sheetChanged = true;
+          targetCustId = targetCustId || e.customerId;
+          targetCustName = targetCustName || e.customerName;
+          return { ...e, dueNo: rawClean };
+        }
+        return e;
+      });
+      const updatedDueCollection = (s.dueCollectionEntries || []).map((e) => {
+        if (e.dueNo === target.oldDueNo) {
+          sheetChanged = true;
+          return { ...e, dueNo: rawClean };
+        }
+        return e;
+      });
+      if (sheetChanged) {
+        return {
+          ...s,
+          todayDueEntries: updatedTodayDue,
+          dueCollectionEntries: updatedDueCollection,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+      return s;
+    });
+
+    if (!targetCustName && targetCustId) {
+      const c = (db.customers || []).find((cust) => cust.id === targetCustId);
+      if (c) targetCustName = c.name || c.shopName;
+    }
+
+    const auditEntry: DueNumberAuditEntry = {
+      id: `audit-due-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      oldDueNo: target.oldDueNo,
+      newDueNo: rawClean,
+      customerId: targetCustId,
+      customerName: targetCustName,
+      sheetId: target.sheetId,
+      date: new Date().toISOString().slice(0, 10),
+      changedAt: new Date().toISOString(),
+      changedBy: currentUser.name || 'মালিক',
+      reason: reason || 'বাকি নম্বর পরিবর্তন/সংশোধন',
+    };
+
+    updateDb({
+      ...db,
+      customerLedgers: updatedLedgers,
+      dailySheets: updatedSheets,
+      dueNumberAuditTrail: [auditEntry, ...(db.dueNumberAuditTrail || [])],
+    });
+
+    return { success: true };
   };
 
   // 6. PRODUCT CRUD
@@ -1953,6 +2119,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       (l) => l.id !== `less-sheet-${sheetId}` && !(sheet.sheetNo && l.description && l.description.includes(`Daily হিসাব লেস #${sheet.sheetNo}`))
     );
 
+    // 5c. Reserve deleted due numbers in audit trail
+    const deletedDueAuditEntries: DueNumberAuditEntry[] = (sheet.todayDueEntries || [])
+      .filter((e) => e.dueNo)
+      .map((e) => ({
+        id: `audit-delsheet-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        oldDueNo: e.dueNo!,
+        newDueNo: e.dueNo!,
+        customerId: e.customerId,
+        customerName: e.customerName || e.shopName,
+        sheetId: sheet.id,
+        date: sheet.date,
+        changedAt: new Date().toISOString(),
+        changedBy: currentUser.name || 'মালিক',
+        isDeleted: true,
+        reason: `দৈনিক হিসাব শিট মুছে ফেলা হয়েছে (#${sheet.sheetNo || sheet.id})`,
+      }));
+
     // 6. Remove sheet from dailySheets and persist
     const remaining = (db.dailySheets || []).filter((s) => s.id !== sheetId);
     updateDb({
@@ -1964,6 +2147,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerLedgers: updatedLedgers,
       expenses: cleanExpenses,
       lessEntries: cleanLessEntries,
+      dueNumberAuditTrail: [...deletedDueAuditEntries, ...(db.dueNumberAuditTrail || [])],
     });
     return true;
   };
@@ -2437,6 +2621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         resetLessAccount,
         settleDueEntry,
         voidDueEntry,
+        updateDueNumber,
         addProduct,
         updateProduct,
         deleteProduct,

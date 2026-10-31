@@ -21,7 +21,12 @@ import { useApp } from '../../context/AppContext';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { generateCustomerLedgerPDF } from '../../services/pdfGenerator';
 import { formatDate } from '../../utils/dateUtils';
-import { formatDueNumber } from '../../utils/dueUtils';
+import {
+  formatDueNumber,
+  sanitizeDueNumberInput,
+  findDueNumberDuplicate,
+  getNextFreeAutomaticDueNumber,
+} from '../../utils/dueUtils';
 import { LedgerEntryEditModal } from '../modals/LedgerEntryEditModal';
 
 interface CustomerLedgerProps {
@@ -35,7 +40,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   onBackToList,
   onOpenQuickPayment,
 }) => {
-  const { db } = useApp();
+  const { db, updateDueNumber } = useApp();
   const currency = db.settings.currency || '৳';
 
   // If no customer selected, allow selecting one from dropdown
@@ -46,10 +51,61 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   const [endDate, setEndDate] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
 
-  // Edit individual due entry state
+  // Edit individual due entry state (Amount / date with PIN)
   const [entryToEdit, setEntryToEdit] = useState<CustomerLedgerEntry | null>(null);
   const [isEntryEditModalOpen, setIsEntryEditModalOpen] = useState(false);
   const [ledgerSuccessMsg, setLedgerSuccessMsg] = useState('');
+
+  // Due Number Edit State (No PIN needed)
+  const [dueNoEditEntry, setDueNoEditEntry] = useState<CustomerLedgerEntry | null>(null);
+  const [dueNoEditValue, setDueNoEditValue] = useState<string>('');
+  const [dueNoEditError, setDueNoEditError] = useState<string>('');
+  const [dueNoEditSuccess, setDueNoEditSuccess] = useState<string>('');
+
+  const handleOpenDueNoEdit = (entry: CustomerLedgerEntry) => {
+    setDueNoEditEntry(entry);
+    setDueNoEditValue(entry.referenceId || '');
+    setDueNoEditError('');
+    setDueNoEditSuccess('');
+  };
+
+  const handleSaveDueNoEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!dueNoEditEntry) return;
+    const sanitized = sanitizeDueNumberInput(dueNoEditValue);
+    if (!sanitized) {
+      setDueNoEditError('অনুগ্রহ করে বাকি নম্বর দিন');
+      return;
+    }
+    const dup = findDueNumberDuplicate(sanitized, db, { excludeLedgerId: dueNoEditEntry.id });
+    if (dup.isDuplicate) {
+      setDueNoEditError(dup.message || 'এই নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে');
+      return;
+    }
+    const res = updateDueNumber(
+      { ledgerId: dueNoEditEntry.id, oldDueNo: dueNoEditEntry.referenceId },
+      sanitized,
+      'কাস্টমার খতিয়ান থেকে পরিবর্তন'
+    );
+    if (!res.success) {
+      setDueNoEditError(res.error || 'নম্বর পরিবর্তন করতে ব্যর্থ হয়েছে');
+      return;
+    }
+    setDueNoEditSuccess(`বাকি নম্বর সফলভাবে '${sanitized}'-এ পরিবর্তন করা হয়েছে!`);
+    setLedgerSuccessMsg(`ভাউচার নম্বর সফলভাবে '${sanitized}'-এ পরিবর্তন করা হয়েছে`);
+    setTimeout(() => {
+      setDueNoEditEntry(null);
+      setDueNoEditValue('');
+      setDueNoEditError('');
+      setDueNoEditSuccess('');
+    }, 1200);
+  };
+
+  const handleAutoFillNextFree = () => {
+    const free = getNextFreeAutomaticDueNumber(db);
+    setDueNoEditValue(free.dueNo);
+    setDueNoEditError('');
+  };
 
   // Customer transactions from ledger
   const customerEntries = useMemo(() => {
@@ -367,9 +423,21 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                     </td>
                     <td className="py-2.5 px-3">
                       {entry.referenceId ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono font-bold text-slate-800 text-[11px]">
-                          {formatDueNumber(entry.referenceId)}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-slate-100 border border-slate-200 font-mono font-bold text-slate-800 text-[11px]">
+                            {formatDueNumber(entry.referenceId)}
+                          </span>
+                          {entry.debit > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleOpenDueNoEdit(entry)}
+                              className="p-1 rounded text-slate-400 hover:text-amber-700 hover:bg-amber-50 transition cursor-pointer"
+                              title="বাকি নং পরিবর্তন (কোনো পিন কোড প্রয়োজন নেই)"
+                            >
+                              <Edit className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-slate-400 font-mono">-</span>
                       )}
@@ -423,7 +491,7 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
         </div>
       </div>
 
-      {/* Individual Due Entry Edit Modal */}
+      {/* Individual Due Entry Edit Modal (with PIN) */}
       <LedgerEntryEditModal
         isOpen={isEntryEditModalOpen}
         entry={entryToEdit}
@@ -437,6 +505,137 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           setTimeout(() => setLedgerSuccessMsg(''), 6000);
         }}
       />
+
+      {/* Due Number Edit Modal (No PIN needed, auto audit logged) */}
+      {dueNoEditEntry && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-amber-100 text-amber-800 flex items-center justify-center">
+                  <Edit className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900">বাকি নং পরিবর্তন (Edit Due No)</h3>
+                  <p className="text-[11px] text-slate-500">কোনো পিন কোড প্রয়োজন নেই</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDueNoEditEntry(null);
+                  setDueNoEditValue('');
+                  setDueNoEditError('');
+                  setDueNoEditSuccess('');
+                }}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            {dueNoEditSuccess && (
+              <div className="mb-3 rounded-lg bg-emerald-50 border border-emerald-200 p-2.5 text-xs text-emerald-800 flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+                <span>{dueNoEditSuccess}</span>
+              </div>
+            )}
+
+            {dueNoEditError && (
+              <div className="mb-3 rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-800 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{dueNoEditError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveDueNoEdit} className="space-y-4">
+              <div className="rounded-xl bg-slate-50 border border-slate-200 p-3 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">বর্তমান বাকি নং:</span>
+                  <span className="font-mono font-bold text-slate-800">
+                    {formatDueNumber(dueNoEditEntry.referenceId || dueNoEditEntry.id)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">কাস্টমার / দোকান:</span>
+                  <span className="font-semibold text-slate-800">{activeCustomer.shopName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">বাকির পরিমাণ:</span>
+                  <span className="font-mono font-bold text-rose-700">
+                    {currency} {dueNoEditEntry.debit.toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  নতুন বাকি নং (New Due Number) *
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    maxLength={12}
+                    required
+                    value={dueNoEditValue}
+                    onChange={(e) => {
+                      const sanitized = sanitizeDueNumberInput(e.target.value);
+                      setDueNoEditValue(sanitized);
+                      if (sanitized) {
+                        const dup = findDueNumberDuplicate(sanitized, db, {
+                          excludeLedgerId: dueNoEditEntry.id,
+                        });
+                        setDueNoEditError(dup.isDuplicate ? (dup.message || 'ডুপ্লিকেট নম্বর') : '');
+                      } else {
+                        setDueNoEditError('');
+                      }
+                    }}
+                    placeholder="যেমন: 125, A-45, DUE-0125"
+                    className="flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-mono font-bold text-slate-900 focus:border-amber-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAutoFillNextFree}
+                    className="px-2.5 py-2 text-[11px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 rounded-xl border border-amber-300 transition whitespace-nowrap cursor-pointer"
+                    title="পরবর্তী ফাঁকা স্বয়ংক্রিয় নম্বর বসান"
+                  >
+                    ফাঁকা নম্বর
+                  </button>
+                </div>
+                <p className="mt-1 text-[10.5px] text-slate-400">
+                  সর্বোচ্চ ১২ অক্ষর, স্পেস ছাড়া। বাংলা সংখ্যা লিখলে স্বয়ংক্রিয় ইংরেজি হবে।
+                </p>
+              </div>
+
+              <div className="rounded-xl bg-amber-50/70 border border-amber-200 p-2.5 text-[11px] text-amber-900">
+                ℹ️ বাকি নম্বর পরিবর্তনে টাকার পরিমাণ পরিবর্তন হয় না। পরিবর্তনের সম্পূর্ণ ইতিহাস অডিট ট্রেইলে সংরক্ষিত থাকবে।
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDueNoEditEntry(null);
+                    setDueNoEditValue('');
+                    setDueNoEditError('');
+                    setDueNoEditSuccess('');
+                  }}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="submit"
+                  disabled={Boolean(dueNoEditError) || !dueNoEditValue.trim()}
+                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs transition disabled:opacity-40 cursor-pointer"
+                >
+                  নম্বর পরিবর্তন করুন
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

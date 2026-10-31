@@ -40,7 +40,15 @@ import { ProductSuggestionDropdown } from './ProductSuggestionDropdown';
 import { DailySalesPrintPreviewModal } from './DailySalesPrintPreviewModal';
 import { RouteDueModal } from './RouteDueModal';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
-import { formatDueNumber, formatShortDueNumber, matchesDueNumber, toEnglishDigits } from '../../utils/dueUtils';
+import {
+  formatDueNumber,
+  formatShortDueNumber,
+  matchesDueNumber,
+  toEnglishDigits,
+  sanitizeDueNumberInput,
+  findDueNumberDuplicate,
+  getNextFreeAutomaticDueNumber,
+} from '../../utils/dueUtils';
 import {
   isCursorAtStart,
   isCursorAtEnd,
@@ -137,6 +145,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     currentUser,
     recordCustomerDue,
     recordDueCollection,
+    updateDueNumber,
     todayLessAmount,
     totalOutstandingLess,
     addRoute,
@@ -386,8 +395,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const [dueCollectionRows, setDueCollectionRows] = useState<DueItemRow[]>([createEmptyDueRow()]);
   const todayDueCustomerRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const todayDueAmountRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const todayDueNoRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const dueCollectionCustomerRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const dueCollectionAmountRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const [dueNumberErrors, setDueNumberErrors] = useState<{ [rowId: string]: string }>({});
 
   // Reconciliation & Denomination Panel Linking Refs
   const focusDenominationLastRef = useRef<(() => void) | null>(null);
@@ -469,43 +480,83 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     showNotification(`রুট "${trimmed}" সফলভাবে আপডেট করা হয়েছে`, 'success');
   };
 
-  // Helper to generate next sequential Due Number (e.g. DUE-0001, DUE-0002)
-  const getNextDueNumber = (existingRows?: DueItemRow[], offset: number = 0) => {
-    let maxSeq = 0;
-    (db.customerLedgers || []).forEach((l) => {
-      if (l.referenceId) {
-        const eng = toEnglishDigits(l.referenceId);
-        const match = eng.match(/\d+/);
-        if (match) {
-          const num = parseInt(match[0], 10);
-          if (!isNaN(num) && num > maxSeq) maxSeq = num;
-        }
-      }
-    });
-    (db.dailySheets || []).forEach((s) => {
-      (s.todayDueEntries || []).forEach((e) => {
-        if (e.dueNo) {
-          const eng = toEnglishDigits(e.dueNo);
-          const match = eng.match(/\d+/);
-          if (match) {
-            const num = parseInt(match[0], 10);
-            if (!isNaN(num) && num > maxSeq) maxSeq = num;
-          }
-        }
+  // Helper to generate next sequential Due Number using global counter and skipping used numbers
+  const getNextDueNumber = (existingRows?: DueItemRow[]) => {
+    const free = getNextFreeAutomaticDueNumber(db, existingRows || todayDueRows);
+    return free.dueNumber;
+  };
+
+  // Validate duplicate due numbers on blur or change
+  const validateDueNumberRow = (rowId: string, val: string) => {
+    const clean = sanitizeDueNumberInput(val);
+    if (!clean) {
+      setDueNumberErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[rowId];
+        return copy;
       });
+      return true;
+    }
+    const dup = findDueNumberDuplicate(clean, db, {
+      excludeRowId: rowId,
+      currentUnsavedRows: todayDueRows,
+      excludeSheetId: currentSheetId || undefined,
     });
-    const checkRows = existingRows || todayDueRows;
-    checkRows.forEach((r) => {
-      if (r.dueNo) {
-        const eng = toEnglishDigits(r.dueNo);
-        const match = eng.match(/\d+/);
-        if (match) {
-          const num = parseInt(match[0], 10);
-          if (!isNaN(num) && num > maxSeq) maxSeq = num;
-        }
-      }
+    if (dup.isDuplicate) {
+      setDueNumberErrors((prev) => ({
+        ...prev,
+        [rowId]: dup.message || 'এই নম্বরটি ইতিমধ্যে ব্যবহৃত হয়েছে',
+      }));
+      return false;
+    } else {
+      setDueNumberErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[rowId];
+        return copy;
+      });
+      return true;
+    }
+  };
+
+  const handleAutoFillNextFreeDueNo = (rowId: string) => {
+    const next = getNextFreeAutomaticDueNumber(db, todayDueRows);
+    handleUpdateTodayDueRow(rowId, 'dueNo', next.dueNumber);
+    setDueNumberErrors((prev) => {
+      const copy = { ...prev };
+      delete copy[rowId];
+      return copy;
     });
-    return `DUE-${String(maxSeq + 1 + offset).padStart(4, '0')}`;
+  };
+
+  const handlePersistSavedDueNoChange = (row: DueItemRow) => {
+    if (!row.dueNo) return;
+    const clean = sanitizeDueNumberInput(row.dueNo);
+    const originalLedger = (db.customerLedgers || []).find(
+      (l) => (row.id && l.id === row.id) || (l.referenceId && l.referenceId === row.dueNo)
+    );
+    const oldDueNo = originalLedger?.referenceId || originalLedger?.dueNo || row.dueNo;
+    const res = updateDueNumber(
+      {
+        ledgerId: originalLedger?.id,
+        oldDueNo,
+        sheetId: currentSheetId || undefined,
+      },
+      clean,
+      'দৈনিক হিসাব থেকে বাকি নম্বর সংশোধন'
+    );
+    if (!res.success) {
+      setDueNumberErrors((prev) => ({
+        ...prev,
+        [row.id]: res.error || 'নম্বর পরিবর্তন করা যায়নি',
+      }));
+    } else {
+      showNotification(`বাকি নম্বর "${clean}" সফলভাবে সংরক্ষিত হয়েছে`, 'success', 2000);
+      setDueNumberErrors((prev) => {
+        const copy = { ...prev };
+        delete copy[row.id];
+        return copy;
+      });
+    }
   };
 
   // List of all outstanding dues for Due Number / Customer lookup in Table B
@@ -543,16 +594,6 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
     return list;
   }, [db.customers, db.customerLedgers]);
-
-  // Initialize initial row's Due Number if empty
-  useEffect(() => {
-    setTodayDueRows((prev) => {
-      if (prev.length === 1 && !prev[0].dueNo && !prev[0].description) {
-        return [{ ...prev[0], dueNo: getNextDueNumber(prev) }];
-      }
-      return prev;
-    });
-  }, [db.customerLedgers, db.dailySheets]);
 
   const totalTodayDueAmount = useMemo(() => {
     return todayDueRows.reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
@@ -1299,9 +1340,34 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       return;
     }
 
-    const assignedDueNo = row.dueNo || getNextDueNumber();
+    const cleanDueNo = row.dueNo ? sanitizeDueNumberInput(row.dueNo) : '';
+    if (cleanDueNo) {
+      const dup = findDueNumberDuplicate(cleanDueNo, db, {
+        excludeRowId: rowId,
+        currentUnsavedRows: todayDueRows,
+        excludeSheetId: currentSheetId || undefined,
+      });
+      if (dup.isDuplicate) {
+        showNotification(`বাকি নম্বর "${cleanDueNo}" ডুপ্লিকেট: ${dup.message}`, 'error');
+        setDueNumberErrors((prev) => ({
+          ...prev,
+          [rowId]: dup.message || 'ডুপ্লিকেট নম্বর',
+        }));
+        return;
+      }
+    }
+
+    let assignedDueNo = cleanDueNo;
+    let counterUsed: number | undefined;
+    if (!assignedDueNo) {
+      const auto = getNextFreeAutomaticDueNumber(db, todayDueRows);
+      assignedDueNo = auto.dueNumber;
+      counterUsed = auto.counterUsed;
+    }
+
     const res = recordCustomerDue({
       dueNo: assignedDueNo,
+      counterUsed,
       customerId: row.customerId,
       customerName: row.customerName || row.description,
       shopName: row.shopName || row.description,
@@ -2131,22 +2197,48 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       const sheetStatus = stage === 'evening' ? 'completed' : 'pending';
       const shouldUpdateStock = stage === 'evening';
 
+      // Pre-validation: check for duplicate due numbers among filled rows
+      for (const r of todayDueRows) {
+        if (r.dueNo && (r.description.trim() || Number(r.amount) > 0)) {
+          const dup = findDueNumberDuplicate(r.dueNo, db, {
+            excludeRowId: r.id,
+            currentUnsavedRows: todayDueRows,
+            excludeSheetId: currentSheetId || undefined,
+          });
+          if (dup.isDuplicate) {
+            showNotification(`বাকি নম্বর "${r.dueNo}" ডুপ্লিকেট: ${dup.message}`, 'error', 4000);
+            setDueNumberErrors((prev) => ({
+              ...prev,
+              [r.id]: dup.message || 'ডুপ্লিকেট নম্বর',
+            }));
+            return false;
+          }
+        }
+      }
+
       // When saving (either morning distribution or evening final), ensure valid due rows have sequential Due Numbers assigned
-      let assignedDueOffset = 0;
+      const assignedRowsInBatch: { id: string; dueNo: string }[] = [];
       const syncedTodayDueRows = todayDueRows.map((r) => {
         const amt = Number(r.amount) || 0;
         const hasContent = Boolean(r.description.trim() || amt > 0);
         if (!hasContent) return r;
 
-        let assignedDueNo = r.dueNo;
+        let assignedDueNo = r.dueNo ? sanitizeDueNumberInput(r.dueNo) : '';
+        let counterUsed: number | undefined;
+
         if (!assignedDueNo) {
-          assignedDueNo = getNextDueNumber(todayDueRows, assignedDueOffset);
-          assignedDueOffset++;
+          const auto = getNextFreeAutomaticDueNumber(db, assignedRowsInBatch);
+          assignedDueNo = auto.dueNumber;
+          counterUsed = auto.counterUsed;
+          assignedRowsInBatch.push({ id: r.id, dueNo: assignedDueNo });
+        } else {
+          assignedRowsInBatch.push({ id: r.id, dueNo: assignedDueNo });
         }
 
         if (stage === 'evening' && amt > 0 && !r.isSavedToLedger) {
           const res = recordCustomerDue({
             dueNo: assignedDueNo,
+            counterUsed,
             customerId: r.customerId,
             customerName: r.customerName || r.description,
             shopName: r.shopName || r.description,
@@ -4345,13 +4437,13 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
 
                 <div className="p-3 space-y-2.5">
                   {/* Table Header (Desktop/Tablet) */}
-                  <div className="hidden sm:flex items-center gap-3 px-2 text-[11px] font-bold text-slate-600 border-b border-slate-100 pb-2">
-                    <span className="w-7 text-center shrink-0">#</span>
-                    <span className="flex-1">দোকান / কাস্টমার নাম</span>
-                    <span className="w-28 sm:w-32 text-right shrink-0">বাকি টাকা ({currency})</span>
-                    <span className="w-28 sm:w-32 text-center shrink-0">বাকি নং</span>
-                    <span className="w-16 text-center shrink-0">লেজার</span>
-                    <span className="w-7 shrink-0"></span>
+                  <div className="hidden sm:flex items-center gap-2 px-2 text-[11px] font-bold text-slate-600 border-b border-slate-100 pb-2">
+                    <span className="w-6 text-center shrink-0">#</span>
+                    <span className="flex-1 min-w-0">দোকান / কাস্টমার নাম</span>
+                    <span className="w-24 sm:w-28 text-right shrink-0">বাকি টাকা ({currency})</span>
+                    <span className="w-20 sm:w-24 text-center shrink-0">বাকি নং</span>
+                    <span className="w-14 sm:w-16 text-center shrink-0">লেজার</span>
+                    <span className="w-6 shrink-0"></span>
                   </div>
 
                   {todayDueRows.map((row, idx) => {
@@ -4366,10 +4458,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     return (
                       <div
                         key={row.id}
-                        className="p-3 sm:p-1.5 rounded-xl sm:rounded-none bg-slate-50/70 sm:bg-transparent border border-slate-200/80 sm:border-0 space-y-2.5 sm:space-y-0 sm:flex sm:items-center sm:gap-3 text-xs"
+                        className="p-3 sm:p-1.5 rounded-xl sm:rounded-none bg-slate-50/70 sm:bg-transparent border border-slate-200/80 sm:border-0 space-y-2.5 sm:space-y-0 sm:flex sm:items-center sm:gap-2 text-xs"
                       >
                         {/* Row Index (Desktop) */}
-                        <span className="hidden sm:block w-7 text-center font-mono font-semibold text-slate-500 shrink-0">
+                        <span className="hidden sm:block w-6 text-center font-mono font-semibold text-slate-500 shrink-0">
                           {toBengaliDigits(idx + 1)}
                         </span>
 
@@ -4377,12 +4469,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         <div className="flex sm:hidden items-center justify-between text-xs text-slate-500 font-medium">
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-slate-700">বাকি এন্ট্রি #{toBengaliDigits(idx + 1)}</span>
-                            {row.dueNo ? (
+                            {row.dueNo && (
                               <span className="inline-flex items-center gap-1 font-mono font-bold text-[10px] bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded border border-slate-200">
                                 {formatDueNumber(row.dueNo)}
                               </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400 italic">সেভের পর আসবে</span>
                             )}
                           </div>
                           {!isLockedForEdit && todayDueRows.length > 1 && (
@@ -4443,8 +4533,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                           )}
                         </div>
 
-                        {/* 2. Amount Input */}
-                        <div className="w-full sm:w-28 sm:w-32 shrink-0">
+                        {/* 2. Amount Input (Narrower, ~8 digits with commas) */}
+                        <div className="w-full sm:w-24 sm:w-28 shrink-0">
                           <input
                             ref={(el) => {
                               todayDueAmountRefs.current[row.id] = el;
@@ -4485,50 +4575,104 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                 }
                                 return;
                               }
+                              if (e.key === 'ArrowRight') {
+                                if (isCursorAtEnd(e.currentTarget)) {
+                                  e.preventDefault();
+                                  todayDueNoRefs.current[row.id]?.focus();
+                                  todayDueNoRefs.current[row.id]?.select();
+                                }
+                                return;
+                              }
                             }}
                             placeholder="টাকা (০.০০)"
                             className="no-spinners w-full text-right rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-mono font-bold text-amber-900 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 focus:outline-none disabled:bg-slate-50 transition-colors"
                           />
                         </div>
 
-                        {/* 3. বাকি নং (Read-only, short form DUE-০০০১, soft placeholder for unsaved) */}
-                        <div className="w-full sm:w-28 sm:w-32 shrink-0">
-                          {row.dueNo ? (
-                            <div
-                              tabIndex={-1}
-                              className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-slate-100/90 border border-slate-200 text-slate-800 font-mono text-[11px] font-bold select-all focus:outline-none"
-                              title="স্বয়ংক্রিয় বাকি নম্বর"
-                            >
-                              <span className="truncate">{formatDueNumber(row.dueNo)}</span>
+                        {/* 3. বাকি নং (Editable Input: placeholder 'অটো', max 12 chars, English/Bengali digits converted) */}
+                        <div className="w-full sm:w-20 sm:w-24 shrink-0 relative">
+                          <input
+                            ref={(el) => {
+                              todayDueNoRefs.current[row.id] = el;
+                            }}
+                            type="text"
+                            maxLength={12}
+                            value={row.dueNo || ''}
+                            onChange={(e) => {
+                              const sanitized = sanitizeDueNumberInput(e.target.value);
+                              handleUpdateTodayDueRow(row.id, 'dueNo', sanitized);
+                              validateDueNumberRow(row.id, sanitized);
+                            }}
+                            onBlur={() => {
+                              if (row.dueNo) {
+                                validateDueNumberRow(row.id, row.dueNo);
+                                if (row.isSavedToLedger) {
+                                  handlePersistSavedDueNoChange(row);
+                                }
+                              }
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'ArrowDown') {
+                                e.preventDefault();
+                                if (idx < todayDueRows.length - 1) {
+                                  todayDueNoRefs.current[todayDueRows[idx + 1].id]?.focus();
+                                  todayDueNoRefs.current[todayDueRows[idx + 1].id]?.select();
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowUp') {
+                                e.preventDefault();
+                                if (idx > 0) {
+                                  todayDueNoRefs.current[todayDueRows[idx - 1].id]?.focus();
+                                  todayDueNoRefs.current[todayDueRows[idx - 1].id]?.select();
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowLeft') {
+                                if (isCursorAtStart(e.currentTarget)) {
+                                  e.preventDefault();
+                                  todayDueAmountRefs.current[row.id]?.focus();
+                                  todayDueAmountRefs.current[row.id]?.select();
+                                }
+                                return;
+                              }
+                              if (e.key === 'ArrowRight' || e.key === 'Enter') {
+                                if (isCursorAtEnd(e.currentTarget) || e.key === 'Enter') {
+                                  if (idx < todayDueRows.length - 1) {
+                                    e.preventDefault();
+                                    todayDueCustomerRefs.current[todayDueRows[idx + 1].id]?.focus();
+                                  }
+                                }
+                                return;
+                              }
+                            }}
+                            placeholder="অটো"
+                            title="বাকি নং (খালি রাখলে স্বয়ংক্রিয় বসবে, অথবা টাইপ করুন)"
+                            className={`w-full text-center rounded-lg border px-1.5 py-1.5 text-[11px] font-mono font-bold focus:outline-none transition-colors ${
+                              dueNumberErrors[row.id]
+                                ? 'border-rose-500 bg-rose-50/70 text-rose-900 focus:ring-1 focus:ring-rose-500'
+                                : 'border-slate-300 bg-white text-slate-800 placeholder-slate-400 focus:border-amber-500 focus:ring-1 focus:ring-amber-500'
+                            }`}
+                          />
+                          {dueNumberErrors[row.id] && (
+                            <div className="absolute left-0 right-0 sm:left-auto sm:right-0 sm:w-64 top-full mt-1 z-30 p-2 rounded-lg bg-rose-50 border border-rose-300 shadow-md text-left">
+                              <p className="text-[11px] text-rose-700 font-semibold leading-tight mb-1.5">
+                                {dueNumberErrors[row.id]}
+                              </p>
                               <button
                                 type="button"
-                                tabIndex={-1}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (navigator.clipboard) {
-                                    navigator.clipboard.writeText(formatDueNumber(row.dueNo));
-                                    showNotification(`বাকি নং কপি হয়েছে: ${formatDueNumber(row.dueNo)}`, 'info', 2000);
-                                  }
-                                }}
-                                className="ml-1 p-0.5 text-slate-400 hover:text-slate-700 rounded transition-colors cursor-pointer shrink-0"
-                                title="কপি করুন"
+                                onClick={() => handleAutoFillNextFreeDueNo(row.id)}
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-900 bg-amber-100 hover:bg-amber-200 px-2 py-0.5 rounded border border-amber-300 transition-colors cursor-pointer"
                               >
-                                <Copy className="h-3 w-3" />
+                                <RotateCcw className="h-2.5 w-2.5" />
+                                <span>পরবর্তী ফাঁকা নম্বর বসান</span>
                               </button>
-                            </div>
-                          ) : (
-                            <div
-                              tabIndex={-1}
-                              className="text-center px-1.5 py-1.5 rounded-lg bg-slate-50 border border-dashed border-slate-200 text-[11px] text-slate-400 italic select-none focus:outline-none"
-                              title="সেভ করার পর স্বয়ংক্রিয়ভাবে বাকি নং তৈরি হবে"
-                            >
-                              সেভের পর আসবে
                             </div>
                           )}
                         </div>
 
                         {/* 4. Save / Status Badge */}
-                        <div className="w-16 shrink-0 text-center flex justify-center">
+                        <div className="w-14 sm:w-16 shrink-0 text-center flex justify-center">
                           {row.isSavedToLedger ? (
                             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2 py-1 rounded-md">
                               <CheckCircle2 className="h-3 w-3 text-emerald-600" />
@@ -4548,7 +4692,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         </div>
 
                         {/* 5. Delete action (Desktop) */}
-                        <div className="hidden sm:flex w-7 justify-center shrink-0">
+                        <div className="hidden sm:flex w-6 justify-center shrink-0">
                           {!isLockedForEdit && todayDueRows.length > 1 && (
                             <button
                               type="button"
@@ -4675,8 +4819,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                     }
                                     return;
                                   }
-                                  if (e.key === 'ArrowRight') {
-                                    if (isCursorAtEnd(e.currentTarget)) {
+                                  if (e.key === 'ArrowRight' || e.key === 'Enter') {
+                                    if (isCursorAtEnd(e.currentTarget) || e.key === 'Enter') {
                                       e.preventDefault();
                                       dueCollectionAmountRefs.current[row.id]?.focus();
                                       dueCollectionAmountRefs.current[row.id]?.select();
@@ -4753,6 +4897,15 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                                   if (isCursorAtStart(e.currentTarget)) {
                                     e.preventDefault();
                                     dueCollectionCustomerRefs.current[row.id]?.focus();
+                                  }
+                                  return;
+                                }
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  if (idx < dueCollectionRows.length - 1) {
+                                    dueCollectionCustomerRefs.current[dueCollectionRows[idx + 1].id]?.focus();
+                                  } else {
+                                    handleAddDueCollectionRow();
                                   }
                                   return;
                                 }
