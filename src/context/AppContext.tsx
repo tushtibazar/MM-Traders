@@ -19,6 +19,7 @@ import {
   User,
   DOPayment,
   DueNumberAuditEntry,
+  CashAdjustment,
 } from '../types';
 import { StorageService, DEFAULT_ROUTES } from '../services/storage';
 import {
@@ -184,6 +185,21 @@ interface AppContextType {
   addDOPayment: (input: { date: string; amount: number; note?: string }) => DOPayment;
   updateDOPayment: (id: string, input: { date: string; amount: number; note?: string }) => void;
   deleteDOPayment: (id: string, reason?: string) => void;
+
+  // Cash Adjustments (হাতে নগদ ক্যাশ সমন্বয়)
+  cashAdjustments: CashAdjustment[];
+  rawCashBalance: number;
+  totalCashAdjustment: number;
+  addCashAdjustment: (input: {
+    date: string;
+    amount: number;
+    type: 'set-to-actual' | 'increase' | 'decrease';
+    targetAmount?: number;
+    cashBefore: number;
+    cashAfter: number;
+    note?: string;
+  }) => CashAdjustment;
+  voidCashAdjustment: (id: string, reason: string, pin: string) => { success: boolean; error?: string };
 
   // Summary Product Order
   updateSummaryProductOrder: (order: string[]) => void;
@@ -2508,6 +2524,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
+  // Cash Adjustments (হাতে নগদ ক্যাশ সমন্বয়)
+  const addCashAdjustment = (input: {
+    date: string;
+    amount: number;
+    type: 'set-to-actual' | 'increase' | 'decrease';
+    targetAmount?: number;
+    cashBefore: number;
+    cashAfter: number;
+    note?: string;
+  }): CashAdjustment => {
+    const newAdjustment: CashAdjustment = {
+      id: `cadj-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      date: input.date || todayDateStr,
+      amount: Number(input.amount) || 0,
+      type: input.type,
+      targetAmount: input.targetAmount !== undefined ? Number(input.targetAmount) : undefined,
+      cashBefore: Number(input.cashBefore) || 0,
+      cashAfter: Number(input.cashAfter) || 0,
+      note: input.note?.trim() || undefined,
+      status: 'active',
+      createdAt: new Date().toISOString(),
+      createdBy: currentUser.name || currentUser.username || 'মালিক',
+    };
+
+    const updated = [newAdjustment, ...(db.cashAdjustments || [])];
+    updateDb({
+      ...db,
+      cashAdjustments: updated,
+    });
+
+    return newAdjustment;
+  };
+
+  const voidCashAdjustment = (
+    id: string,
+    reason: string,
+    pin: string
+  ): { success: boolean; error?: string } => {
+    if (!verifySecurityPin(pin)) {
+      return { success: false, error: 'ভুল পিন কোড! সঠিক নিরাপত্তা পিন প্রদান করুন।' };
+    }
+
+    const currentList = db.cashAdjustments || [];
+    const target = currentList.find((a) => a.id === id);
+    if (!target) {
+      return { success: false, error: 'ক্যাশ সমন্বয় এন্ট্রি পাওয়া যায়নি।' };
+    }
+    if (target.status === 'voided') {
+      return { success: false, error: 'এই সমন্বয়টি ইতোমধ্যে বাতিল করা হয়েছে।' };
+    }
+
+    const updated = currentList.map((a) => {
+      if (a.id === id) {
+        return {
+          ...a,
+          status: 'voided' as const,
+          voidedAt: new Date().toISOString(),
+          voidReason: reason.trim() || 'মালিক কর্তৃক বাতিল',
+          voidedBy: currentUser.name || currentUser.username || 'মালিক',
+        };
+      }
+      return a;
+    });
+
+    updateDb({
+      ...db,
+      cashAdjustments: updated,
+    });
+
+    return { success: true };
+  };
+
   const updateSummaryProductOrder = (order: string[]) => {
     updateDb({
       ...db,
@@ -2578,7 +2666,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return (db.lessEntries || []).reduce((sum, l) => sum + (Number(l.amount) || 0), 0);
   }, [db.lessEntries]);
 
-  const cashBalance = useMemo(() => {
+  const rawCashBalance = useMemo(() => {
     const opening = db.settings.openingCashBalance || 0;
     const totalCashCollections = db.payments
       .filter((p) => p.status === 'completed' && (p.paymentMethod === 'cash' || !p.paymentMethod))
@@ -2595,6 +2683,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     return opening + totalCashCollections + dailySheetCash - totalCashExpenses - totalDoPayments;
   }, [db.payments, db.dailySheets, db.expenses, db.settings.openingCashBalance, db.doPayments]);
+
+  const totalCashAdjustment = useMemo(() => {
+    return (db.cashAdjustments || [])
+      .filter((adj) => adj.status === 'active')
+      .reduce((acc, adj) => acc + (Number(adj.amount) || 0), 0);
+  }, [db.cashAdjustments]);
+
+  const cashBalance = useMemo(() => {
+    return rawCashBalance + totalCashAdjustment;
+  }, [rawCashBalance, totalCashAdjustment]);
 
   const todayDOPaymentTotal = useMemo(() => {
     return (db.doPayments || [])
@@ -2791,6 +2889,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addDOPayment,
         updateDOPayment,
         deleteDOPayment,
+        cashAdjustments: db.cashAdjustments || [],
+        rawCashBalance,
+        totalCashAdjustment,
+        addCashAdjustment,
+        voidCashAdjustment,
         updateSummaryProductOrder,
         resetToDemoData,
         resetToBlankData,

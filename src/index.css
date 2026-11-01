@@ -115,8 +115,9 @@
     break-after: auto !important;
   }
 
-  /* Specialized A4 layout for Daily Summary Sheet with exact 194mm x 281mm printable area (8mm margin) */
-  .printable-a4-page.summary-a4-page {
+  /* Specialized A4 layout for Daily Summary Sheet & Due List with exact 194mm x 281mm printable area (8mm margin) */
+  .printable-a4-page.summary-a4-page,
+  .printable-a4-page.due-a4-page {
     width: 194mm !important;
     max-width: 194mm !important;
     height: 281mm !important;
@@ -135,7 +136,8 @@
     break-after: page !important;
   }
 
-  .printable-a4-page.summary-a4-page:last-child {
+  .printable-a4-page.summary-a4-page:last-child,
+  .printable-a4-page.due-a4-page:last-child {
     page-break-after: auto !important;
     break-after: auto !important;
   }

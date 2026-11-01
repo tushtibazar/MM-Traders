@@ -174,6 +174,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
     salesRepresentatives: [],
     deliveryRepresentatives: [],
     doPayments: [],
+    cashAdjustments: [],
     summaryProductOrder: [],
     dueNumberAuditTrail: [],
     settings: {
@@ -242,6 +243,7 @@ export function getInitialDatabase(): AppDatabase {
     salesRepresentatives: INITIAL_SRS,
     deliveryRepresentatives: INITIAL_DSRS,
     doPayments: [],
+    cashAdjustments: [],
     summaryProductOrder: [],
     dueNumberAuditTrail: [],
     settings: INITIAL_SETTINGS,
@@ -306,6 +308,9 @@ export class StorageService {
           }
           if (!Array.isArray(parsed.doPayments)) {
             parsed.doPayments = [];
+          }
+          if (!Array.isArray(parsed.cashAdjustments)) {
+            parsed.cashAdjustments = [];
           }
           if (!Array.isArray(parsed.summaryProductOrder)) {
             parsed.summaryProductOrder = parsed.settings?.summaryProductOrder || [];
@@ -501,6 +506,7 @@ export function validateBackupJson(jsonStr: string): BackupValidationResult {
         ? parsed.deliveryRepresentatives
         : (currentDb.deliveryRepresentatives || []),
       doPayments: Array.isArray(parsed.doPayments) ? parsed.doPayments : [],
+      cashAdjustments: Array.isArray(parsed.cashAdjustments) ? parsed.cashAdjustments : [],
       summaryProductOrder: Array.isArray(parsed.summaryProductOrder)
         ? parsed.summaryProductOrder
         : (parsed.settings?.summaryProductOrder || currentDb.summaryProductOrder || []),

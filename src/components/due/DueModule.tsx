@@ -2334,6 +2334,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
         srFilter={selectedSrFilter}
         routeFilter={selectedRouteFilter}
         customerRouteMap={customerRouteMap}
+        customerDueNumberMap={customerDueNumberMap}
         todayDateStr={todayDateStr}
         initialAction={printAction}
       />

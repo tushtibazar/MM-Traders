@@ -390,6 +390,23 @@ export interface DueNumberAuditEntry {
   reason?: string;
 }
 
+export interface CashAdjustment {
+  id: string;
+  date: string; // YYYY-MM-DD
+  amount: number; // positive (+) to increase, negative (-) to decrease
+  type: 'set-to-actual' | 'increase' | 'decrease';
+  targetAmount?: number; // target cash entered when type is 'set-to-actual'
+  cashBefore: number;
+  cashAfter: number;
+  note?: string;
+  status: 'active' | 'voided';
+  voidedAt?: string;
+  voidReason?: string;
+  voidedBy?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface AppDatabase {
   users: User[];
   customers: Customer[];
@@ -405,8 +422,10 @@ export interface AppDatabase {
   salesRepresentatives: SalesRepresentative[];
   deliveryRepresentatives?: DeliveryRepresentative[];
   doPayments?: DOPayment[];
+  cashAdjustments?: CashAdjustment[];
   summaryProductOrder?: string[];
   dueNumberAuditTrail?: DueNumberAuditEntry[];
   settings: BusinessSettings;
   lastUpdated: string;
 }
+

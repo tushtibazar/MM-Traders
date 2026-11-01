@@ -18,6 +18,9 @@ import {
   ArrowRight,
   Trash2,
   Building2,
+  Scale,
+  History,
+  X,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { TabType } from '../layout/Sidebar';
@@ -26,6 +29,8 @@ import { Customer, Sale, DailyAccountSheet } from '../../types';
 import { BrandLogo } from '../brand/BrandLogo';
 import { formatDate } from '../../utils/dateUtils';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { CashAdjustmentModal } from '../modals/CashAdjustmentModal';
+import { CashAdjustmentHistoryModal } from '../modals/CashAdjustmentHistoryModal';
 
 interface DashboardProps {
   onNavigateTab: (tab: TabType) => void;
@@ -58,6 +63,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
     totalOutstandingLess,
     totalAllTimeLess,
     cashBalance,
+    totalCashAdjustment,
     todayDOPaymentTotal,
     todayDateStr,
     customersWithDue,
@@ -73,6 +79,11 @@ export const Dashboard: React.FC<DashboardProps> = ({
     '1234';
 
   const [dueSortOrder, setDueSortOrder] = useState<'desc' | 'asc'>('desc');
+
+  // Cash adjustment modal states
+  const [isCashAdjModalOpen, setIsCashAdjModalOpen] = useState(false);
+  const [isCashHistoryModalOpen, setIsCashHistoryModalOpen] = useState(false);
+  const [cashAdjSuccessToast, setCashAdjSuccessToast] = useState('');
 
   // Deletion of duplicate/accidental Open/Pending Daily sheet
   const [sheetToDelete, setSheetToDelete] = useState<DailyAccountSheet | null>(null);
@@ -346,6 +357,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
       )}
 
+      {/* Cash Adjustment Success Toast */}
+      {cashAdjSuccessToast && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-xs font-bold text-emerald-900 font-bengali flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>{cashAdjSuccessToast}</span>
+          </div>
+          <button
+            onClick={() => setCashAdjSuccessToast('')}
+            className="text-emerald-700 hover:text-emerald-950 p-1"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Primary Summary Cards (7 Key Metric Cards) */}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-7">
         {/* Today's Sales */}
@@ -437,17 +464,57 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         {/* Current Cash Balance */}
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-emerald-900">হাতে নগদ (Cash Balance)</span>
-            <div className="rounded-md bg-emerald-100 p-1.5 text-emerald-700">
-              <Coins className="h-4 w-4" />
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-950 font-bengali">হাতে নগদ (Cash Balance)</span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsCashAdjModalOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-md bg-white border border-emerald-300 px-2 py-0.5 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100/80 transition-colors shadow-2xs font-bengali cursor-pointer"
+                  title="বাস্তব ক্যাশ মেলাতে ক্যাশ সমন্বয় করুন"
+                >
+                  <Scale className="h-3 w-3 text-emerald-600" />
+                  <span>সমন্বয়</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsCashHistoryModalOpen(true)}
+                  className="inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[11px] font-bold text-emerald-700 hover:text-emerald-950 hover:bg-emerald-100/60 transition-colors font-bengali cursor-pointer"
+                  title="সমন্বয় ইতিহাস দেখুন"
+                >
+                  <History className="h-3 w-3" />
+                  <span>ইতিহাস</span>
+                </button>
+                <div className="rounded-md bg-emerald-100 p-1.5 text-emerald-700 ml-0.5">
+                  <Coins className="h-4 w-4" />
+                </div>
+              </div>
             </div>
+
+            <p className="mt-2 text-lg sm:text-xl font-bold font-mono text-emerald-800 truncate">
+              {currency} {cashBalance.toLocaleString()}
+            </p>
           </div>
-          <p className="mt-2 text-lg sm:text-xl font-bold text-emerald-800 truncate">
-            {currency} {cashBalance.toLocaleString()}
-          </p>
-          <span className="text-[11px] text-emerald-600 font-medium">Net Cash In Hand</span>
+
+          <div className="mt-1 flex items-center justify-between gap-1.5 flex-wrap">
+            <span className="text-[11px] text-emerald-600 font-medium">Net Cash In Hand</span>
+            {totalCashAdjustment !== 0 && (
+              <button
+                type="button"
+                onClick={() => setIsCashHistoryModalOpen(true)}
+                className={`cursor-pointer inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-black font-mono transition-transform hover:scale-105 ${
+                  totalCashAdjustment > 0
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                    : 'bg-amber-100 text-amber-900 border border-amber-300'
+                }`}
+                title="সক্রিয় ক্যাশ সমন্বয় অন্তর্ভুক্ত — বিস্তারিত দেখতে ক্লিক করুন"
+              >
+                সমন্বয়: {totalCashAdjustment > 0 ? '+' : '−'}{currency}{Math.abs(totalCashAdjustment).toLocaleString()}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -831,6 +898,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
           setIsDeleteSheetPinOpen(false);
           setSheetToDelete(null);
         }}
+      />
+
+      {/* Cash Adjustment Modal */}
+      <CashAdjustmentModal
+        isOpen={isCashAdjModalOpen}
+        onClose={() => setIsCashAdjModalOpen(false)}
+        onSuccess={(msg) => {
+          setCashAdjSuccessToast(msg);
+          setTimeout(() => setCashAdjSuccessToast(''), 5000);
+        }}
+      />
+
+      {/* Cash Adjustment History Modal */}
+      <CashAdjustmentHistoryModal
+        isOpen={isCashHistoryModalOpen}
+        onClose={() => setIsCashHistoryModalOpen(false)}
+        onOpenNewAdjustment={() => setIsCashAdjModalOpen(true)}
       />
     </div>
   );
