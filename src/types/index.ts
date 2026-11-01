@@ -237,6 +237,7 @@ export interface BusinessPositionSettings {
   bankNote?: string;
   lessOverride?: number | null;
   lessAdjustment?: number;
+  lessAmount?: number;
   lessNote?: string;
   undeliveredAmount?: number;
   undeliveredNote?: string;

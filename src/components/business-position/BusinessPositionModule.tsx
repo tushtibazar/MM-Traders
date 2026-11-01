@@ -40,6 +40,7 @@ import { BusinessPositionSettings, CustomPositionItem, OtherPositionItem } from 
 import { BusinessPositionPrintPreviewModal } from './BusinessPositionPrintPreviewModal';
 import { PinPromptModal } from '../modals/PinPromptModal';
 import { formatDate } from '../../utils/dateUtils';
+import { toEnglishDigits } from '../../utils/dueUtils';
 
 export const BusinessPositionModule: React.FC = () => {
   const {
@@ -47,7 +48,6 @@ export const BusinessPositionModule: React.FC = () => {
     currentUser,
     totalOutstandingDue,
     cashBalance,
-    totalOutstandingLess,
     updateSettings,
     todayDateStr,
   } = useApp();
@@ -164,9 +164,9 @@ export const BusinessPositionModule: React.FC = () => {
   );
   const [bankNote, setBankNote] = useState<string>(savedPos?.bankNote || '');
 
-  const [lessAdjustment, setLessAdjustment] = useState<string>(
-    savedPos?.lessAdjustment !== undefined && savedPos.lessAdjustment !== 0
-      ? String(savedPos.lessAdjustment)
+  const [lessAmount, setLessAmount] = useState<string>(
+    savedPos?.lessAmount !== undefined && savedPos.lessAmount !== 0
+      ? String(savedPos.lessAmount)
       : ''
   );
   const [lessNote, setLessNote] = useState<string>(savedPos?.lessNote || '');
@@ -242,7 +242,7 @@ export const BusinessPositionModule: React.FC = () => {
 
       setBankBalance(p.bankBalance !== undefined ? String(p.bankBalance) : '');
       setBankNote(p.bankNote || '');
-      setLessAdjustment(p.lessAdjustment !== undefined ? String(p.lessAdjustment) : '');
+      setLessAmount(p.lessAmount !== undefined && p.lessAmount !== 0 ? String(p.lessAmount) : '');
       setLessNote(p.lessNote || '');
 
       if (p.others && p.others.length > 0) {
@@ -327,11 +327,6 @@ export const BusinessPositionModule: React.FC = () => {
     return { opening, collections, dailySheetsCash, expenses };
   }, [db.payments, db.dailySheets, db.expenses, db.settings.openingCashBalance]);
 
-  // 1.5 লেইস / ক্লেইম (Company Less Receivables): auto from less module
-  const autoLessTotal = useMemo(() => {
-    return totalOutstandingLess || 0;
-  }, [totalOutstandingLess]);
-
   // 2. EFFECTIVE LINE AMOUNTS (Auto + Manual Adjustment)
   const effectiveStock = autoStockValuation + (parseFloat(stockAdjustment) || 0);
   const effectiveDamage = autoDamageTotal + (parseFloat(damageAdjustment) || 0);
@@ -345,7 +340,7 @@ export const BusinessPositionModule: React.FC = () => {
   const effectiveDO = parseFloat(doAmount) || 0;
   const effectiveVehicleStock = parseFloat(vehicleStockAmount) || 0;
   const effectiveBank = parseFloat(bankBalance) || 0;
-  const effectiveLess = autoLessTotal + (parseFloat(lessAdjustment) || 0);
+  const effectiveLess = parseFloat(lessAmount) || 0;
 
   // Others Total
   const totalOthersAmount = useMemo(() => {
@@ -470,7 +465,8 @@ export const BusinessPositionModule: React.FC = () => {
 
       bankBalance: bankBalance ? parseFloat(bankBalance) : 0,
       bankNote: bankNote.trim(),
-      lessAdjustment: lessAdjustment ? parseFloat(lessAdjustment) : 0,
+      lessAdjustment: 0,
+      lessAmount: lessAmount ? parseFloat(lessAmount) : 0,
       lessNote: lessNote.trim(),
 
       others: othersList.filter((o) => o.description.trim() !== '' || o.amount !== 0),
@@ -570,9 +566,9 @@ export const BusinessPositionModule: React.FC = () => {
     setVehicleStockAmount(p.vehicleStockAmount !== undefined ? String(p.vehicleStockAmount) : '');
     setVehicleStockNote(p.vehicleStockNote || '');
 
-    setBankBalance(p.bankBalance !== undefined ? String(p.bankBalance) : '');
+    setBankBalance(p.bankBalance !== undefined && p.bankBalance !== 0 ? String(p.bankBalance) : '');
     setBankNote(p.bankNote || '');
-    setLessAdjustment(p.lessAdjustment !== undefined ? String(p.lessAdjustment) : '');
+    setLessAmount(p.lessAmount !== undefined && p.lessAmount !== 0 ? String(p.lessAmount) : '');
     setLessNote(p.lessNote || '');
 
     if (p.others && p.others.length > 0) {
@@ -617,7 +613,7 @@ export const BusinessPositionModule: React.FC = () => {
 
     setBankBalance('');
     setBankNote('');
-    setLessAdjustment('');
+    setLessAmount('');
     setLessNote('');
     setOthersList([{ id: `other-${Date.now()}`, description: '', amount: 0 }]);
     setOriginalInvestment('');
@@ -651,6 +647,7 @@ export const BusinessPositionModule: React.FC = () => {
       bankBalance: 0,
       bankNote: '',
       lessAdjustment: 0,
+      lessAmount: 0,
       lessNote: '',
       others: [],
       originalInvestment: 0,
@@ -766,7 +763,7 @@ export const BusinessPositionModule: React.FC = () => {
     { id: 'do', sl: '৮', name: 'ডিও (DO Balance)', desc: 'কোম্পানি ডেলিভারি অর্ডার অগ্রিম জমা', autoAmount: 0, adjustment: effectiveDO, finalAmount: effectiveDO, note: doNote },
     { id: 'vehiclestock', sl: '৯', name: 'গাড়িতে মাল (Vehicle Stock)', desc: 'ডেলিভারি ভ্যানে থাকা স্টক', autoAmount: 0, adjustment: effectiveVehicleStock, finalAmount: effectiveVehicleStock, note: vehicleStockNote },
     { id: 'bank', sl: '১০', name: 'ব্যাংক ব্যালেন্স (Bank)', desc: 'ব্যবসার ব্যাংক একাউন্ট স্থিতি', autoAmount: 0, adjustment: effectiveBank, finalAmount: effectiveBank, note: bankNote },
-    { id: 'less', sl: '১১', name: 'কোম্পানি লেইস (Company Less)', desc: 'কোম্পানি থেকে পাওনা ছাড়/কমিশন', autoAmount: autoLessTotal, adjustment: parseFloat(lessAdjustment) || 0, finalAmount: effectiveLess, note: lessNote },
+    { id: 'less', sl: '১১', name: 'কোম্পানির লেস / ক্লেম (বকেয়া)', desc: 'কোম্পানি থেকে পাওনা লেস/ক্লেইম বাবদ বকেয়া দাবি', autoAmount: 0, adjustment: effectiveLess, finalAmount: effectiveLess, note: lessNote },
     { id: 'others', sl: '১২', name: 'আদার্স (Others)', desc: `${othersList.length} টি অন্যান্য বিবিধ খাত`, autoAmount: 0, adjustment: totalOthersAmount, finalAmount: totalOthersAmount, note: othersList.map((o) => `${o.description}: ${o.amount}`).join(', ') },
     ...customItems.filter((c) => c.type === 'asset').map((c, i) => ({
       id: c.id, sl: `${13 + i}`, name: c.name, desc: 'অতিরিক্ত কাস্টম সম্পদ খাত', autoAmount: 0, adjustment: Number(c.amount) || 0, finalAmount: Number(c.amount) || 0, note: c.note,
@@ -782,7 +779,7 @@ export const BusinessPositionModule: React.FC = () => {
     effectiveDO, doNote,
     effectiveVehicleStock, vehicleStockNote,
     effectiveBank, bankNote,
-    autoLessTotal, lessAdjustment, effectiveLess, lessNote,
+    effectiveLess, lessNote,
     othersList, totalOthersAmount,
     customItems,
   ]);
@@ -1683,7 +1680,7 @@ export const BusinessPositionModule: React.FC = () => {
                 </td>
               </tr>
 
-              {/* LINE ITEM 11: কোম্পানি লেইস / ক্লেইম (Company Less Receivables) */}
+              {/* LINE ITEM 11: কোম্পানির লেস / ক্লেম (বকেয়া) */}
               <tr className="hover:bg-slate-50/50 transition-colors">
                 <td className="py-3 px-4 text-center font-bold text-slate-400">১১</td>
                 <td className="py-3 px-3">
@@ -1692,41 +1689,36 @@ export const BusinessPositionModule: React.FC = () => {
                       <Receipt className="h-4 w-4" />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-slate-900 text-sm">কোম্পানি লেইস / ক্লেইম (Company Less)</span>
-                        <span className="rounded-md bg-teal-50 px-1.5 py-0.5 text-[10px] font-bold text-teal-700 border border-teal-200">
-                          Less মডিউল
-                        </span>
-                      </div>
+                      <span className="font-bold text-slate-900 text-sm">
+                        কোম্পানির লেস / ক্লেম (বকেয়া)
+                      </span>
                       <p className="text-[11px] text-slate-500 mt-0.5">
-                        মালিক কর্তৃক কোম্পানির পক্ষে অগ্রিম প্রদান / বকেয়া ফেরত পাওনা দাবি
+                        কোম্পানি থেকে পাওনা লেস বা ক্লেইম বাবদ বকেয়া দাবি
                       </p>
                     </div>
                   </div>
                 </td>
-                <td className="py-3 px-3 text-right">
-                  <span className="font-mono font-bold text-slate-900 text-sm">
-                    {currency} {autoLessTotal.toLocaleString()}
-                  </span>
-                  <span className="block text-[10px] text-slate-400">বকেয়া লেইস মোট</span>
+                <td className="py-3 px-3 text-right text-slate-400 italic text-[11px]">
+                  — ম্যানুয়াল এন্ট্রি —
                 </td>
                 <td className="py-3 px-3">
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[11px] text-slate-500 font-medium">সমন্বয়:</span>
+                      <span className="text-[11px] text-slate-500 font-medium">টাকা:</span>
                       <input
-                        type="number"
-                        value={lessAdjustment}
-                        onChange={(e) => setLessAdjustment(e.target.value)}
-                        placeholder="± ০"
-                        className="w-28 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-hidden"
+                        type="text"
+                        inputMode="decimal"
+                        value={lessAmount}
+                        onChange={(e) => setLessAmount(toEnglishDigits(e.target.value))}
+                        placeholder="০"
+                        className="w-28 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-900 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-hidden [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                       />
                     </div>
                     <input
                       type="text"
                       value={lessNote}
                       onChange={(e) => setLessNote(e.target.value)}
-                      placeholder="মন্তব্য (যেমন: বিশেষ অনুমোদন বকেয়া)"
+                      placeholder="বিবরণ / অনুমোদন সংক্রান্ত তথ্য"
                       className="w-full rounded-md border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-800 focus:bg-white focus:outline-hidden"
                     />
                   </div>

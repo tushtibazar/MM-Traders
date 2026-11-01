@@ -629,7 +629,26 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const [selectedSalesRowId, setSelectedSalesRowId] = useState<string | null>(null);
   const [selectedDamageRowId, setSelectedDamageRowId] = useState<string | null>(null);
 
-  // Clear row selection when clicking outside the tables or pressing Escape
+  // Synchronized refs to allow document-level keyboard event handler to read current state
+  const rowsRef = useRef(rows);
+  rowsRef.current = rows;
+
+  const damageRowsRef = useRef(damageRows);
+  damageRowsRef.current = damageRows;
+
+  const selectedSalesRowIdRef = useRef(selectedSalesRowId);
+  selectedSalesRowIdRef.current = selectedSalesRowId;
+
+  const selectedDamageRowIdRef = useRef(selectedDamageRowId);
+  selectedDamageRowIdRef.current = selectedDamageRowId;
+
+  const isSalesLockedRef = useRef(isSalesLocked);
+  isSalesLockedRef.current = isSalesLocked;
+
+  const isDamageLockedRef = useRef(isDamageLocked);
+  isDamageLockedRef.current = isDamageLocked;
+
+  // Clear row selection when clicking outside the tables, and handle arrow-key navigation when a row is selected
   useEffect(() => {
     const handleDocumentClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement | null;
@@ -650,6 +669,121 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       if (e.key === 'Escape') {
         setSelectedSalesRowId(null);
         setSelectedDamageRowId(null);
+        return;
+      }
+
+      // Check if keyboard focus is currently inside an input, textarea, select, or button
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isInputActive =
+        activeEl &&
+        (['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(activeEl.tagName) ||
+          activeEl.isContentEditable);
+
+      if (isInputActive) {
+        // Do not intercept - allow standard cell-to-cell input navigation
+        return;
+      }
+
+      // 1. Sales Table Row Navigation (when a sales row is selected but no text field has focus)
+      const currentSalesId = selectedSalesRowIdRef.current;
+      if (currentSalesId) {
+        const curRows = rowsRef.current;
+        const idx = curRows.findIndex((r) => r.id === currentSalesId);
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (idx >= 0 && idx < curRows.length - 1) {
+            const nextRow = curRows[idx + 1];
+            setSelectedSalesRowId(nextRow.id);
+            const nextEl = document.querySelector<HTMLTableRowElement>(
+              `tr[data-table-type="sales"][data-row-id="${nextRow.id}"]`
+            );
+            if (nextEl) {
+              nextEl.focus({ preventScroll: true });
+              nextEl.scrollIntoView({ block: 'nearest' });
+            }
+          }
+          return;
+        }
+
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (idx > 0) {
+            const prevRow = curRows[idx - 1];
+            setSelectedSalesRowId(prevRow.id);
+            const prevEl = document.querySelector<HTMLTableRowElement>(
+              `tr[data-table-type="sales"][data-row-id="${prevRow.id}"]`
+            );
+            if (prevEl) {
+              prevEl.focus({ preventScroll: true });
+              prevEl.scrollIntoView({ block: 'nearest' });
+            }
+          }
+          return;
+        }
+
+        if (e.key === 'Enter' || e.key === 'F2') {
+          e.preventDefault();
+          if (!isSalesLockedRef.current) {
+            const qtyInput = qtyInputRefs.current[currentSalesId];
+            if (qtyInput) {
+              qtyInput.focus();
+              qtyInput.select();
+            }
+          }
+          return;
+        }
+      }
+
+      // 2. Damage Table Row Navigation (when a damage row is selected but no text field has focus)
+      const currentDamageId = selectedDamageRowIdRef.current;
+      if (currentDamageId) {
+        const curRows = damageRowsRef.current;
+        const idx = curRows.findIndex((r) => r.id === currentDamageId);
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (idx >= 0 && idx < curRows.length - 1) {
+            const nextRow = curRows[idx + 1];
+            setSelectedDamageRowId(nextRow.id);
+            const nextEl = document.querySelector<HTMLTableRowElement>(
+              `tr[data-table-type="damage"][data-row-id="${nextRow.id}"]`
+            );
+            if (nextEl) {
+              nextEl.focus({ preventScroll: true });
+              nextEl.scrollIntoView({ block: 'nearest' });
+            }
+          }
+          return;
+        }
+
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (idx > 0) {
+            const prevRow = curRows[idx - 1];
+            setSelectedDamageRowId(prevRow.id);
+            const prevEl = document.querySelector<HTMLTableRowElement>(
+              `tr[data-table-type="damage"][data-row-id="${prevRow.id}"]`
+            );
+            if (prevEl) {
+              prevEl.focus({ preventScroll: true });
+              prevEl.scrollIntoView({ block: 'nearest' });
+            }
+          }
+          return;
+        }
+
+        if (e.key === 'Enter' || e.key === 'F2') {
+          e.preventDefault();
+          if (!isDamageLockedRef.current) {
+            const qtyInput = damageQtyInputRefs.current[currentDamageId];
+            if (qtyInput) {
+              qtyInput.focus();
+              qtyInput.select();
+            }
+          }
+          return;
+        }
       }
     };
 
@@ -3086,15 +3220,20 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         key={row.id}
                         data-table-type="sales"
                         data-row-id={row.id}
-                        onClick={() => {
+                        tabIndex={-1}
+                        onClick={(e) => {
                           setSelectedSalesRowId(row.id);
                           setSelectedDamageRowId(null);
+                          const target = e.target as HTMLElement;
+                          if (!['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName)) {
+                            e.currentTarget.focus({ preventScroll: true });
+                          }
                         }}
                         onFocusCapture={() => {
                           setSelectedSalesRowId(row.id);
                           setSelectedDamageRowId(null);
                         }}
-                        className={`transition-colors duration-150 cursor-pointer ${
+                        className={`transition-colors duration-150 cursor-pointer outline-none ${
                           isSelected
                             ? 'bg-emerald-200/80 border-t-2 border-b-2 border-emerald-600 print:bg-transparent print:border-none'
                             : `${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-emerald-100/70`
@@ -3843,15 +3982,20 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                         key={row.id}
                         data-table-type="damage"
                         data-row-id={row.id}
-                        onClick={() => {
+                        tabIndex={-1}
+                        onClick={(e) => {
                           setSelectedDamageRowId(row.id);
                           setSelectedSalesRowId(null);
+                          const target = e.target as HTMLElement;
+                          if (!['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(target.tagName)) {
+                            e.currentTarget.focus({ preventScroll: true });
+                          }
                         }}
                         onFocusCapture={() => {
                           setSelectedDamageRowId(row.id);
                           setSelectedSalesRowId(null);
                         }}
-                        className={`transition-colors duration-150 cursor-pointer ${
+                        className={`transition-colors duration-150 cursor-pointer outline-none ${
                           isSelected
                             ? 'bg-emerald-200/80 border-t-2 border-b-2 border-emerald-600 print:bg-transparent print:border-none'
                             : `${idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'} hover:bg-emerald-100/70`
