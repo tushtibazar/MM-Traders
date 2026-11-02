@@ -20,26 +20,43 @@ interface DuePrintPreviewModalProps {
   initialAction?: 'png' | 'pdf' | null;
 }
 
-// Physical A4 constants (exact measurements in mm matching @page { size: A4 portrait; margin: 8mm; })
-// Total printable area: 194mm width x 281mm height
+// Physical A4 constants (exact measurements in mm matching @page { size: A4 portrait; margin: 12mm 10mm 14mm 10mm; })
+// Total page size: 210mm x 297mm
+// Margins: top 12mm, right 10mm, bottom 14mm, left 10mm
+// Printable content area: 190mm width x 271mm height
 const ROW_HEIGHT_MM = 7.0;
 
 // Maximum capacity calibrated by physical component heights:
-// Page 1 with Signatures (Single-page document):
-// 281mm - 6mm (footer) - 31mm (p1 header) - 7.5mm (thead) - 33.5mm (signatures & totals) = 203mm -> 28 rows
-const PAGE_1_MAX_WITH_SIG = 28;
+// Page 1 with Signatures & Totals (Single-page document):
+// 271mm - 6mm (footer) - 31mm (p1 header) - 7.5mm (thead) - 34mm (signatures & totals) = 192.5mm -> 25 rows safely
+const PAGE_1_MAX_WITH_SIG = 25;
 
 // Page 1 without Signatures (First page of multi-page document):
-// 281mm - 6mm (footer) - 31mm (p1 header) - 7.5mm (thead) = 236.5mm -> 33 rows
-const PAGE_1_MAX_NO_SIG = 33;
+// 271mm - 6mm (footer) - 31mm (p1 header) - 7.5mm (thead) = 226.5mm -> 30 rows safely
+const PAGE_1_MAX_NO_SIG = 30;
 
 // Continued page without Signatures (Middle pages):
-// 281mm - 6mm (footer) - 11mm (cont header) - 7.5mm (thead) = 256.5mm -> 36 rows
-const CONT_MAX_NO_SIG = 36;
+// 271mm - 6mm (footer) - 10mm (cont header) - 7.5mm (thead) = 247.5mm -> 34 rows safely
+const CONT_MAX_NO_SIG = 34;
 
-// Continued page with Signatures (Last page of multi-page document):
-// 281mm - 6mm (footer) - 11mm (cont header) - 7.5mm (thead) - 33.5mm (signatures & totals) = 223mm -> 31 rows
-const CONT_MAX_WITH_SIG = 31;
+// Continued page with Signatures & Totals (Last page of multi-page document):
+// 271mm - 6mm (footer) - 10mm (cont header) - 7.5mm (thead) - 34mm (signatures & totals) = 213.5mm -> 29 rows safely
+const CONT_MAX_WITH_SIG = 29;
+
+/**
+ * Sanitizes table text values: converts "0", "রুট নেই", empty, null, undefined,
+ * or trailing dashes (e.g. "রুট ২: রবিবার-") to trimmed clean text or "-".
+ */
+const cleanReportText = (val?: string | null): string => {
+  if (!val) return '-';
+  let str = String(val).trim();
+  // Strip trailing dashes, commas, hyphens, colons, or whitespace
+  str = str.replace(/[-–—,:;|\s]+$/, '').trim();
+  if (!str || str === '0' || str === 'রুট নেই' || str === 'null' || str === 'undefined' || str === 'NaN') {
+    return '-';
+  }
+  return str;
+};
 
 export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
   isOpen,
@@ -48,7 +65,7 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
   currency,
   customers,
   totalDue,
-  totalCollected,
+  totalCollected: _totalCollected,
   srFilter,
   routeFilter,
   customerRouteMap,
@@ -60,12 +77,12 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
     return customers.filter((c) => (c.currentDue || 0) > 0);
   }, [customers]);
 
-  // Dynamic pagination based on physical printable capacity (never a hardcoded fixed chunk)
+  // Dynamic pagination based on physical printable capacity
   const pages: Customer[][] = useMemo(() => {
     const total = activeCustomers.length;
     if (total === 0) return [[]];
 
-    // Case 1: Fits entirely on Page 1 with totals and signatures (up to 28 customers)
+    // Case 1: Fits entirely on Page 1 with totals and signatures (up to 25 customers)
     if (total <= PAGE_1_MAX_WITH_SIG) {
       return [activeCustomers];
     }
@@ -76,8 +93,8 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
 
     while (remaining.length > 0) {
       if (isFirstPage) {
-        const leftAfterP1 = remaining.length - PAGE_1_MAX_NO_SIG;
         let take = PAGE_1_MAX_NO_SIG;
+        const leftAfterP1 = remaining.length - take;
         // Keep at least 2 rows with the totals block on the next page
         if (leftAfterP1 > 0 && leftAfterP1 < 2) {
           take = remaining.length - 2;
@@ -91,8 +108,8 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
           result.push(remaining);
           remaining = [];
         } else {
-          const leftAfter = remaining.length - CONT_MAX_NO_SIG;
           let take = CONT_MAX_NO_SIG;
+          const leftAfter = remaining.length - take;
           // Keep at least 2 rows with the totals block on the next page
           if (leftAfter > 0 && leftAfter < 2) {
             take = remaining.length - 2;
@@ -131,11 +148,11 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
       fileNamePrefix={`Customer_Due_List_${todayDateStr}_${routeFilter !== 'all' ? routeFilter : 'All_Routes'}`}
       initialAction={initialAction}
     >
-      {/* Scoped style tag enforcing exact 8mm page margin and 194mm x 281mm printable area in @media print */}
+      {/* Scoped style tag enforcing exact 12mm 10mm 14mm 10mm page margin and 190mm x 271mm printable area in @media print */}
       <style>{`
         @page {
-          size: A4 portrait !important;
-          margin: 8mm !important;
+          size: A4 portrait;
+          margin: 12mm 10mm 14mm 10mm;
         }
         @media print {
           html, body {
@@ -143,26 +160,32 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
             padding: 0 !important;
             background: #ffffff !important;
             overflow: visible !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .print-modal-overlay,
           .print-preview-scroll {
             padding: 0 !important;
             margin: 0 !important;
             background: transparent !important;
+            position: static !important;
+            overflow: visible !important;
+            display: block !important;
           }
           .printable-area {
             padding: 0 !important;
             margin: 0 !important;
             width: 100% !important;
+            display: block !important;
           }
           .printable-a4-page.due-a4-page {
-            width: 194mm !important;
-            max-width: 194mm !important;
-            height: 281mm !important;
-            min-height: 281mm !important;
-            max-height: 281mm !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: 271mm !important;
+            min-height: 271mm !important;
+            max-height: 271mm !important;
             padding: 0 !important;
-            margin: 0 auto !important;
+            margin: 0 !important;
             box-sizing: border-box !important;
             overflow: hidden !important;
             page-break-after: always !important;
@@ -175,6 +198,8 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
             display: flex !important;
             flex-direction: column !important;
             justify-content: space-between !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           .printable-a4-page.due-a4-page:last-child {
             page-break-after: auto !important;
@@ -191,13 +216,14 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
         return (
           <div
             key={pageIndex}
-            className="printable-a4-page due-a4-page bg-white text-slate-900 shadow-2xl rounded-sm print:rounded-none print:shadow-none print:m-0 flex flex-col justify-between"
+            className="printable-a4-page due-a4-page bg-white text-slate-900 shadow-xl rounded-sm print:rounded-none print:shadow-none print:m-0 flex flex-col justify-between mb-8 print:mb-0"
             style={{
-              width: '194mm',
-              height: '281mm',
-              minHeight: '281mm',
-              maxHeight: '281mm',
-              padding: '0',
+              width: '210mm',
+              maxWidth: '100%',
+              height: '297mm',
+              minHeight: '297mm',
+              maxHeight: '297mm',
+              padding: '12mm 10mm 14mm 10mm',
               margin: '0 auto',
               boxSizing: 'border-box',
               overflow: 'hidden',
@@ -214,41 +240,44 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
               {isFirstPage ? (
                 <div className="mb-2">
                   {/* Top Letterhead */}
-                  <div className="border-b-2 border-slate-900 pb-1.5 mb-1.5 flex items-start justify-between gap-3">
+                  <div className="flex items-start justify-between gap-3 pb-2">
                     <div className="flex-1">
                       <h1 className="text-xl font-black tracking-tight text-slate-950 font-bengali leading-none">
                         {businessName}
                       </h1>
-                      <p className="text-[11px] font-bold text-slate-700 mt-0.5 leading-tight">
+                      <p className="text-[11px] font-bold text-slate-700 mt-1 leading-tight">
                         {subtitle}
                       </p>
                       <p className="text-[10px] text-slate-600 mt-0.5 leading-tight">
-                        ঠিকানা: {settings.address || 'চকবাজার, ঢাকা'} {settings.phone ? `• মোবাইল: ${settings.phone}` : ''}
+                        ঠিকানা: {cleanReportText(settings.address || 'চকবাজার, ঢাকা')} {settings.phone ? `• মোবাইল: ${cleanReportText(settings.phone)}` : ''}
                       </p>
                     </div>
 
                     <div className="text-right shrink-0">
-                      <span className="inline-block px-2.5 py-0.5 bg-slate-900 text-white text-xs font-bold rounded">
+                      <span className="inline-block px-3 py-1 bg-slate-900 text-white text-xs font-bold rounded shadow-xs">
                         কাস্টমার বকেয়া তালিকা
                       </span>
-                      <p className="text-[9.5px] text-slate-500 font-mono mt-0.5">
+                      <p className="text-[9.5px] text-slate-500 font-mono mt-1">
                         তারিখ: {formatDate(todayDateStr)} • প্রিন্ট: {new Date().toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                   </div>
 
-                  {/* Metadata Chips Box */}
-                  <div className="grid grid-cols-4 gap-2 bg-slate-50 border border-slate-200 rounded p-1 text-[10px]">
+                  {/* Clean divider line with ~4mm gap below */}
+                  <div className="border-b-2 border-slate-900 mb-[4mm]"></div>
+
+                  {/* Metadata Filter Strip - 4 equal columns with equal inner padding & thin border */}
+                  <div className="grid grid-cols-4 gap-2 bg-slate-50 border border-slate-300 rounded p-1.5 text-[10px]">
                     <div>
                       <span className="text-slate-500 block">ফিল্টারকৃত রুট:</span>
                       <span className="font-bold text-slate-900 truncate block">
-                        {routeFilter === 'all' ? 'সকল রুট' : routeFilter}
+                        {routeFilter === 'all' ? 'সকল রুট' : cleanReportText(routeFilter)}
                       </span>
                     </div>
                     <div>
                       <span className="text-slate-500 block">এসআর ফিল্টার:</span>
                       <span className="font-bold text-slate-900 truncate block">
-                        {srFilter === 'all' ? 'সকল এসআর' : srFilter}
+                        {srFilter === 'all' ? 'সকল এসআর' : cleanReportText(srFilter)}
                       </span>
                     </div>
                     <div>
@@ -267,9 +296,9 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                 </div>
               ) : (
                 /* CONTINUED PAGE COMPACT RUNNING HEADER */
-                <div className="border-b border-slate-300 pb-1 mb-2 flex items-center justify-between text-xs font-semibold text-slate-600">
+                <div className="border-b border-slate-300 pb-1.5 mb-[4mm] flex items-center justify-between text-xs font-semibold text-slate-600">
                   <span className="font-bold text-slate-900">
-                    {businessName} — কাস্টমার বকেয়া তালিকা (চলমান) • রুট: {routeFilter === 'all' ? 'সকল রুট' : routeFilter}
+                    {businessName} — কাস্টমার বকেয়া তালিকা (চলমান) • রুট: {routeFilter === 'all' ? 'সকল রুট' : cleanReportText(routeFilter)}
                   </span>
                   <span className="font-mono text-[11px] text-slate-700">
                     তারিখ: {formatDate(todayDateStr)} • পাতা: {toBengaliDigits(pageIndex + 1)}/{toBengaliDigits(totalPages)}
@@ -277,13 +306,13 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                 </div>
               )}
 
-              {/* TABLE WITH PHYSICAL DIMENSIONS (194mm width) */}
-              <div className="border border-slate-300 rounded-sm overflow-hidden">
+              {/* TABLE WITH 190mm EXACT PRINTABLE WIDTH */}
+              <div className="border border-slate-300 rounded-sm overflow-hidden w-full">
                 <table
                   className="w-full text-left border-collapse"
                   style={{
                     tableLayout: 'fixed',
-                    width: '194mm',
+                    width: '100%',
                     fontSize: '10.5px',
                   }}
                 >
@@ -292,13 +321,13 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                       className="bg-slate-100 border-b border-slate-400 text-slate-800 font-bold"
                       style={{ height: '7.5mm' }}
                     >
-                      <th style={{ width: '10mm' }} className="py-1 px-1 text-center border-r border-slate-300">#</th>
-                      <th style={{ width: '54mm' }} className="py-1 px-2 border-r border-slate-300">কাস্টমার ও দোকানের নাম</th>
-                      <th style={{ width: '27mm' }} className="py-1 px-2 border-r border-slate-300">মোবাইল</th>
-                      <th style={{ width: '36mm' }} className="py-1 px-2 border-r border-slate-300">রুট / ঠিকানা</th>
-                      <th style={{ width: '25mm' }} className="py-1 px-2 border-r border-slate-300">এসআর</th>
-                      <th style={{ width: '24mm' }} className="py-1 px-2 text-right border-r border-slate-300">বর্তমান বকেয়া</th>
-                      <th style={{ width: '18mm' }} className="py-1 px-1 text-center">স্বাক্ষর / রিসিট</th>
+                      <th style={{ width: '10mm' }} className="py-[1.8mm] px-[2.5mm] text-center border-r border-slate-300">#</th>
+                      <th style={{ width: '52mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">কাস্টমার ও দোকানের নাম</th>
+                      <th style={{ width: '28mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">মোবাইল</th>
+                      <th style={{ width: '36mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">রুট / ঠিকানা</th>
+                      <th style={{ width: '24mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">এসআর</th>
+                      <th style={{ width: '24mm' }} className="py-[1.8mm] px-[2.5mm] text-right border-r border-slate-300">বর্তমান বকেয়া</th>
+                      <th style={{ width: '16mm' }} className="py-[1.8mm] px-[1.5mm] text-center">স্বাক্ষর / রিসিট</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -312,11 +341,14 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                       pageCustomers.map((c, idx) => {
                         const globalIdx = pageStartIdx + idx;
                         const routeVal = customerRouteMap.get(c.id);
-                        const route = routeVal
+                        const rawRoute = routeVal
                           ? routeVal instanceof Set
                             ? Array.from(routeVal).join(', ')
                             : String(routeVal)
-                          : c.address || 'রুট নেই';
+                          : c.address || '';
+                        const route = cleanReportText(rawRoute);
+                        const phone = cleanReportText(c.phone);
+                        const srName = cleanReportText(c.assignedSrName);
 
                         const dueNo = customerDueNumberMap ? customerDueNumberMap.get(c.id) : undefined;
 
@@ -333,10 +365,10 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                               breakInside: 'avoid',
                             }}
                           >
-                            <td className="py-0.5 px-1 text-center font-mono text-[10px] text-slate-500 border-r border-slate-200 truncate">
+                            <td className="py-[1.8mm] px-[2.5mm] text-center font-mono text-[10px] text-slate-500 border-r border-slate-200 truncate">
                               {toBengaliDigits(globalIdx)}
                             </td>
-                            <td className="py-0.5 px-2 border-r border-slate-200 leading-tight truncate">
+                            <td className="py-[1.8mm] px-[2.5mm] border-r border-slate-200 leading-tight truncate">
                               <div className="flex items-center gap-1 truncate">
                                 <span className="font-bold text-slate-900 text-[10px] truncate">
                                   {c.name}
@@ -353,19 +385,19 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                                 </span>
                               )}
                             </td>
-                            <td className="py-0.5 px-2 font-mono text-[10px] text-slate-700 border-r border-slate-200 truncate">
-                              {c.phone || '-'}
+                            <td className="py-[1.8mm] px-[2.5mm] font-mono text-[10px] text-slate-700 border-r border-slate-200 truncate">
+                              {phone}
                             </td>
-                            <td className="py-0.5 px-2 text-[10px] text-slate-700 border-r border-slate-200 truncate" title={route}>
+                            <td className="py-[1.8mm] px-[2.5mm] text-[10px] text-slate-700 border-r border-slate-200 truncate" title={route}>
                               {route}
                             </td>
-                            <td className="py-0.5 px-2 text-[10px] text-slate-600 border-r border-slate-200 truncate" title={c.assignedSrName || '-'}>
-                              {c.assignedSrName || '-'}
+                            <td className="py-[1.8mm] px-[2.5mm] text-[10px] text-slate-600 border-r border-slate-200 truncate" title={srName}>
+                              {srName}
                             </td>
-                            <td className="py-0.5 px-2 text-right font-mono font-bold text-rose-700 text-[10.5px] border-r border-slate-200 truncate">
+                            <td className="py-[1.8mm] px-[2.5mm] text-right font-mono font-bold text-rose-700 text-[10.5px] border-r border-slate-200 truncate">
                               {currency} {(c.currentDue || 0).toLocaleString()}
                             </td>
-                            <td className="py-0.5 px-1 border-r-0 border-slate-200"></td>
+                            <td className="py-[1.8mm] px-[1.5mm] border-r-0 border-slate-200"></td>
                           </tr>
                         );
                       })
@@ -378,13 +410,13 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                         className="bg-slate-100 font-bold border-t-2 border-slate-400 text-xs"
                         style={{ height: '7.5mm', pageBreakInside: 'avoid', breakInside: 'avoid' }}
                       >
-                        <td colSpan={5} className="py-1 px-3 text-right text-slate-900 font-bold text-[11px]">
+                        <td colSpan={5} className="py-[1.8mm] px-[2.5mm] text-right text-slate-900 font-bold text-[11px]">
                           সর্বমোট বকেয়া ({toBengaliDigits(activeCustomers.length)} জন কাস্টমার):
                         </td>
-                        <td className="py-1 px-2 text-right font-mono text-rose-700 text-xs font-bold">
+                        <td className="py-[1.8mm] px-[2.5mm] text-right font-mono text-rose-700 text-xs font-bold">
                           {currency} {totalDue.toLocaleString()}
                         </td>
-                        <td></td>
+                        <td className="border-l border-slate-300"></td>
                       </tr>
                     </tfoot>
                   )}
@@ -402,19 +434,19 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                 >
                   <div className="grid grid-cols-3 gap-6 text-center text-xs text-slate-600">
                     <div>
-                      <div className="border-b border-slate-400 pb-1 mb-1 h-7"></div>
+                      <div className="border-b border-slate-400 pb-1 mb-1.5 h-8"></div>
                       <span className="font-semibold text-slate-800 text-[10.5px]">আদায়কারী / এসআর স্বাক্ষর</span>
                     </div>
                     <div>
-                      <div className="border-b border-slate-400 pb-1 mb-1 h-7"></div>
+                      <div className="border-b border-slate-400 pb-1 mb-1.5 h-8"></div>
                       <span className="font-semibold text-slate-800 text-[10.5px]">অ্যাকাউন্ট্যান্ট / যাচাইকারী</span>
                     </div>
                     <div>
-                      <div className="border-b border-slate-400 pb-1 mb-1 h-7"></div>
+                      <div className="border-b border-slate-400 pb-1 mb-1.5 h-8"></div>
                       <span className="font-bold text-slate-900 text-[10.5px]">মালিক / ম্যানেজার স্বাক্ষর</span>
                     </div>
                   </div>
-                  <div className="text-[9.5px] text-slate-400 text-center mt-2 font-bengali">
+                  <div className="text-[9.5px] text-slate-400 text-center mt-2.5 font-bengali">
                     * এটি {businessName} সিস্টেম জেনারেটেড ডিজিটাল খতিয়ান কপি।
                   </div>
                 </div>
@@ -422,7 +454,7 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
             </div>
 
             {/* Bottom Page Footer (on every page at the fixed printable bottom) */}
-            <div className="pt-1 border-t border-slate-200 text-[9.5px] text-slate-500 flex items-center justify-between font-bengali">
+            <div className="pt-1.5 border-t border-slate-200 text-[9.5px] text-slate-500 flex items-center justify-between font-bengali">
               <span>
                 তারিখ: {formatDate(todayDateStr)} • {businessName}
               </span>
