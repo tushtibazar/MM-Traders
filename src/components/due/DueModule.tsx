@@ -1154,6 +1154,9 @@ export const DueModule: React.FC<DueModuleProps> = ({
                   onClick={() => {
                     setAddDueErrorMsg('');
                     setAddDueSuccessMsg('');
+                    const auto = getNextFreeAutomaticDueNumber(db);
+                    setAddDueNumberInput(auto.dueNumber);
+                    setAddDueNumberError('');
                     setIsAddDueModalOpen(true);
                   }}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-rose-700 transition-colors shadow-2xs cursor-pointer"

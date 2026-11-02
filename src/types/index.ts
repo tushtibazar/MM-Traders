@@ -130,6 +130,9 @@ export interface CustomerLedgerEntry {
   status?: 'active' | 'settled' | 'voided';
   settledDate?: string;
   settledNote?: string;
+  sheetId?: string;
+  dueRowId?: string;
+  dueId?: string;
   createdAt: string;
 }
 
@@ -316,6 +319,9 @@ export interface DailyDueEntry {
   pinVerified?: boolean;
   verifiedAt?: string;
   isSavedToLedger?: boolean;
+  ledgerId?: string;
+  isManualDueNo?: boolean;
+  dueId?: string;
 }
 
 export interface DailyAccountSheet {
@@ -384,6 +390,8 @@ export interface DueNumberAuditEntry {
   customerName?: string;
   sheetId?: string;
   ledgerId?: string;
+  dueId?: string;
+  dueRowId?: string;
   date: string;
   changedAt: string;
   changedBy: string;

@@ -20,6 +20,7 @@ import {
   DOPayment,
   DueNumberAuditEntry,
   CashAdjustment,
+  DailyDueEntry,
 } from '../types';
 import { StorageService, DEFAULT_ROUTES } from '../services/storage';
 import {
@@ -2155,6 +2156,216 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       updatedLessEntries = updatedLessEntries.filter((_, idx) => idx !== existingLessIdx);
     }
 
+    // Sync Customer Ledgers and Customer Balances for today's dues (Idempotent for both Morning and Evening)
+    let updatedCustomerLedgers = [...(db.customerLedgers || [])];
+    let updatedCustomers = [...(db.customers || [])];
+    const newAuditEntries: DueNumberAuditEntry[] = [];
+    let nextDueCounter = db.settings?.nextDueNumberCounter || 1;
+
+    const inputTodayDue = Array.isArray(input.todayDueEntries) ? input.todayDueEntries : [];
+    const validDueRows = inputTodayDue.filter(
+      (r) => (r.description && r.description.trim()) || Number(r.amount) > 0
+    );
+
+    const processedTodayDueEntries: DailyDueEntry[] = [];
+
+    for (const r of validDueRows) {
+      const amt = Number(r.amount) || 0;
+      let finalDueNo = r.dueNo ? sanitizeDueNumberInput(r.dueNo) : '';
+      const stableDueId = r.dueId || r.id;
+
+      if (!finalDueNo) {
+        const auto = getNextFreeAutomaticDueNumber({
+          ...db,
+          customerLedgers: updatedCustomerLedgers,
+          dailySheets: db.dailySheets || [],
+        });
+        finalDueNo = auto.dueNumber;
+      }
+
+      // Check if automatic counter needs to advance (only for auto-generated DUE- numbers)
+      const autoMatch = toEnglishDigits(finalDueNo).match(/^DUE-(\d+)$/i);
+      if (autoMatch) {
+        const num = parseInt(autoMatch[1], 10);
+        if (!isNaN(num) && num >= nextDueCounter) {
+          nextDueCounter = num + 1;
+        }
+      }
+
+      // Find or create customer
+      let cust = r.customerId ? updatedCustomers.find((c) => c.id === r.customerId) : undefined;
+      if (!cust && (r.customerName || r.shopName || r.description)) {
+        const searchName = (r.customerName || r.shopName || r.description || '').trim().toLowerCase();
+        cust = updatedCustomers.find(
+          (c) =>
+            (c.shopName && c.shopName.toLowerCase() === searchName) ||
+            (c.name && c.name.toLowerCase() === searchName)
+        );
+      }
+
+      if (!cust) {
+        // Auto-create customer
+        const newCustId = `cust-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        cust = {
+          id: newCustId,
+          name: r.customerName || r.description || 'নতুন কাস্টমার',
+          shopName: r.shopName || r.description || 'নতুন দোকান',
+          phone: '',
+          address: input.routeOrVan || '',
+          assignedSrId: '',
+          assignedSrName: input.srName || '',
+          openingBalance: 0,
+          currentDue: 0,
+          status: 'active',
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        };
+        updatedCustomers.push(cust);
+      }
+
+      // Check if a ledger entry already exists for this sheet and row
+      const existingLedgerIdx = updatedCustomerLedgers.findIndex(
+        (l) =>
+          (r.ledgerId && l.id === r.ledgerId) ||
+          (l.sheetId === sheetId && (l.dueRowId === stableDueId || l.dueId === stableDueId)) ||
+          (l.sheetId === sheetId && l.dueNo === finalDueNo && l.customerId === cust!.id)
+      );
+
+      let ledgerId = r.ledgerId;
+
+      if (existingLedgerIdx !== -1) {
+        // UPDATE existing ledger entry idempotently
+        const oldLedger = updatedCustomerLedgers[existingLedgerIdx];
+        ledgerId = oldLedger.id;
+        const oldDebit = Number(oldLedger.debit) || 0;
+        const delta = amt - oldDebit;
+
+        if (delta !== 0) {
+          const newDueVal = Math.max(0, cust.currentDue + delta);
+          updatedCustomers = updatedCustomers.map((c) =>
+            c.id === cust!.id ? { ...c, currentDue: newDueVal, updatedAt: nowIso } : c
+          );
+          cust = { ...cust, currentDue: newDueVal };
+        }
+
+        // Audit trail if number changed
+        if (oldLedger.dueNo && finalDueNo && oldLedger.dueNo !== finalDueNo) {
+          newAuditEntries.push({
+            id: `audit-due-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+            oldDueNo: oldLedger.dueNo,
+            newDueNo: finalDueNo,
+            customerId: cust.id,
+            customerName: cust.name,
+            sheetId,
+            ledgerId,
+            dueId: stableDueId,
+            date: newSheet.date,
+            changedAt: nowIso,
+            changedBy: currentUser.name || 'মালিক',
+            reason: 'দৈনিক হিসাব থেকে বাকি নম্বর সংশোধন',
+          });
+        }
+
+        updatedCustomerLedgers[existingLedgerIdx] = {
+          ...oldLedger,
+          referenceId: finalDueNo,
+          dueNo: finalDueNo,
+          debit: amt,
+          customerName: cust.name,
+          date: newSheet.date,
+          sheetId: sheetId,
+          dueRowId: stableDueId,
+          dueId: stableDueId,
+          description: `দৈনিক হিসাব বাকি #${finalDueNo}${newSheet.routeOrVan ? ` (${newSheet.routeOrVan})` : ''}`,
+          status: 'active',
+        };
+      } else if (amt > 0) {
+        // INSERT new ledger entry
+        ledgerId = `ledg-due-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+        const newLedger: CustomerLedgerEntry = {
+          id: ledgerId,
+          sheetId: sheetId,
+          dueRowId: stableDueId,
+          dueId: stableDueId,
+          customerId: cust.id,
+          customerName: cust.name,
+          date: newSheet.date,
+          type: 'sale',
+          referenceId: finalDueNo,
+          dueNo: finalDueNo,
+          description: `দৈনিক হিসাব বাকি #${finalDueNo}${newSheet.routeOrVan ? ` (${newSheet.routeOrVan})` : ''}`,
+          debit: amt,
+          credit: 0,
+          balance: cust.currentDue + amt,
+          status: 'active',
+          createdAt: nowIso,
+        };
+        updatedCustomerLedgers.push(newLedger);
+
+        const newDueVal = cust.currentDue + amt;
+        updatedCustomers = updatedCustomers.map((c) =>
+          c.id === cust!.id ? { ...c, currentDue: newDueVal, updatedAt: nowIso } : c
+        );
+        cust = { ...cust, currentDue: newDueVal };
+      }
+
+      processedTodayDueEntries.push({
+        ...r,
+        id: stableDueId,
+        dueId: stableDueId,
+        dueNo: finalDueNo,
+        customerId: cust.id,
+        customerName: cust.name,
+        shopName: cust.shopName,
+        amount: amt,
+        ledgerId: ledgerId,
+        isSavedToLedger: amt > 0,
+      });
+    }
+
+    // 2. Handle removed rows: any active ledger entry from this sheetId whose dueRowId is not in validDueRows
+    const validDueRowIds = new Set(processedTodayDueEntries.map((r) => r.dueId || r.id));
+    updatedCustomerLedgers = updatedCustomerLedgers.map((l) => {
+      if (
+        l.sheetId === sheetId &&
+        l.type === 'sale' &&
+        l.status !== 'voided' &&
+        (l.dueRowId || l.dueId) &&
+        !validDueRowIds.has(l.dueRowId || l.dueId || '')
+      ) {
+        const voidAmt = Number(l.debit) || 0;
+        if (voidAmt > 0) {
+          updatedCustomers = updatedCustomers.map((c) =>
+            c.id === l.customerId ? { ...c, currentDue: Math.max(0, c.currentDue - voidAmt), updatedAt: nowIso } : c
+          );
+        }
+        newAuditEntries.push({
+          id: `audit-delrow-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          oldDueNo: l.dueNo || l.referenceId,
+          newDueNo: l.dueNo || l.referenceId,
+          customerId: l.customerId,
+          customerName: l.customerName,
+          sheetId: sheetId,
+          ledgerId: l.id,
+          dueId: l.dueRowId || l.dueId,
+          date: newSheet.date,
+          changedAt: nowIso,
+          changedBy: currentUser.name || 'মালিক',
+          isDeleted: true,
+          reason: 'দৈনিক হিসাব খাতা থেকে সারি মুছে ফেলা হয়েছে',
+        });
+        return {
+          ...l,
+          status: 'voided' as const,
+          settledDate: newSheet.date,
+          settledNote: 'দৈনিক হিসাব খাতা থেকে সারি মুছে ফেলা হয়েছে',
+        };
+      }
+      return l;
+    });
+
+    newSheet.todayDueEntries = processedTodayDueEntries;
+
     const otherSheets = (db.dailySheets || []).filter((s) => s.id !== sheetId);
     const newDb: AppDatabase = {
       ...db,
@@ -2163,6 +2374,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       stockTransactions: [...newStockTransactions, ...db.stockTransactions],
       expenses: updatedExpenses,
       lessEntries: updatedLessEntries,
+      customerLedgers: updatedCustomerLedgers,
+      customers: updatedCustomers,
+      dueNumberAuditTrail: [...newAuditEntries, ...(db.dueNumberAuditTrail || [])],
+      settings: {
+        ...db.settings,
+        nextDueNumberCounter: Math.max(db.settings?.nextDueNumberCounter || 1, nextDueCounter),
+      },
     };
 
     updateDb(newDb);

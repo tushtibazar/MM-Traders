@@ -48,6 +48,8 @@ import {
   sanitizeDueNumberInput,
   findDueNumberDuplicate,
   getNextFreeAutomaticDueNumber,
+  validateBatchDueNumbers,
+  syncDueNumberSuggestions,
 } from '../../utils/dueUtils';
 import {
   isCursorAtStart,
@@ -71,7 +73,9 @@ interface RowData {
 
 interface DueItemRow {
   id: string;
+  dueId?: string;
   dueNo?: string;
+  isManualDueNo?: boolean;
   customerId?: string;
   customerName?: string;
   shopName?: string;
@@ -79,6 +83,7 @@ interface DueItemRow {
   amount: number | string | '';
   isSavedToLedger?: boolean;
   pinVerified?: boolean;
+  ledgerId?: string;
 }
 
 interface DailySalesModuleProps {
@@ -120,17 +125,22 @@ const createEmptyDamageRow = (): RowData => ({
   showSuggestions: false,
 });
 
-const createEmptyDueRow = (dueNo?: string): DueItemRow => ({
-  id: `due-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-  dueNo: dueNo || '',
-  customerId: '',
-  customerName: '',
-  shopName: '',
-  description: '',
-  amount: '',
-  isSavedToLedger: false,
-  pinVerified: false,
-});
+const createEmptyDueRow = (dueNo?: string, isManual?: boolean): DueItemRow => {
+  const rowId = `due-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return {
+    id: rowId,
+    dueId: rowId,
+    dueNo: dueNo || '',
+    isManualDueNo: isManual ?? Boolean(dueNo),
+    customerId: '',
+    customerName: '',
+    shopName: '',
+    description: '',
+    amount: '',
+    isSavedToLedger: false,
+    pinVerified: false,
+  };
+};
 
 export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   initialSheetId,
@@ -391,7 +401,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // TWO DYNAMIC DUE TABLES STATE & REFS:
   // A) আজকের বাকি (Today's New Due)
   // B) বাকি জমা (Due Collection Today)
-  const [todayDueRows, setTodayDueRows] = useState<DueItemRow[]>([createEmptyDueRow()]);
+  const [todayDueRows, setTodayDueRows] = useState<DueItemRow[]>(() =>
+    syncDueNumberSuggestions([createEmptyDueRow()], db)
+  );
   const [dueCollectionRows, setDueCollectionRows] = useState<DueItemRow[]>([createEmptyDueRow()]);
   const todayDueCustomerRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const todayDueAmountRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
@@ -497,8 +509,11 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       });
       return true;
     }
+    const currentRow = todayDueRows.find((r) => r.id === rowId);
     const dup = findDueNumberDuplicate(clean, db, {
-      excludeRowId: rowId,
+      excludeRowId: currentRow?.dueId || rowId,
+      excludeDueId: currentRow?.dueId || rowId,
+      excludeLedgerId: currentRow?.ledgerId,
       currentUnsavedRows: todayDueRows,
       excludeSheetId: currentSheetId || undefined,
     });
@@ -521,6 +536,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const handleAutoFillNextFreeDueNo = (rowId: string) => {
     const next = getNextFreeAutomaticDueNumber(db, todayDueRows);
     handleUpdateTodayDueRow(rowId, 'dueNo', next.dueNumber);
+    handleUpdateTodayDueRow(rowId, 'isManualDueNo', false);
     setDueNumberErrors((prev) => {
       const copy = { ...prev };
       delete copy[rowId];
@@ -1227,6 +1243,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setTodayDueRows(
         sheet.todayDueEntries.map((e) => ({
           id: e.id,
+          dueId: e.dueId || e.id,
           dueNo: e.dueNo,
           customerId: e.customerId,
           customerName: e.customerName,
@@ -1234,12 +1251,24 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
           description: e.description,
           amount: e.amount,
           isSavedToLedger: e.isSavedToLedger ?? true,
+          ledgerId: e.ledgerId,
+          isManualDueNo: true,
         }))
       );
     } else if (sheet.todayDue && sheet.todayDue > 0) {
-      setTodayDueRows([{ id: `due-init-1`, dueNo: '', description: sheet.dueNotes || 'আজকের বাকি', amount: sheet.todayDue, isSavedToLedger: true }]);
+      setTodayDueRows([
+        {
+          id: `due-init-1`,
+          dueId: `due-init-1`,
+          dueNo: '',
+          description: sheet.dueNotes || 'আজকের বাকি',
+          amount: sheet.todayDue,
+          isSavedToLedger: true,
+          isManualDueNo: true,
+        },
+      ]);
     } else {
-      setTodayDueRows([createEmptyDueRow()]);
+      setTodayDueRows(syncDueNumberSuggestions([createEmptyDueRow()], db));
     }
 
     if (sheet.dueCollectionEntries && sheet.dueCollectionEntries.length > 0) {
@@ -1368,7 +1397,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setIsDamageTableLocked(storedLocks.isDamageTableLocked !== undefined ? Boolean(storedLocks.isDamageTableLocked) : false);
       setRows([createEmptyRow()]);
       setDamageRows([createEmptyDamageRow()]);
-      setTodayDueRows([createEmptyDueRow()]);
+      setTodayDueRows(syncDueNumberSuggestions([createEmptyDueRow()], db));
       setDueCollectionRows([createEmptyDueRow()]);
       setDailyExpense(0);
       setDailyLess(0);
@@ -1411,7 +1440,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     setSelectedDamageRowId(null);
     setRows([createEmptyRow()]);
     setDamageRows([createEmptyDamageRow()]);
-    setTodayDueRows([createEmptyDueRow()]);
+    setTodayDueRows(syncDueNumberSuggestions([createEmptyDueRow()], db));
     setDueCollectionRows([createEmptyDueRow()]);
     setCashDenominations({ 1000: '', 500: '', 200: '', 100: '', 50: '', 20: '', 10: '', 5: '', other: '' });
     setDailyExpense(0);
@@ -1434,7 +1463,10 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   // Dynamic Due Table Handlers
   const handleAddTodayDueRow = () => {
     if (isLockedForEdit) return;
-    setTodayDueRows((prev) => [...prev, createEmptyDueRow()]);
+    setTodayDueRows((prev) => {
+      const newRow = createEmptyDueRow();
+      return syncDueNumberSuggestions([...prev, newRow], db, { excludeSheetId: currentSheetId || undefined });
+    });
   };
 
   const handleUpdateTodayDueRow = (id: string, field: keyof DueItemRow, value: any) => {
@@ -1477,7 +1509,9 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
     const cleanDueNo = row.dueNo ? sanitizeDueNumberInput(row.dueNo) : '';
     if (cleanDueNo) {
       const dup = findDueNumberDuplicate(cleanDueNo, db, {
-        excludeRowId: rowId,
+        excludeRowId: row.dueId || rowId,
+        excludeDueId: row.dueId || rowId,
+        excludeLedgerId: row.ledgerId,
         currentUnsavedRows: todayDueRows,
         excludeSheetId: currentSheetId || undefined,
       });
@@ -1520,6 +1554,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
               customerId: res.customer.id,
               customerName: res.customer.name,
               shopName: res.customer.shopName,
+              ledgerId: res.ledgerEntry?.id,
               isSavedToLedger: true,
             }
           : r
@@ -1535,8 +1570,16 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const handleDeleteTodayDueRow = (id: string) => {
     if (isLockedForEdit) return;
     setTodayDueRows((prev) => {
-      if (prev.length <= 1) return [createEmptyDueRow()];
-      return prev.filter((r) => r.id !== id);
+      const filtered = prev.filter((r) => r.id !== id);
+      if (filtered.length === 0) {
+        return syncDueNumberSuggestions([createEmptyDueRow()], db, { excludeSheetId: currentSheetId || undefined });
+      }
+      return syncDueNumberSuggestions(filtered, db, { excludeSheetId: currentSheetId || undefined });
+    });
+    setDueNumberErrors((prev) => {
+      const copy = { ...prev };
+      delete copy[id];
+      return copy;
     });
   };
 
@@ -2331,26 +2374,20 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       const sheetStatus = stage === 'evening' ? 'completed' : 'pending';
       const shouldUpdateStock = stage === 'evening';
 
-      // Pre-validation: check for duplicate due numbers among filled rows
-      for (const r of todayDueRows) {
-        if (r.dueNo && (r.description.trim() || Number(r.amount) > 0)) {
-          const dup = findDueNumberDuplicate(r.dueNo, db, {
-            excludeRowId: r.id,
-            currentUnsavedRows: todayDueRows,
-            excludeSheetId: currentSheetId || undefined,
-          });
-          if (dup.isDuplicate) {
-            showNotification(`বাকি নম্বর "${r.dueNo}" ডুপ্লিকেট: ${dup.message}`, 'error', 4000);
-            setDueNumberErrors((prev) => ({
-              ...prev,
-              [r.id]: dup.message || 'ডুপ্লিকেট নম্বর',
-            }));
-            return false;
-          }
-        }
+      // Pre-validation: check for duplicate due numbers across all rows together
+      const batchDueValidation = validateBatchDueNumbers(todayDueRows, db, {
+        excludeSheetId: currentSheetId || undefined,
+      });
+
+      if (!batchDueValidation.isValid) {
+        const firstErrKey = Object.keys(batchDueValidation.errors)[0];
+        const firstErrMsg = batchDueValidation.errors[firstErrKey];
+        showNotification(`বাকি নম্বর ত্রুটি: ${firstErrMsg}`, 'error', 4500);
+        setDueNumberErrors(batchDueValidation.errors);
+        return false;
       }
 
-      // When saving (either morning distribution or evening final), ensure valid due rows have sequential Due Numbers assigned
+      // Check if any suggested numbers need refresh before saving
       const assignedRowsInBatch: { id: string; dueNo: string }[] = [];
       const syncedTodayDueRows = todayDueRows.map((r) => {
         const amt = Number(r.amount) || 0;
@@ -2358,38 +2395,33 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         if (!hasContent) return r;
 
         let assignedDueNo = r.dueNo ? sanitizeDueNumberInput(r.dueNo) : '';
-        let counterUsed: number | undefined;
 
         if (!assignedDueNo) {
           const auto = getNextFreeAutomaticDueNumber(db, assignedRowsInBatch);
           assignedDueNo = auto.dueNumber;
-          counterUsed = auto.counterUsed;
           assignedRowsInBatch.push({ id: r.id, dueNo: assignedDueNo });
         } else {
+          // If this was an untouched suggestion, check if taken concurrently
+          if (!r.isManualDueNo && !r.isSavedToLedger) {
+            const dup = findDueNumberDuplicate(assignedDueNo, db, {
+              excludeRowId: r.dueId || r.id,
+              excludeDueId: r.dueId || r.id,
+              excludeSheetId: currentSheetId || undefined,
+            });
+            if (dup.isDuplicate) {
+              const free = getNextFreeAutomaticDueNumber(db, assignedRowsInBatch);
+              const oldAssigned = assignedDueNo;
+              assignedDueNo = free.dueNumber;
+              showNotification(
+                `আপনার প্রস্তাবিত নম্বর ${oldAssigned} ইতিমধ্যে ব্যবহৃত হয়ে গিয়েছিল, নতুন নম্বর: ${assignedDueNo}`,
+                'info',
+                4000
+              );
+            }
+          }
           assignedRowsInBatch.push({ id: r.id, dueNo: assignedDueNo });
         }
 
-        if (stage === 'evening' && amt > 0 && !r.isSavedToLedger) {
-          const res = recordCustomerDue({
-            dueNo: assignedDueNo,
-            counterUsed,
-            customerId: r.customerId,
-            customerName: r.customerName || r.description,
-            shopName: r.shopName || r.description,
-            amount: amt,
-            date: selectedDate,
-            routeOrVan: selectedRoute,
-            note: `দৈনিক হিসাব বাকি #${assignedDueNo}`,
-          });
-          return {
-            ...r,
-            dueNo: res.dueNo || assignedDueNo,
-            customerId: res.customer.id,
-            customerName: res.customer.name,
-            shopName: res.customer.shopName,
-            isSavedToLedger: true,
-          };
-        }
         return {
           ...r,
           dueNo: assignedDueNo,
@@ -2403,6 +2435,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
         .filter((r) => r.description.trim() || Number(r.amount) > 0)
         .map((r) => ({
           id: r.id,
+          dueId: r.dueId || r.id,
           dueNo: r.dueNo,
           customerId: r.customerId,
           customerName: r.customerName,
@@ -2410,6 +2443,8 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
           description: r.description.trim(),
           amount: Number(r.amount) || 0,
           isSavedToLedger: r.isSavedToLedger,
+          ledgerId: r.ledgerId,
+          isManualDueNo: r.isManualDueNo,
         }));
 
       const validDueCollection: DailyDueEntry[] = dueCollectionRows
@@ -2469,6 +2504,24 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
       setCurrentSheetId(saved.id);
       setCurrentSheetStatus(sheetStatus);
       setLastSavedSheet(saved);
+      if (saved.todayDueEntries && saved.todayDueEntries.length > 0) {
+        setTodayDueRows(
+          saved.todayDueEntries.map((e) => ({
+            id: e.id,
+            dueId: e.dueId || e.id,
+            dueNo: e.dueNo,
+            customerId: e.customerId,
+            customerName: e.customerName,
+            shopName: e.shopName,
+            description: e.description,
+            amount: e.amount,
+            isSavedToLedger: e.isSavedToLedger ?? true,
+            ledgerId: e.ledgerId,
+            isManualDueNo: true,
+          }))
+        );
+      }
+      setDueNumberErrors({});
 
       if (stage === 'morning') {
         showNotification(
@@ -4745,6 +4798,7 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                             onChange={(e) => {
                               const sanitized = sanitizeDueNumberInput(e.target.value);
                               handleUpdateTodayDueRow(row.id, 'dueNo', sanitized);
+                              handleUpdateTodayDueRow(row.id, 'isManualDueNo', Boolean(sanitized));
                               validateDueNumberRow(row.id, sanitized);
                             }}
                             onBlur={() => {
