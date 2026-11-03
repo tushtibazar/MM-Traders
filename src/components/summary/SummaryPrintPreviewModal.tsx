@@ -309,27 +309,49 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                       boxSizing: 'border-box',
                     }}
                   >
-                    <th style={{ width: '8%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 2px' }}>
+                    <th style={{ width: '6%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 2px' }}>
                       নং
                     </th>
-                    <th style={{ width: '44%', textAlign: 'left', borderRight: '1px solid #cbd5e1', padding: '0 6px' }}>
+                    <th style={{ width: '30%', textAlign: 'left', borderRight: '1px solid #cbd5e1', padding: '0 6px' }}>
                       প্রোডাক্টের নাম
                     </th>
                     <th
                       style={{
-                        width: '20%',
+                        width: '14%',
                         textAlign: 'center',
                         borderRight: '1px solid #cbd5e1',
-                        padding: '0 4px',
+                        padding: '0 2px',
                         backgroundColor: '#fef3c7',
                       }}
                     >
-                      মোট <span style={{ fontSize: '7pt', fontWeight: 'normal' }}>(হাতে লেখার ঘর)</span>
+                      মোট
                     </th>
-                    <th style={{ width: '15%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 4px' }}>
+                    <th
+                      style={{
+                        width: '14%',
+                        textAlign: 'center',
+                        borderRight: '1px solid #cbd5e1',
+                        padding: '0 2px',
+                        backgroundColor: '#fef3c7',
+                      }}
+                    >
+                      ফেরত
+                    </th>
+                    <th
+                      style={{
+                        width: '14%',
+                        textAlign: 'center',
+                        borderRight: '1px solid #cbd5e1',
+                        padding: '0 2px',
+                        backgroundColor: '#fef3c7',
+                      }}
+                    >
+                      মোট বিক্রি
+                    </th>
+                    <th style={{ width: '11%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 2px' }}>
                       স্টক
                     </th>
-                    <th style={{ width: '13%', textAlign: 'right', padding: '0 6px' }}>
+                    <th style={{ width: '11%', textAlign: 'right', padding: '0 6px' }}>
                       দর (কার্টুন)
                     </th>
                   </tr>
@@ -341,8 +363,8 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                     const hasStock = (Number(p.currentStock) || 0) > 0;
                     const salePrice = Number(p.salePrice) || 0;
 
-                    // Dynamically scale down font if product name is long to prevent two lines
-                    const nameFontPt = p.name.length > 26 ? Math.max(8, fontPt - 1.5) : fontPt;
+                    // Dynamically scale down font if product name is long to prevent two lines (down to 9pt)
+                    const nameFontPt = p.name.length > 20 ? Math.max(9, fontPt - 1.5) : fontPt;
 
                     return (
                       <tr
@@ -357,10 +379,10 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           breakInside: 'avoid',
                         }}
                       >
-                        {/* নং (8%) */}
+                        {/* নং (6%) */}
                         <td
                           style={{
-                            width: '8%',
+                            width: '6%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
                             fontSize: `${fontPt}pt`,
@@ -375,10 +397,10 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           {toBengaliDigits(globalSerial)}
                         </td>
 
-                        {/* প্রোডাক্টের নাম (44%) - no wrapping */}
+                        {/* প্রোডাক্টের নাম (30%) - fit on one line, shrink font slightly instead of wrapping */}
                         <td
                           style={{
-                            width: '44%',
+                            width: '30%',
                             textAlign: 'left',
                             borderRight: '1px solid #cbd5e1',
                             fontSize: `${nameFontPt}pt`,
@@ -397,10 +419,10 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           {p.name}
                         </td>
 
-                        {/* মোট (20%) - wide, clearly bordered empty white box for handwriting */}
+                        {/* মোট (14%) - matching empty bordered cell for handwriting */}
                         <td
                           style={{
-                            width: '20%',
+                            width: '14%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
                             padding: '0 3px',
@@ -421,18 +443,68 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           />
                         </td>
 
-                        {/* স্টক (15%) */}
+                        {/* ফেরত (14%) - matching empty bordered cell for handwriting */}
                         <td
                           style={{
-                            width: '15%',
+                            width: '14%',
+                            textAlign: 'center',
+                            borderRight: '1px solid #cbd5e1',
+                            padding: '0 3px',
+                            verticalAlign: 'middle',
+                            backgroundColor: '#ffffff',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: `${Math.max(5, rowHeightMm - 2)}mm`,
+                              width: '100%',
+                              border: '1px solid #94a3b8',
+                              borderRadius: '2px',
+                              backgroundColor: '#ffffff',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </td>
+
+                        {/* মোট বিক্রি (14%) - matching empty bordered cell for handwriting */}
+                        <td
+                          style={{
+                            width: '14%',
+                            textAlign: 'center',
+                            borderRight: '1px solid #cbd5e1',
+                            padding: '0 3px',
+                            verticalAlign: 'middle',
+                            backgroundColor: '#ffffff',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: `${Math.max(5, rowHeightMm - 2)}mm`,
+                              width: '100%',
+                              border: '1px solid #94a3b8',
+                              borderRadius: '2px',
+                              backgroundColor: '#ffffff',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </td>
+
+                        {/* স্টক (11%) */}
+                        <td
+                          style={{
+                            width: '11%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
                             fontSize: `${fontPt}pt`,
                             fontWeight: hasStock ? 'bold' : 'normal',
                             color: hasStock ? '#065f46' : '#64748b',
-                            padding: '0 3px',
+                            padding: '0 2px',
                             verticalAlign: 'middle',
                             whiteSpace: 'nowrap',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
                             lineHeight: '1.15',
                             boxSizing: 'border-box',
                           }}
@@ -440,16 +512,16 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           {stockDisplay}
                         </td>
 
-                        {/* দর (কার্টুন) (13%) */}
+                        {/* দর (কার্টুন) (11%) */}
                         <td
                           style={{
-                            width: '13%',
+                            width: '11%',
                             textAlign: 'right',
                             fontSize: `${fontPt}pt`,
                             fontWeight: 'bold',
                             fontFamily: 'monospace',
                             color: '#0f172a',
-                            padding: '0 6px',
+                            padding: '0 4px',
                             verticalAlign: 'middle',
                             whiteSpace: 'nowrap',
                             lineHeight: '1.15',
