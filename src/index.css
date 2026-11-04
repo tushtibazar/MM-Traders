@@ -140,6 +140,31 @@
     break-after: auto !important;
   }
 
+  /* Specialized A4 landscape layout for Monthly Sales & Cash Report */
+  .printable-a4-page.monthly-sales-a4-page {
+    width: 281mm !important;
+    max-width: 281mm !important;
+    height: 194mm !important;
+    min-height: 194mm !important;
+    max-height: 194mm !important;
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: space-between !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: always !important;
+    break-after: page !important;
+  }
+
+  .printable-a4-page.monthly-sales-a4-page:last-child {
+    page-break-after: auto !important;
+    break-after: auto !important;
+  }
+
   /* Ensure tables and rows don't split awkwardly across pages */
   table {
     page-break-inside: auto !important;

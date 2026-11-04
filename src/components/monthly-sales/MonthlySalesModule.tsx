@@ -15,6 +15,7 @@ import {
   FileDown,
   TrendingDown,
   AlertOctagon,
+  Wallet,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { MonthlySalesPrintPreviewModal } from './MonthlySalesPrintPreviewModal';
@@ -48,12 +49,21 @@ export const MonthlySalesModule: React.FC = () => {
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth);
 
-  // Available years from database records or default span
+  // Available years from database records or default span (includes past 5 years and any year with data)
   const availableYears = useMemo(() => {
-    const yearsSet = new Set<number>([currentYear, currentYear - 1, currentYear + 1]);
+    const yearsSet = new Set<number>();
+    for (let y = currentYear - 5; y <= currentYear + 1; y++) {
+      yearsSet.add(y);
+    }
     (db.dailySheets || []).forEach((sheet) => {
       if (sheet.date) {
         const y = parseInt(sheet.date.split('-')[0], 10);
+        if (!isNaN(y)) yearsSet.add(y);
+      }
+    });
+    (db.payments || []).forEach((p) => {
+      if (p.date) {
+        const y = parseInt(p.date.split('-')[0], 10);
         if (!isNaN(y)) yearsSet.add(y);
       }
     });
@@ -69,8 +79,14 @@ export const MonthlySalesModule: React.FC = () => {
         if (!isNaN(y)) yearsSet.add(y);
       }
     });
+    (db.sales || []).forEach((sale) => {
+      if (sale.date) {
+        const y = parseInt(sale.date.split('-')[0], 10);
+        if (!isNaN(y)) yearsSet.add(y);
+      }
+    });
     return Array.from(yearsSet).sort((a, b) => b - a);
-  }, [db.dailySheets, db.lessEntries, db.expenses, currentYear]);
+  }, [db.dailySheets, db.payments, db.lessEntries, db.expenses, db.sales, currentYear]);
 
   // Navigate to previous month
   const handlePrevMonth = () => {
@@ -418,6 +434,147 @@ export const MonthlySalesModule: React.FC = () => {
     return dailyDamageData.reduce((sum, item) => sum + item.damageAmount, 0);
   }, [dailyDamageData]);
 
+  // 6. DAILY CASH & DUE COLLECTION DATA (দৈনিক ক্যাশ টাকা ও বাকি জমা হিসাব)
+  const dailyCashData = useMemo(() => {
+    const monthSheets = (db.dailySheets || []).filter(
+      (s) => s.date && s.date.startsWith(targetMonthPrefix)
+    );
+
+    const dateMap = new Map<
+      string,
+      { cashAmount: number; dueCollection: number; totalCash: number; isPending: boolean; routes: string[] }
+    >();
+
+    // Helper: calculate physical cash total from note denomination breakdown (নোট হিসাব + অন্যান্য)
+    const calculateSheetNoteCash = (sheet: any): number => {
+      const denoms = sheet.cashDenominations || {};
+      let notesTotal = 0;
+      const denomsList = [1000, 500, 200, 100, 50, 20, 10, 5];
+      denomsList.forEach((d) => {
+        const count = Number(denoms[d]) || 0;
+        notesTotal += d * count;
+      });
+
+      const otherEntries = denoms.otherEntries;
+      const otherTotal =
+        Array.isArray(otherEntries) && otherEntries.length > 0
+          ? otherEntries.reduce((sum: number, it: any) => sum + (Number(it.amount) || 0), 0)
+          : Number(denoms.other) || 0;
+
+      const totalFromNotes = notesTotal + otherTotal;
+      if (totalFromNotes > 0) return totalFromNotes;
+      return Number(sheet.cashCollected) || 0;
+    };
+
+    // Process daily sheets for note cash and pending status
+    monthSheets.forEach((sheet) => {
+      const d = sheet.date;
+      const noteCash = calculateSheetNoteCash(sheet);
+      const isSheetPending =
+        sheet.status === 'draft' || sheet.status === 'pending' || (sheet as any).isDraft === true;
+
+      const existing = dateMap.get(d) || {
+        cashAmount: 0,
+        dueCollection: 0,
+        totalCash: 0,
+        isPending: false,
+        routes: [],
+      };
+
+      existing.cashAmount += noteCash;
+      if (isSheetPending) {
+        existing.isPending = true;
+      }
+      if (sheet.routeOrVan && !existing.routes.includes(sheet.routeOrVan)) {
+        existing.routes.push(sheet.routeOrVan);
+      }
+      dateMap.set(d, existing);
+    });
+
+    // Process central collection records (db.payments) for exact non-double-counted due collection
+    const monthPayments = (db.payments || []).filter(
+      (p) => p.date && p.date.startsWith(targetMonthPrefix) && p.status !== 'void' && !p.saleId
+    );
+
+    const paymentDateSums = new Map<string, number>();
+    monthPayments.forEach((p) => {
+      const amt = Number(p.amount) || 0;
+      if (amt > 0) {
+        paymentDateSums.set(p.date, (paymentDateSums.get(p.date) || 0) + amt);
+      }
+    });
+
+    paymentDateSums.forEach((totalColl, d) => {
+      const existing = dateMap.get(d) || {
+        cashAmount: 0,
+        dueCollection: 0,
+        totalCash: 0,
+        isPending: false,
+        routes: [],
+      };
+      existing.dueCollection += totalColl;
+      dateMap.set(d, existing);
+    });
+
+    // Fallback: If a sheet on date d had collection but no central payment records were found
+    monthSheets.forEach((sheet) => {
+      const d = sheet.date;
+      const existing = dateMap.get(d);
+      if (existing && existing.dueCollection === 0) {
+        let sheetColl = 0;
+        if (Array.isArray(sheet.dueCollectionEntries) && sheet.dueCollectionEntries.length > 0) {
+          sheetColl = sheet.dueCollectionEntries.reduce(
+            (sum: number, e: any) => sum + (Number(e.amount) || 0),
+            0
+          );
+        } else if (Number(sheet.dueCollection) > 0) {
+          sheetColl = Number(sheet.dueCollection) || 0;
+        }
+        if (sheetColl > 0) {
+          existing.dueCollection += sheetColl;
+        }
+      }
+    });
+
+    const list: Array<{
+      date: string;
+      cashAmount: number;
+      dueCollection: number;
+      totalCash: number;
+      isPending: boolean;
+      routes: string[];
+    }> = [];
+
+    dateMap.forEach((data, date) => {
+      data.totalCash = data.cashAmount + data.dueCollection;
+      if (data.cashAmount > 0 || data.dueCollection > 0 || data.routes.length > 0) {
+        list.push({
+          date,
+          cashAmount: data.cashAmount,
+          dueCollection: data.dueCollection,
+          totalCash: data.totalCash,
+          isPending: data.isPending,
+          routes: data.routes,
+        });
+      }
+    });
+
+    return list.sort((a, b) => a.date.localeCompare(b.date));
+  }, [db.dailySheets, db.payments, targetMonthPrefix]);
+
+  const totalMonthlyCashOnly = useMemo(() => {
+    return dailyCashData.reduce((sum, item) => sum + item.cashAmount, 0);
+  }, [dailyCashData]);
+
+  const totalMonthlyDueCollection = useMemo(() => {
+    return dailyCashData.reduce((sum, item) => sum + item.dueCollection, 0);
+  }, [dailyCashData]);
+
+  const totalMonthlyTotalCash = useMemo(() => {
+    return totalMonthlyCashOnly + totalMonthlyDueCollection;
+  }, [totalMonthlyCashOnly, totalMonthlyDueCollection]);
+
+
   // Format date helper with weekday name in Bengali: DD/MM/YYYY (দিন)
   const formatDateBn = (dateStr: string) => {
     try {
@@ -470,7 +627,7 @@ export const MonthlySalesModule: React.FC = () => {
                 মাসিক বিক্রি হিসাব (Monthly Sales & Financial Report)
               </h1>
               <p className="text-xs text-slate-500">
-                ৫ কলামের পাশাপাশি লেআউটে নির্বাচিত মাসের প্রতিদিনের বিক্রি, লেস, খরচ, শর্ট এবং ড্যামেজ হিসাব
+                ৬ কলামের পাশাপাশি লেআউটে নির্বাচিত মাসের প্রতিদিনের বিক্রি, লেস, খরচ, শর্ট, ড্যামেজ এবং ক্যাশ টাকা হিসাব
               </p>
             </div>
           </div>
@@ -570,8 +727,8 @@ export const MonthlySalesModule: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. TOP METRIC SUMMARY CARDS (5 FIGURES: SALES, LESS, EXPENSE, SHORT, DAMAGE) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5">
+      {/* 2. TOP METRIC SUMMARY CARDS (6 FIGURES: SALES, LESS, EXPENSE, SHORT, DAMAGE, CASH) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
         {/* Card 1: Total Monthly Sales */}
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-xs">
           <div className="flex items-center justify-between">
@@ -661,12 +818,30 @@ export const MonthlySalesModule: React.FC = () => {
             মোট {dailyDamageData.length} দিনের ড্যামেজ হিসাব
           </p>
         </div>
+
+        {/* Card 6: Total Monthly Cash & Collections */}
+        <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-teal-950 font-bengali">
+              ৬. মোট ক্যাশ টাকা (Cash)
+            </span>
+            <div className="rounded-lg bg-teal-200/80 p-1.5 text-teal-800">
+              <Wallet className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-black font-mono text-teal-900">
+            {currency} {totalMonthlyTotalCash.toLocaleString()}
+          </p>
+          <p className="mt-1 text-[11px] text-teal-800 font-medium truncate" title={`ক্যাশ: ${currency} ${totalMonthlyCashOnly.toLocaleString()} | বাকি জমা: ${currency} ${totalMonthlyDueCollection.toLocaleString()}`}>
+            ক্যাশ: {currency} {totalMonthlyCashOnly.toLocaleString()} | বাকি: {currency} {totalMonthlyDueCollection.toLocaleString()}
+          </p>
+        </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* 5-COLUMN SIDE-BY-SIDE RESPONSIVE LAYOUT */}
+      {/* 6-COLUMN SIDE-BY-SIDE RESPONSIVE LAYOUT */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-6 gap-4 items-start">
         {/* ----------------------------------------------------------------------- */}
         {/* COLUMN 1: প্রতিদিনের বিক্রি হিসাব (Daily Sales) */}
         {/* ----------------------------------------------------------------------- */}
@@ -1041,6 +1216,108 @@ export const MonthlySalesModule: React.FC = () => {
             </span>
           </div>
         </div>
+
+        {/* ----------------------------------------------------------------------- */}
+        {/* COLUMN 6: ক্যাশ টাকা হিসাব (Daily Cash & Collections) */}
+        {/* ----------------------------------------------------------------------- */}
+        <div className="rounded-xl border border-teal-200 bg-white shadow-xs overflow-hidden flex flex-col h-full">
+          {/* Header */}
+          <div className="border-b border-teal-100 bg-teal-50/80 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-teal-600 text-white flex items-center justify-center font-bold text-xs">
+                ৬
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 font-bengali">
+                  ক্যাশ টাকা হিসাব
+                </h2>
+                <p className="text-[10px] text-slate-500">Daily Cash & Collections</p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-teal-800 bg-teal-100 border border-teal-200 px-2 py-0.5 rounded-md">
+              {dailyCashData.length} দিন
+            </span>
+          </div>
+
+          {/* Table Content */}
+          <div className="overflow-x-auto flex-1 max-h-[600px] overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="py-2.5 px-2.5 text-left">তারিখ</th>
+                  <th className="py-2.5 px-2 text-right">ক্যাশ টাকা</th>
+                  <th className="py-2.5 px-2 text-right">বাকি জমা</th>
+                  <th className="py-2.5 px-2.5 text-right">মোট ক্যাশ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dailyCashData.map((item) => (
+                  <tr key={item.date} className="hover:bg-teal-50/40 transition-colors">
+                    <td className="py-2.5 px-2.5 text-slate-900">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Wallet className="h-3 w-3 text-teal-500 shrink-0" />
+                        <span className="font-mono text-xs font-semibold text-slate-800">
+                          {formatDateBn(item.date)}
+                        </span>
+                        {item.isPending && (
+                          <span className="inline-flex items-center rounded-md bg-amber-100 border border-amber-300 px-1 py-0.2 text-[9px] font-bold text-amber-800">
+                            চলমান
+                          </span>
+                        )}
+                      </div>
+                      {item.routes && item.routes.length > 0 && (
+                        <div className="text-[10px] text-slate-400 truncate max-w-[170px] mt-0.5">
+                          {item.routes.join(', ')}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-2 text-right font-mono font-medium text-xs text-slate-700">
+                      {currency} {item.cashAmount.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-2 text-right font-mono font-medium text-xs text-blue-700">
+                      {currency} {item.dueCollection.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 px-2.5 text-right font-mono font-bold text-xs sm:text-sm text-teal-900 bg-teal-50/30">
+                      {currency} {item.totalCash.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+
+                {dailyCashData.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="py-12 text-center text-slate-400 text-xs">
+                      এই মাসে কোনো ক্যাশ টাকা রেকর্ড পাওয়া যায়নি
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Column Bottom Totals */}
+          <div className="border-t-2 border-teal-300 bg-teal-50/70 p-3 space-y-1.5 text-xs">
+            <div className="flex items-center justify-between font-semibold text-slate-700">
+              <span className="text-[11px] font-bengali">মোট ক্যাশ টাকা (এই মাসে):</span>
+              <span className="font-mono font-bold text-slate-800">
+                {currency} {totalMonthlyCashOnly.toLocaleString()}
+              </span>
+            </div>
+            <div className="flex items-center justify-between font-semibold text-slate-700">
+              <span className="text-[11px] font-bengali">মোট বাকি জমা (এই মাসে):</span>
+              <span className="font-mono font-bold text-blue-800">
+                {currency} {totalMonthlyDueCollection.toLocaleString()}
+              </span>
+            </div>
+            <div className="pt-1.5 border-t border-teal-200 flex items-center justify-between font-bold bg-teal-100/60 -mx-3 -mb-3 px-3 py-2 rounded-b-xl">
+              <span className="text-xs font-black text-teal-950 font-bengali uppercase">
+                মোট ক্যাশ (এই মাসে):
+              </span>
+              <span className="font-mono font-black text-base text-teal-900">
+                {currency} {totalMonthlyTotalCash.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Monthly Sales Print Preview & Export Modal */}
@@ -1056,11 +1333,15 @@ export const MonthlySalesModule: React.FC = () => {
         dailyExpense={dailyExpenseData}
         dailyShort={dailyShortData}
         dailyDamage={dailyDamageData}
+        dailyCash={dailyCashData}
         totalSales={totalMonthlySales}
         totalLess={totalMonthlyLess}
         totalExpense={totalMonthlyExpense}
         totalShort={totalMonthlyShort}
         totalDamage={totalMonthlyDamage}
+        totalCashOnly={totalMonthlyCashOnly}
+        totalDueCollection={totalMonthlyDueCollection}
+        totalCash={totalMonthlyTotalCash}
         initialAction={printAction}
       />
     </div>
