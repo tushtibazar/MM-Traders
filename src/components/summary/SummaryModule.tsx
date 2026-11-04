@@ -408,54 +408,61 @@ export const SummaryModule: React.FC = () => {
 
       {/* Main Single Table: Columns in exact order:
           - ড্র্যাগ ও মুভ বাটন (অন-স্ক্রিন শুধুমাত্র)
-          ১. নং (6%)
-          ২. প্রোডাক্টের নাম (30%)
-          ৩. মোট (14%) (EMPTY column, left blank for handwriting)
-          ৪. ফেরত (14%) (EMPTY column, left blank for handwriting)
-          ৫. মোট বিক্রি (14%) (EMPTY column, left blank for handwriting)
-          ৬. স্টক (11%) (read-only, from stock module)
-          ৭. দর (কার্টুন) (11%) (read-only selling rate per carton)
+          ১. নং (5%)
+          ২. প্রোডাক্টের নাম (27%)
+          ৩. মোট (12%) (EMPTY column, left blank for handwriting)
+          ৪. ফেরত (12%) (EMPTY column, left blank for handwriting)
+          ৫. মোট বিক্রি (12%) (EMPTY column, left blank for handwriting)
+          ৬. অবশিষ্ট স্টক (12%) (EMPTY column, left blank for handwriting)
+          ৭. স্টক (10%) (read-only, from stock module)
+          ৮. দর (কার্টুন) (10%) (read-only selling rate per carton)
       */}
       <div className="rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse min-w-[780px]" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full text-left text-xs border-collapse min-w-[840px]" style={{ tableLayout: 'fixed' }}>
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50/80 text-slate-700 font-bold text-xs">
                 {/* Drag Handle Column (On-screen only) */}
                 <th className="py-3 px-2 text-center w-14 shrink-0 border-r border-slate-200 text-slate-400 font-normal">
                   সাজান
                 </th>
-                <th className="py-3 px-2 text-center w-[6%] min-w-[36px] shrink-0 border-r border-slate-200">
+                <th className="py-3 px-2 text-center w-[5%] min-w-[32px] shrink-0 border-r border-slate-200">
                   নং
                 </th>
-                <th className="py-3 px-3 w-[30%] min-w-[180px] border-r border-slate-200">
+                <th className="py-3 px-3 w-[27%] min-w-[170px] border-r border-slate-200">
                   প্রোডাক্টের নাম
                 </th>
-                <th className="py-3 px-2 text-center w-[14%] border-r border-slate-200 bg-amber-50/60 text-amber-950">
+                <th className="py-3 px-2 text-center w-[12%] border-r border-slate-200 bg-amber-50/60 text-amber-950">
                   <div>মোট</div>
                   <div className="text-[10px] font-normal text-amber-700/80">
                     (হাতে লেখার ঘর)
                   </div>
                 </th>
-                <th className="py-3 px-2 text-center w-[14%] border-r border-slate-200 bg-amber-50/60 text-amber-950">
+                <th className="py-3 px-2 text-center w-[12%] border-r border-slate-200 bg-amber-50/60 text-amber-950">
                   <div>ফেরত</div>
                   <div className="text-[10px] font-normal text-amber-700/80">
                     (হাতে লেখার ঘর)
                   </div>
                 </th>
-                <th className="py-3 px-2 text-center w-[14%] border-r border-slate-200 bg-amber-50/60 text-amber-950">
+                <th className="py-3 px-2 text-center w-[12%] border-r border-slate-200 bg-amber-50/60 text-amber-950">
                   <div>মোট বিক্রি</div>
                   <div className="text-[10px] font-normal text-amber-700/80">
                     (হাতে লেখার ঘর)
                   </div>
                 </th>
-                <th className="py-3 px-2 text-center w-[11%] border-r border-slate-200">
+                <th className="py-3 px-2 text-center w-[12%] border-r border-slate-200 bg-amber-50/60 text-amber-950">
+                  <div>অবশিষ্ট স্টক</div>
+                  <div className="text-[10px] font-normal text-amber-700/80">
+                    (হাতে লেখার ঘর)
+                  </div>
+                </th>
+                <th className="py-3 px-2 text-center w-[10%] border-r border-slate-200">
                   <div>স্টক</div>
                   <div className="text-[10px] font-normal text-slate-500">
                     (লাইভ গুদাম)
                   </div>
                 </th>
-                <th className="py-3 px-3 text-right w-[11%]">
+                <th className="py-3 px-3 text-right w-[10%]">
                   <div>দর (কার্টুন)</div>
                   <div className="text-[10px] font-normal text-slate-500">
                     (বিক্রয় রেট)
@@ -466,7 +473,7 @@ export const SummaryModule: React.FC = () => {
             <tbody className="divide-y divide-slate-100">
               {displayProducts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400">
+                  <td colSpan={9} className="py-12 text-center text-slate-400">
                     <Package className="h-8 w-8 mx-auto text-slate-300 mb-2" />
                     <p className="font-semibold text-slate-600">কোনো পণ্য পাওয়া যায়নি</p>
                     <p className="text-xs text-slate-400 mt-0.5">
@@ -568,9 +575,9 @@ export const SummaryModule: React.FC = () => {
                       </td>
 
                       {/* ৩. মোট (EMPTY column, left blank for handwriting) */}
-                      <td className="py-2 px-2 text-center border-r border-slate-100 bg-amber-50/15 align-middle">
+                      <td className="py-2 px-1.5 text-center border-r border-slate-100 bg-amber-50/15 align-middle">
                         <div
-                          className="h-7 w-full max-w-[100px] mx-auto rounded border border-dashed border-amber-300 bg-white flex items-center justify-center text-slate-300 select-none"
+                          className="h-7 w-full max-w-[90px] mx-auto rounded border border-dashed border-amber-300 bg-white flex items-center justify-center text-slate-300 select-none"
                           title="প্রিন্ট করার পর এসআর হাতে সংখ্যা লিখবেন"
                         >
                           <span className="text-amber-600/50 font-mono text-xs">—</span>
@@ -578,9 +585,9 @@ export const SummaryModule: React.FC = () => {
                       </td>
 
                       {/* ৪. ফেরত (EMPTY column, left blank for handwriting) */}
-                      <td className="py-2 px-2 text-center border-r border-slate-100 bg-amber-50/15 align-middle">
+                      <td className="py-2 px-1.5 text-center border-r border-slate-100 bg-amber-50/15 align-middle">
                         <div
-                          className="h-7 w-full max-w-[100px] mx-auto rounded border border-dashed border-amber-300 bg-white flex items-center justify-center text-slate-300 select-none"
+                          className="h-7 w-full max-w-[90px] mx-auto rounded border border-dashed border-amber-300 bg-white flex items-center justify-center text-slate-300 select-none"
                           title="প্রিন্ট করার পর এসআর হাতে সংখ্যা লিখবেন"
                         >
                           <span className="text-amber-600/50 font-mono text-xs">—</span>
@@ -588,16 +595,26 @@ export const SummaryModule: React.FC = () => {
                       </td>
 
                       {/* ৫. মোট বিক্রি (EMPTY column, left blank for handwriting) */}
-                      <td className="py-2 px-2 text-center border-r border-slate-100 bg-amber-50/15 align-middle">
+                      <td className="py-2 px-1.5 text-center border-r border-slate-100 bg-amber-50/15 align-middle">
                         <div
-                          className="h-7 w-full max-w-[100px] mx-auto rounded border border-dashed border-amber-300 bg-white flex items-center justify-center text-slate-300 select-none"
+                          className="h-7 w-full max-w-[90px] mx-auto rounded border border-dashed border-amber-300 bg-white flex items-center justify-center text-slate-300 select-none"
                           title="প্রিন্ট করার পর এসআর হাতে সংখ্যা লিখবেন"
                         >
                           <span className="text-amber-600/50 font-mono text-xs">—</span>
                         </div>
                       </td>
 
-                      {/* ৬. স্টক (read-only, from stock module) */}
+                      {/* ৬. অবশিষ্ট স্টক (EMPTY column, left blank for handwriting) */}
+                      <td className="py-2 px-1.5 text-center border-r border-slate-100 bg-amber-50/15 align-middle">
+                        <div
+                          className="h-7 w-full max-w-[90px] mx-auto rounded border border-dashed border-amber-300 bg-white flex items-center justify-center text-slate-300 select-none"
+                          title="প্রিন্ট করার পর এসআর হাতে সংখ্যা লিখবেন"
+                        >
+                          <span className="text-amber-600/50 font-mono text-xs">—</span>
+                        </div>
+                      </td>
+
+                      {/* ৭. স্টক (read-only, from stock module) */}
                       <td className="py-2 px-2 text-center border-r border-slate-100 align-middle">
                         <span
                           className={`inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-bold ${
@@ -610,7 +627,7 @@ export const SummaryModule: React.FC = () => {
                         </span>
                       </td>
 
-                      {/* ৭. দর (কার্টুন) (read-only selling rate per carton) */}
+                      {/* ৮. দর (কার্টুন) (read-only selling rate per carton) */}
                       <td className="py-2 px-3 text-right align-middle">
                         <span className="font-mono font-bold text-xs sm:text-sm text-slate-900">
                           ৳ {salePrice.toLocaleString('en-US')}

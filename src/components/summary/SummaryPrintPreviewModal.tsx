@@ -245,48 +245,58 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                     {settings.businessName || 'MM TRADERS'} — দৈনিক মাল বের করার তালিকা (চলমান)
                   </div>
                   <div className="text-slate-600 font-medium" style={{ fontSize: '8pt', lineHeight: '1' }}>
-                    তারিখ: <strong>{formatDate(todayDateStr)}</strong> • পাতা: {toBengaliDigits(pageIndex + 1)}/{toBengaliDigits(totalPages)}
+                    পাতা: {toBengaliDigits(pageIndex + 1)}/{toBengaliDigits(totalPages)}
                   </div>
                 </div>
               )}
 
-              {/* 2. TITLE & SR/ROUTE SUB-BLOCK (Total height ~12mm) */}
+              {/* 2. TITLE & 4 EQUAL HAND-WRITTEN BLANK FIELDS IN ONE BALANCED ROW (Total height ~12.5mm) */}
               <div
                 className="border-b border-slate-300 py-1"
-                style={{ height: '12mm', boxSizing: 'border-box' }}
+                style={{ height: '12.5mm', boxSizing: 'border-box' }}
               >
                 <div className="flex items-center justify-between">
                   <div
-                    className="font-black text-slate-900 font-bengali"
+                    className="font-black text-slate-900 font-bengali tracking-tight"
                     style={{ fontSize: '11pt', lineHeight: '1' }}
                   >
                     দৈনিক মাল বের করার তালিকা
                   </div>
-                  <div className="text-slate-700 font-medium" style={{ fontSize: '8pt', lineHeight: '1' }}>
-                    তারিখ: <strong className="font-mono">{formatDate(todayDateStr)}</strong>
-                  </div>
                 </div>
 
+                {/* Single balanced row of FOUR equal blank fields: তারিখ | রুট | SR/DSR | গাড়ি নং */}
                 <div
-                  className="flex items-center justify-between text-slate-800 mt-1"
+                  className="grid grid-cols-4 gap-3 text-slate-800 mt-1.5 items-baseline"
                   style={{ fontSize: '8pt', lineHeight: '1' }}
                 >
-                  <div>
-                    <span className="font-bold">রুট:</span>{' '}
-                    <span className="font-mono text-slate-400">............................................</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-bold shrink-0">তারিখ:</span>{' '}
+                    <span className="font-mono text-slate-600 text-[8pt] tracking-wider border-b border-slate-400 pb-0.5 inline-block flex-1 text-center">
+                      ___ / ___ / ______
+                    </span>
                   </div>
-                  <div>
-                    <span className="font-bold">SR / DSR:</span>{' '}
-                    <span className="font-mono text-slate-400">............................................</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-bold shrink-0">রুট:</span>{' '}
+                    <span className="border-b border-slate-400 pb-0.5 inline-block flex-1">
+                      &nbsp;
+                    </span>
                   </div>
-                  <div>
-                    <span className="font-bold">গাড়ি নং:</span>{' '}
-                    <span className="font-mono text-slate-400">........................</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-bold shrink-0">SR/DSR:</span>{' '}
+                    <span className="border-b border-slate-400 pb-0.5 inline-block flex-1">
+                      &nbsp;
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="font-bold shrink-0">গাড়ি নং:</span>{' '}
+                    <span className="border-b border-slate-400 pb-0.5 inline-block flex-1">
+                      &nbsp;
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* 3. TABLE: table-layout fixed, explicit widths, exactly 7mm header, exact calculated rowHeight */}
+              {/* 3. TABLE: table-layout fixed, explicit widths (8 columns), exactly 7mm header, exact calculated rowHeight */}
               <table
                 style={{
                   tableLayout: 'fixed',
@@ -309,15 +319,15 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                       boxSizing: 'border-box',
                     }}
                   >
-                    <th style={{ width: '6%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 2px' }}>
+                    <th style={{ width: '5%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 2px' }}>
                       নং
                     </th>
-                    <th style={{ width: '30%', textAlign: 'left', borderRight: '1px solid #cbd5e1', padding: '0 6px' }}>
+                    <th style={{ width: '27%', textAlign: 'left', borderRight: '1px solid #cbd5e1', padding: '0 6px' }}>
                       প্রোডাক্টের নাম
                     </th>
                     <th
                       style={{
-                        width: '14%',
+                        width: '12%',
                         textAlign: 'center',
                         borderRight: '1px solid #cbd5e1',
                         padding: '0 2px',
@@ -328,7 +338,7 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                     </th>
                     <th
                       style={{
-                        width: '14%',
+                        width: '12%',
                         textAlign: 'center',
                         borderRight: '1px solid #cbd5e1',
                         padding: '0 2px',
@@ -339,7 +349,7 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                     </th>
                     <th
                       style={{
-                        width: '14%',
+                        width: '12%',
                         textAlign: 'center',
                         borderRight: '1px solid #cbd5e1',
                         padding: '0 2px',
@@ -348,10 +358,21 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                     >
                       মোট বিক্রি
                     </th>
-                    <th style={{ width: '11%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 2px' }}>
+                    <th
+                      style={{
+                        width: '12%',
+                        textAlign: 'center',
+                        borderRight: '1px solid #cbd5e1',
+                        padding: '0 2px',
+                        backgroundColor: '#fef3c7',
+                      }}
+                    >
+                      অবশিষ্ট স্টক
+                    </th>
+                    <th style={{ width: '10%', textAlign: 'center', borderRight: '1px solid #cbd5e1', padding: '0 2px' }}>
                       স্টক
                     </th>
-                    <th style={{ width: '11%', textAlign: 'right', padding: '0 6px' }}>
+                    <th style={{ width: '10%', textAlign: 'right', padding: '0 5px' }}>
                       দর (কার্টুন)
                     </th>
                   </tr>
@@ -364,7 +385,7 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                     const salePrice = Number(p.salePrice) || 0;
 
                     // Dynamically scale down font if product name is long to prevent two lines (down to 9pt)
-                    const nameFontPt = p.name.length > 20 ? Math.max(9, fontPt - 1.5) : fontPt;
+                    const nameFontPt = p.name.length > 18 ? Math.max(9, fontPt - 1.5) : fontPt;
 
                     return (
                       <tr
@@ -379,10 +400,10 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           breakInside: 'avoid',
                         }}
                       >
-                        {/* নং (6%) */}
+                        {/* নং (5%) */}
                         <td
                           style={{
-                            width: '6%',
+                            width: '5%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
                             fontSize: `${fontPt}pt`,
@@ -397,16 +418,16 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           {toBengaliDigits(globalSerial)}
                         </td>
 
-                        {/* প্রোডাক্টের নাম (30%) - fit on one line, shrink font slightly instead of wrapping */}
+                        {/* প্রোডাক্টের নাম (27%) - fit on one line, shrink font slightly instead of wrapping */}
                         <td
                           style={{
-                            width: '30%',
+                            width: '27%',
                             textAlign: 'left',
                             borderRight: '1px solid #cbd5e1',
                             fontSize: `${nameFontPt}pt`,
                             fontWeight: 'bold',
                             color: '#0f172a',
-                            padding: '0 6px',
+                            padding: '0 5px',
                             verticalAlign: 'middle',
                             whiteSpace: 'nowrap',
                             overflow: 'hidden',
@@ -419,13 +440,13 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           {p.name}
                         </td>
 
-                        {/* মোট (14%) - matching empty bordered cell for handwriting */}
+                        {/* মোট (12%) - matching empty bordered cell for handwriting */}
                         <td
                           style={{
-                            width: '14%',
+                            width: '12%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
-                            padding: '0 3px',
+                            padding: '0 2px',
                             verticalAlign: 'middle',
                             backgroundColor: '#ffffff',
                             boxSizing: 'border-box',
@@ -443,13 +464,13 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           />
                         </td>
 
-                        {/* ফেরত (14%) - matching empty bordered cell for handwriting */}
+                        {/* ফেরত (12%) - matching empty bordered cell for handwriting */}
                         <td
                           style={{
-                            width: '14%',
+                            width: '12%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
-                            padding: '0 3px',
+                            padding: '0 2px',
                             verticalAlign: 'middle',
                             backgroundColor: '#ffffff',
                             boxSizing: 'border-box',
@@ -467,13 +488,13 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           />
                         </td>
 
-                        {/* মোট বিক্রি (14%) - matching empty bordered cell for handwriting */}
+                        {/* মোট বিক্রি (12%) - matching empty bordered cell for handwriting */}
                         <td
                           style={{
-                            width: '14%',
+                            width: '12%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
-                            padding: '0 3px',
+                            padding: '0 2px',
                             verticalAlign: 'middle',
                             backgroundColor: '#ffffff',
                             boxSizing: 'border-box',
@@ -491,10 +512,34 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           />
                         </td>
 
-                        {/* স্টক (11%) */}
+                        {/* অবশিষ্ট স্টক (12%) - matching empty bordered cell for handwriting */}
                         <td
                           style={{
-                            width: '11%',
+                            width: '12%',
+                            textAlign: 'center',
+                            borderRight: '1px solid #cbd5e1',
+                            padding: '0 2px',
+                            verticalAlign: 'middle',
+                            backgroundColor: '#ffffff',
+                            boxSizing: 'border-box',
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: `${Math.max(5, rowHeightMm - 2)}mm`,
+                              width: '100%',
+                              border: '1px solid #94a3b8',
+                              borderRadius: '2px',
+                              backgroundColor: '#ffffff',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                        </td>
+
+                        {/* স্টক (10%) */}
+                        <td
+                          style={{
+                            width: '10%',
                             textAlign: 'center',
                             borderRight: '1px solid #cbd5e1',
                             fontSize: `${fontPt}pt`,
@@ -512,10 +557,10 @@ export const SummaryPrintPreviewModal: React.FC<SummaryPrintPreviewModalProps> =
                           {stockDisplay}
                         </td>
 
-                        {/* দর (কার্টুন) (11%) */}
+                        {/* দর (কার্টুন) (10%) */}
                         <td
                           style={{
-                            width: '11%',
+                            width: '10%',
                             textAlign: 'right',
                             fontSize: `${fontPt}pt`,
                             fontWeight: 'bold',
