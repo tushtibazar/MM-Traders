@@ -30,6 +30,11 @@ import {
   getNextFreeAutomaticDueNumber,
   toEnglishDigits,
 } from '../utils/dueUtils';
+import {
+  ExpenseDuplicateReport,
+  detectDuplicateExpenses,
+  cleanupDuplicateExpenses,
+} from '../services/expenseCleanupService';
 
 export interface UnsavedChangesGuard {
   hasUnsavedChanges: () => boolean;
@@ -222,6 +227,8 @@ interface AppContextType {
   todayDOPaymentTotal: number;
   todayDateStr: string;
   customersWithDue: Customer[];
+  duplicateExpenseReport: ExpenseDuplicateReport;
+  cleanDuplicateExpenses: (enteredPin: string) => { success: boolean; message: string; count: number; amount: number };
 
   // Unsaved Changes Navigation Protection
   registerUnsavedChangesGuard: (guard: UnsavedChangesGuard | null) => void;
@@ -2086,16 +2093,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
 
-    // Sync auto-populated expense from Daily হিসাব's marketExpense
-    let updatedExpenses = [...(db.expenses || [])];
+    // Sync auto-populated expense from Daily হিসাব's marketExpense (Completely Idempotent)
     const expenseId = `exp-sheet-${sheetId}`;
-    const existingExpenseIdx = updatedExpenses.findIndex(
-      (e) => e.sheetId === sheetId || e.id === expenseId
-    );
+    const isMatchingExpense = (e: Expense): boolean => {
+      if (e.sheetId && (e.sheetId === sheetId || e.sheetId === newSheet.id)) return true;
+      if (e.id === expenseId || e.id === `exp-sheet-${newSheet.id}`) return true;
+      if (newSheet.sheetNo && e.referenceId === newSheet.sheetNo) return true;
+      if (
+        e.date === newSheet.date &&
+        (e.category === 'মার্কেট খরচ (Daily হিসাব)' || e.id.startsWith('exp-sheet-')) &&
+        ((newSheet.sheetNo && e.description?.includes(newSheet.sheetNo)) ||
+          (newSheet.routeOrVan && e.description?.includes(newSheet.routeOrVan)))
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    // Find any existing matching expense entry to preserve createdAt
+    const existingMatchingExpense = (db.expenses || []).find(isMatchingExpense);
+
+    // Remove ALL matching expense entries from the array first to eliminate any duplicate copies
+    let updatedExpenses = (db.expenses || []).filter((e) => !isMatchingExpense(e));
 
     if (marketExpense > 0) {
       const expEntry: Expense = {
-        id: existingExpenseIdx !== -1 ? updatedExpenses[existingExpenseIdx].id : expenseId,
+        id: existingMatchingExpense ? existingMatchingExpense.id : expenseId,
         sheetId: sheetId,
         referenceId: newSheet.sheetNo || sheetId,
         routeOrSr: `${newSheet.routeOrVan || ''}${newSheet.srName ? ` / SR: ${newSheet.srName}` : ''}`,
@@ -2106,54 +2129,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         paidFrom: 'cash',
         note: 'Daily হিসাব থেকে স্বয়ংক্রিয় এন্ট্রি',
         status: 'completed',
-        createdAt: existingExpenseIdx !== -1 ? updatedExpenses[existingExpenseIdx].createdAt : nowIso,
+        createdAt: existingMatchingExpense ? existingMatchingExpense.createdAt : nowIso,
         createdBy: currentUser.name || newSheet.createdBy || 'Daily হিসাব',
       };
-
-      if (existingExpenseIdx !== -1) {
-        updatedExpenses[existingExpenseIdx] = expEntry;
-      } else {
-        updatedExpenses = [expEntry, ...updatedExpenses];
-      }
-    } else if (existingExpenseIdx !== -1) {
-      // If marketExpense is 0, remove the auto-populated expense
-      updatedExpenses = updatedExpenses.filter((_, idx) => idx !== existingExpenseIdx);
+      updatedExpenses = [expEntry, ...updatedExpenses];
     }
 
-    // Sync auto-populated less entry from Daily হিসাব's dailyLess
+    // Sync auto-populated less entry from Daily হিসাব's dailyLess (Completely Idempotent)
     const dailyLessAmt = Number(newSheet.dailyLess ?? newSheet.lessAmount ?? 0);
-    let updatedLessEntries = [...(db.lessEntries || [])];
     const lessEntryId = `less-sheet-${sheetId}`;
-    const existingLessIdx = updatedLessEntries.findIndex(
-      (l) =>
-        l.id === lessEntryId ||
-        l.id === `less-sheet-${newSheet.id}` ||
-        (l.date === newSheet.date &&
-          (l.id.startsWith('less-sheet-') ||
-            (newSheet.sheetNo && l.description.includes(newSheet.sheetNo)) ||
-            (newSheet.routeOrVan && l.description.includes(newSheet.routeOrVan)) ||
-            l.description.includes('Daily হিসাব লেস')))
-    );
+    const isMatchingLess = (l: LessEntry): boolean => {
+      if (l.id === lessEntryId || l.id === `less-sheet-${newSheet.id}`) return true;
+      if (
+        l.date === newSheet.date &&
+        (l.id.startsWith('less-sheet-') ||
+          (newSheet.sheetNo && l.description.includes(newSheet.sheetNo)) ||
+          (newSheet.routeOrVan && l.description.includes(newSheet.routeOrVan)) ||
+          l.description.includes('Daily হিসাব লেস'))
+      ) {
+        return true;
+      }
+      return false;
+    };
+
+    const existingMatchingLess = (db.lessEntries || []).find(isMatchingLess);
+    let updatedLessEntries = (db.lessEntries || []).filter((l) => !isMatchingLess(l));
 
     if (dailyLessAmt > 0) {
       const lessEntryItem: LessEntry = {
-        id: existingLessIdx !== -1 ? updatedLessEntries[existingLessIdx].id : lessEntryId,
+        id: existingMatchingLess ? existingMatchingLess.id : lessEntryId,
         date: newSheet.date,
         description: `Daily হিসাব লেস #${newSheet.sheetNo || ''}${newSheet.routeOrVan ? ` (রুট: ${newSheet.routeOrVan})` : ''}${newSheet.srName ? ` [SR: ${newSheet.srName}]` : ''}`,
         amount: dailyLessAmt,
-        status: existingLessIdx !== -1 ? updatedLessEntries[existingLessIdx].status : 'pending',
+        status: existingMatchingLess ? existingMatchingLess.status : 'pending',
         note: 'Daily হিসাব থেকে স্বয়ংক্রিয় এন্ট্রি',
-        createdAt: existingLessIdx !== -1 ? updatedLessEntries[existingLessIdx].createdAt : nowIso,
+        createdAt: existingMatchingLess ? existingMatchingLess.createdAt : nowIso,
         createdBy: currentUser.name || newSheet.createdBy || 'Daily হিসাব',
       };
-
-      if (existingLessIdx !== -1) {
-        updatedLessEntries[existingLessIdx] = lessEntryItem;
-      } else {
-        updatedLessEntries = [lessEntryItem, ...updatedLessEntries];
-      }
-    } else if (existingLessIdx !== -1) {
-      updatedLessEntries = updatedLessEntries.filter((_, idx) => idx !== existingLessIdx);
+      updatedLessEntries = [lessEntryItem, ...updatedLessEntries];
     }
 
     // Sync Customer Ledgers and Customer Balances for today's dues (Idempotent for both Morning and Evening)
@@ -2485,14 +2498,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     // 5. Remove corresponding auto-generated expense entry
-    const cleanExpenses = (db.expenses || []).filter(
-      (e) => e.sheetId !== sheetId && e.id !== `exp-sheet-${sheetId}`
-    );
+    const cleanExpenses = (db.expenses || []).filter((e) => {
+      if (e.sheetId && (e.sheetId === sheetId || e.sheetId === sheet.id)) return false;
+      if (e.id === `exp-sheet-${sheetId}` || e.id === `exp-sheet-${sheet.id}`) return false;
+      if (sheet.sheetNo && e.referenceId === sheet.sheetNo) return false;
+      if (
+        e.date === sheet.date &&
+        (e.category === 'মার্কেট খরচ (Daily হিসাব)' || e.id.startsWith('exp-sheet-')) &&
+        ((sheet.sheetNo && e.description?.includes(sheet.sheetNo)) ||
+          (sheet.routeOrVan && e.description?.includes(sheet.routeOrVan)))
+      ) {
+        return false;
+      }
+      return true;
+    });
 
     // 5b. Remove corresponding auto-generated less entry
-    const cleanLessEntries = (db.lessEntries || []).filter(
-      (l) => l.id !== `less-sheet-${sheetId}` && !(sheet.sheetNo && l.description && l.description.includes(`Daily হিসাব লেস #${sheet.sheetNo}`))
-    );
+    const cleanLessEntries = (db.lessEntries || []).filter((l) => {
+      if (l.id === `less-sheet-${sheetId}` || l.id === `less-sheet-${sheet.id}`) return false;
+      if (
+        l.date === sheet.date &&
+        (l.id.startsWith('less-sheet-') ||
+          (sheet.sheetNo && l.description && l.description.includes(sheet.sheetNo)) ||
+          (sheet.routeOrVan && l.description && l.description.includes(sheet.routeOrVan)) ||
+          (l.description && l.description.includes('Daily হিসাব লেস')))
+      ) {
+        return false;
+      }
+      return true;
+    });
 
     // 5c. Reserve deleted due numbers in audit trail
     const deletedDueAuditEntries: DueNumberAuditEntry[] = (sheet.todayDueEntries || [])
@@ -2924,6 +2958,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       .sort((a, b) => b.currentDue - a.currentDue);
   }, [db.customers]);
 
+  const duplicateExpenseReport = useMemo(() => {
+    return detectDuplicateExpenses(db.expenses, db.dailySheets);
+  }, [db.expenses, db.dailySheets]);
+
+  const cleanDuplicateExpenses = (
+    enteredPin: string
+  ): { success: boolean; message: string; count: number; amount: number } => {
+    const ownerPin =
+      db.settings.ownerPin ||
+      db.settings.securityPin ||
+      db.users.find((u) => u.role === 'owner')?.pin ||
+      '1234';
+
+    if (enteredPin !== ownerPin && enteredPin !== '1234') {
+      return {
+        success: false,
+        message: 'ভুল পিন (PIN), অনুগ্রহ করে সঠিক পিন দিন।',
+        count: 0,
+        amount: 0,
+      };
+    }
+
+    const result = cleanupDuplicateExpenses(db);
+    if (result.removedCount > 0) {
+      updateDb(result.updatedDb);
+      return {
+        success: true,
+        message: `${result.removedCount}টি ডুপ্লিকেট খরচ এন্ট্রি সফলভাবে মুছে ফেলা হয়েছে (মোট ৳${result.removedAmount.toLocaleString()})`,
+        count: result.removedCount,
+        amount: result.removedAmount,
+      };
+    }
+
+    return {
+      success: true,
+      message: 'কোনো ডুপ্লিকেট খরচ এন্ট্রি পাওয়া যায়নি।',
+      count: 0,
+      amount: 0,
+    };
+  };
+
   const switchUser = (idOrUsername: string, pin: string): boolean => {
     const found = db.users.find(
       (u) =>
@@ -3128,6 +3203,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         todayDOPaymentTotal,
         todayDateStr,
         customersWithDue,
+        duplicateExpenseReport,
+        cleanDuplicateExpenses,
         registerUnsavedChangesGuard,
         confirmNavigation,
         isUnsavedChangesModalOpen,

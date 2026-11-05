@@ -322,7 +322,14 @@ export const BusinessPositionModule: React.FC = () => {
       .filter((d) => d.status === 'confirmed')
       .reduce((sum, d) => sum + (Number(d.netCashSubmitted) || 0), 0);
     const expenses = (db.expenses || [])
-      .filter((e) => e.status === 'completed' && e.paidFrom === 'cash')
+      .filter(
+        (e) =>
+          e.status === 'completed' &&
+          e.paidFrom === 'cash' &&
+          !e.sheetId &&
+          !e.id.startsWith('exp-sheet-') &&
+          e.category !== 'মার্কেট খরচ (Daily হিসাব)'
+      )
       .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
     return { opening, collections, dailySheetsCash, expenses };
   }, [db.payments, db.dailySheets, db.expenses, db.settings.openingCashBalance]);

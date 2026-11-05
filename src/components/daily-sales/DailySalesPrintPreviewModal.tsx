@@ -520,7 +520,10 @@ export const DailySalesPrintPreviewModal: React.FC<DailySalesPrintPreviewModalPr
         const isFromDailySheet =
           Boolean(exp.sheetId) ||
           (exp as any).source === 'daily_sheet' ||
-          exp.category === 'মার্কেট খরচ (Daily Sheet)';
+          exp.category === 'মার্কেট খরচ (Daily Sheet)' ||
+          exp.category === 'মার্কেট খরচ (Daily হিসাব)' ||
+          (typeof exp.id === 'string' && exp.id.startsWith('exp-sheet-')) ||
+          (typeof exp.description === 'string' && exp.description.includes('Daily হিসাব খরচ'));
         if (!isFromDailySheet) {
           totalExpense += safeNumber(exp.amount);
         }

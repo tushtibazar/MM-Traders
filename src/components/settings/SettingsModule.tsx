@@ -21,6 +21,7 @@ import {
   FolderCheck,
   FolderPlus,
   RefreshCw,
+  Wrench,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -41,11 +42,24 @@ import {
   writeBackupToFolder,
 } from '../../services/localBackupFolder';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { ExpenseCleanupModal } from '../modals/ExpenseCleanupModal';
 import { formatDate } from '../../utils/dateUtils';
 import { findDueNumberDuplicate, toEnglishDigits } from '../../utils/dueUtils';
 
 export const SettingsModule: React.FC = () => {
-  const { db, currentUser, updateSettings, refreshFromStorage, importDatabase, addRoute, updateRoute, deleteRoute, resetToBlankData } = useApp();
+  const {
+    db,
+    currentUser,
+    updateSettings,
+    refreshFromStorage,
+    importDatabase,
+    addRoute,
+    updateRoute,
+    deleteRoute,
+    resetToBlankData,
+    duplicateExpenseReport,
+    cleanDuplicateExpenses,
+  } = useApp();
 
   const [businessName, setBusinessName] = useState(db.settings.businessName);
   const [proprietorName, setProprietorName] = useState(db.settings.proprietorName || '');
@@ -72,6 +86,8 @@ export const SettingsModule: React.FC = () => {
   const [restoreErrorMsg, setRestoreErrorMsg] = useState('');
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
   const [isResetPinModalOpen, setIsResetPinModalOpen] = useState(false);
+  const [isExpenseCleanupModalOpen, setIsExpenseCleanupModalOpen] = useState(false);
+  const [cleanupSuccessToast, setCleanupSuccessToast] = useState('');
   const [resetSuccessMsg, setResetSuccessMsg] = useState('');
   const [pendingRestore, setPendingRestore] = useState<{
     fileContent: string;
@@ -933,6 +949,51 @@ export const SettingsModule: React.FC = () => {
           </div>
         </div>
 
+        {cleanupSuccessToast && (
+          <div className="mt-4 rounded-lg bg-emerald-50 p-3 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2 font-bengali">
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+            <span>{cleanupSuccessToast}</span>
+          </div>
+        )}
+
+        {/* Fix Duplicate Expenses Action */}
+        <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className="font-bold text-amber-900 font-bengali text-sm flex items-center gap-1.5">
+                <Wrench className="h-4 w-4 text-amber-600" />
+                খরচ ডুপ্লিকেট ঠিক করুন (Fix Duplicate Expenses)
+              </h4>
+              {duplicateExpenseReport.duplicateCount > 0 ? (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+                  {duplicateExpenseReport.duplicateCount}টি ডুপ্লিকেট পাওয়া গেছে ({currency}{' '}
+                  {duplicateExpenseReport.duplicateAmount.toLocaleString()})
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  ✓ কোনো ডুপ্লিকেট খরচ নেই
+                </span>
+              )}
+            </div>
+            <p className="text-slate-600 font-bengali text-[11.5px] leading-relaxed">
+              Daily হিসাব একাধিকবার সংরক্ষণ করার কারণে সিস্টেমে একই শিটের অতিরিক্ত খরচ জমা হয়ে থাকলে তা স্বয়ংক্রিয়ভাবে শনাক্ত ও নিরাপদ সেফটি ব্যাকআপ রেখে ঠিক করা হবে।
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsExpenseCleanupModalOpen(true)}
+            disabled={duplicateExpenseReport.duplicateCount === 0}
+            className={`inline-flex items-center gap-1.5 rounded-xl border px-4 py-2 font-bold font-bengali shadow-xs transition-colors shrink-0 cursor-pointer ${
+              duplicateExpenseReport.duplicateCount > 0
+                ? 'border-amber-400 bg-amber-600 text-white hover:bg-amber-700'
+                : 'border-slate-200 bg-slate-100 text-slate-400 cursor-not-allowed'
+            }`}
+          >
+            <Wrench className="h-4 w-4" />
+            <span>খরচ ডুপ্লিকেট ঠিক করুন</span>
+          </button>
+        </div>
+
         {/* Reset to initial data */}
         <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
           <div className="space-y-1">
@@ -996,6 +1057,21 @@ export const SettingsModule: React.FC = () => {
           onClose={handleClosePinModal}
         />
       )}
+
+      {/* Expense Cleanup Modal for Duplicate Removal */}
+      <ExpenseCleanupModal
+        isOpen={isExpenseCleanupModalOpen}
+        onClose={() => setIsExpenseCleanupModalOpen(false)}
+        report={duplicateExpenseReport}
+        currency={currency}
+        onConfirm={cleanDuplicateExpenses}
+        onSuccess={(count, amount) => {
+          setCleanupSuccessToast(
+            `${count}টি ডুপ্লিকেট খরচ এন্ট্রি সফলভাবে মুছে ফেলা হয়েছে (${currency} ${amount.toLocaleString()})`
+          );
+          setTimeout(() => setCleanupSuccessToast(''), 4000);
+        }}
+      />
     </div>
   );
 };

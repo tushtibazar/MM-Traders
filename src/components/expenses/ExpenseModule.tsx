@@ -4,20 +4,31 @@ import {
   Trash2,
   CheckCircle2,
   Info,
+  AlertTriangle,
+  Wrench,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Expense } from '../../types';
 import { LessSection } from './LessSection';
 import { PinPromptModal } from '../modals/PinPromptModal';
+import { ExpenseCleanupModal } from '../modals/ExpenseCleanupModal';
 import { formatDate } from '../../utils/dateUtils';
 
 export const ExpenseModule: React.FC = () => {
-  const { db, deleteExpense, todayExpense, todayDateStr } = useApp();
+  const {
+    db,
+    deleteExpense,
+    todayExpense,
+    todayDateStr,
+    duplicateExpenseReport,
+    cleanDuplicateExpenses,
+  } = useApp();
   const currency = db.settings.currency || '৳';
   const ownerPin = db.settings.ownerPin || db.settings.securityPin || db.users.find((u) => u.role === 'owner')?.pin || '1234';
 
   const [deleteTarget, setDeleteTarget] = useState<Expense | null>(null);
   const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  const [isCleanupModalOpen, setIsCleanupModalOpen] = useState(false);
   const [notification, setNotification] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const totalMonthlyExpenses = React.useMemo(() => {
@@ -94,6 +105,34 @@ export const ExpenseModule: React.FC = () => {
         <div className="rounded-lg bg-emerald-50 p-3 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
           <span>{notification.message}</span>
+        </div>
+      )}
+
+      {/* Duplicate Expenses Warning Banner */}
+      {duplicateExpenseReport.duplicateCount > 0 && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-bengali">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-amber-200/80 p-2 text-amber-900 shrink-0 mt-0.5">
+              <AlertTriangle className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-amber-950">
+                সতর্কতা: {duplicateExpenseReport.duplicateCount}টি ডুপ্লিকেট খরচ এন্ট্রি পাওয়া গেছে (মোট {currency}{' '}
+                {duplicateExpenseReport.duplicateAmount.toLocaleString()})
+              </h3>
+              <p className="text-xs text-amber-800 mt-0.5">
+                Daily হিসাব একাধিকবার সেভ করার কারণে কিছু অতিরিক্ত খরচ এন্ট্রি জমা হয়েছে। এগুলো নিরাপদে ঠিক করতে পাশের বোতামে ক্লিক করুন।
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsCleanupModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition cursor-pointer shrink-0 self-start sm:self-auto"
+          >
+            <Wrench className="h-3.5 w-3.5" />
+            <span>ডুপ্লিকেট ঠিক করুন</span>
+          </button>
         </div>
       )}
 
@@ -208,6 +247,22 @@ export const ExpenseModule: React.FC = () => {
         onClose={() => {
           setIsPinModalOpen(false);
           setDeleteTarget(null);
+        }}
+      />
+
+      {/* Expense Cleanup Modal for Duplicate Removal */}
+      <ExpenseCleanupModal
+        isOpen={isCleanupModalOpen}
+        onClose={() => setIsCleanupModalOpen(false)}
+        report={duplicateExpenseReport}
+        currency={currency}
+        onConfirm={cleanDuplicateExpenses}
+        onSuccess={(count, amount) => {
+          setNotification({
+            message: `${count}টি ডুপ্লিকেট খরচ এন্ট্রি সফলভাবে মুছে ফেলা হয়েছে (${currency} ${amount.toLocaleString()})`,
+            type: 'success',
+          });
+          setTimeout(() => setNotification(null), 4000);
         }}
       />
     </div>

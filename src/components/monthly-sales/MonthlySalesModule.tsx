@@ -274,7 +274,7 @@ export const MonthlySalesModule: React.FC = () => {
   }, [dailyLessData]);
 
   // =========================================================================
-  // COLUMN 3: DAILY EXPENSE (date-wise)
+  // COLUMN 3: DAILY EXPENSE (date-wise) - Single Source of Truth
   // =========================================================================
   const dailyExpenseData = useMemo(() => {
     const dateMap = new Map<
@@ -282,7 +282,9 @@ export const MonthlySalesModule: React.FC = () => {
       { totalExpense: number; count: number; items: string[] }
     >();
 
-    // 1. From db.expenses
+    const coveredSheetIds = new Set<string>();
+
+    // 1. Primary Source: From db.expenses (Central expense collection)
     (db.expenses || []).forEach((e) => {
       if (e.date && e.date.startsWith(targetMonthPrefix) && e.status !== 'void') {
         const d = e.date;
@@ -296,21 +298,43 @@ export const MonthlySalesModule: React.FC = () => {
         if (!existing.items.includes(label)) {
           existing.items.push(label);
         }
+        if (e.sheetId) {
+          coveredSheetIds.add(e.sheetId);
+        }
+        if (typeof e.id === 'string' && e.id.startsWith('exp-sheet-')) {
+          coveredSheetIds.add(e.id.replace('exp-sheet-', ''));
+        }
         dateMap.set(d, existing);
       }
     });
 
-    // 2. From dailySheets marketExpense
+    // 2. Fallback: ONLY include dailySheets marketExpense if that sheet is NOT already covered in db.expenses
     (db.dailySheets || []).forEach((s) => {
-      if (s.date && s.date.startsWith(targetMonthPrefix) && (s.marketExpense || 0) > 0) {
-        const d = s.date;
-        const amt = Number(s.marketExpense) || 0;
-        const existing = dateMap.get(d) || { totalExpense: 0, count: 0, items: [] };
-        const label = `বাজার খরচ [রুট: ${s.routeOrVan || 'ডেলিভারি'}]`;
-        if (!existing.items.includes(label)) {
-          existing.totalExpense += amt;
+      const sAmt = Number(s.marketExpense) || 0;
+      if (s.date && s.date.startsWith(targetMonthPrefix) && sAmt > 0) {
+        const isTracked =
+          coveredSheetIds.has(s.id) ||
+          (db.expenses || []).some(
+            (e) =>
+              e.status !== 'void' &&
+              (e.sheetId === s.id ||
+                e.id === `exp-sheet-${s.id}` ||
+                (e.date === s.date &&
+                  (e.referenceId === s.sheetNo ||
+                    (s.sheetNo && e.description?.includes(s.sheetNo)) ||
+                    (s.routeOrVan && e.description?.includes(s.routeOrVan)))))
+          );
+
+        if (!isTracked) {
+          const d = s.date;
+          const existing = dateMap.get(d) || { totalExpense: 0, count: 0, items: [] };
+          const label = `বাজার খরচ [রুট: ${s.routeOrVan || 'ডেলিভারি'}]`;
+          existing.totalExpense += sAmt;
           existing.count += 1;
-          existing.items.push(label);
+          if (!existing.items.includes(label)) {
+            existing.items.push(label);
+          }
+          coveredSheetIds.add(s.id);
           dateMap.set(d, existing);
         }
       }
