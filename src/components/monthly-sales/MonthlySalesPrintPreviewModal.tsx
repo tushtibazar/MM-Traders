@@ -15,6 +15,7 @@ interface DailySummaryRow {
   cashAmount: number;
   dueCollection: number;
   totalCash: number;
+  doAmount: number;
   isPending?: boolean;
 }
 
@@ -31,6 +32,7 @@ interface MonthlySalesPrintPreviewModalProps {
   dailyShort?: { date: string; shortAmount: number }[];
   dailyDamage?: { date: string; damageAmount: number }[];
   dailyCash?: { date: string; cashAmount: number; dueCollection: number; totalCash: number; isPending?: boolean }[];
+  dailyDO?: { date: string; doAmount: number }[];
   totalSales: number;
   totalLess: number;
   totalExpense: number;
@@ -39,6 +41,7 @@ interface MonthlySalesPrintPreviewModalProps {
   totalCashOnly?: number;
   totalDueCollection?: number;
   totalCash?: number;
+  totalDO?: number;
   initialAction?: 'png' | 'pdf' | null;
 }
 
@@ -55,6 +58,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
   dailyShort = [],
   dailyDamage = [],
   dailyCash = [],
+  dailyDO = [],
   totalSales,
   totalLess,
   totalExpense,
@@ -63,6 +67,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
   totalCashOnly = 0,
   totalDueCollection = 0,
   totalCash = 0,
+  totalDO = 0,
   initialAction = null,
 }) => {
   // Combine all active dates in month
@@ -81,6 +86,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         cashAmount: 0,
         dueCollection: 0,
         totalCash: 0,
+        doAmount: 0,
         isPending: false,
       };
       cur.salesAmount += s.salesAmount;
@@ -100,6 +106,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         cashAmount: 0,
         dueCollection: 0,
         totalCash: 0,
+        doAmount: 0,
         isPending: false,
       };
       cur.lessAmount += l.lessAmount;
@@ -118,6 +125,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         cashAmount: 0,
         dueCollection: 0,
         totalCash: 0,
+        doAmount: 0,
         isPending: false,
       };
       cur.expenseAmount += e.expenseAmount;
@@ -136,6 +144,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         cashAmount: 0,
         dueCollection: 0,
         totalCash: 0,
+        doAmount: 0,
         isPending: false,
       };
       cur.shortAmount += sh.shortAmount;
@@ -154,6 +163,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         cashAmount: 0,
         dueCollection: 0,
         totalCash: 0,
+        doAmount: 0,
         isPending: false,
       };
       cur.damageAmount += dmg.damageAmount;
@@ -172,6 +182,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
         cashAmount: 0,
         dueCollection: 0,
         totalCash: 0,
+        doAmount: 0,
         isPending: false,
       };
       cur.cashAmount += c.cashAmount;
@@ -181,12 +192,31 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
       map.set(c.date, cur);
     });
 
+    (dailyDO || []).forEach((d) => {
+      const cur = map.get(d.date) || {
+        date: d.date,
+        salesAmount: 0,
+        salesCount: 0,
+        lessAmount: 0,
+        expenseAmount: 0,
+        shortAmount: 0,
+        damageAmount: 0,
+        cashAmount: 0,
+        dueCollection: 0,
+        totalCash: 0,
+        doAmount: 0,
+        isPending: false,
+      };
+      cur.doAmount += d.doAmount;
+      map.set(d.date, cur);
+    });
+
     const rows = Array.from(map.values());
     return rows.sort((a, b) => a.date.localeCompare(b.date));
-  }, [dailySales, dailyLess, dailyExpense, dailyShort, dailyDamage, dailyCash]);
+  }, [dailySales, dailyLess, dailyExpense, dailyShort, dailyDamage, dailyCash, dailyDO]);
 
-  // Paginate: 18 dates per page in A4 landscape to comfortably accommodate header, 10 columns, and signatures
-  const ITEMS_PER_PAGE = 18;
+  // Paginate: 31 dates per page in A4 landscape to comfortably accommodate all dates of a month on one page
+  const ITEMS_PER_PAGE = 31;
   const pages = useMemo(() => {
     if (consolidatedRows.length === 0) return [[]];
     const chunks: DailySummaryRow[][] = [];
@@ -218,7 +248,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
       isOpen={isOpen}
       onClose={onClose}
       title="মাসিক বিক্রয় ও আর্থিক বিবরণী (A4 ল্যান্ডস্কেপ)"
-      subtitle={`মাস: ${monthNameBn} ${year} • মোট বিক্রি: ${currency} ${totalSales.toLocaleString()} • মোট ক্যাশ: ${currency} ${totalCash.toLocaleString()} • নিট ব্যালেন্স: ${currency} ${netBalance.toLocaleString()} • ${totalPages} পৃষ্ঠা`}
+      subtitle={`মাস: ${monthNameBn} ${year} • মোট বিক্রি: ${currency} ${totalSales.toLocaleString()} • মোট ক্যাশ: ${currency} ${totalCash.toLocaleString()} • মোট ডিও: ${currency} ${totalDO.toLocaleString()} • নিট ব্যালেন্স: ${currency} ${netBalance.toLocaleString()} • ${totalPages} পৃষ্ঠা`}
       fileNamePrefix={`Monthly_Sales_${monthNameBn}_${year}`}
       initialAction={initialAction}
     >
@@ -294,7 +324,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
               height: '194mm',
               minHeight: '194mm',
               maxHeight: '194mm',
-              padding: '6mm 8mm',
+              padding: '5mm 7mm',
               boxSizing: 'border-box',
               overflow: 'hidden',
               pageBreakAfter: isLastPage ? 'auto' : 'always',
@@ -307,7 +337,7 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
             <div>
               <PrintHeader
                 settings={settings}
-                reportTitle="মাসিক বিক্রয় ও আর্থিক বিবরণী (ক্যাশ হিসাব সহ)"
+                reportTitle="মাসিক বিক্রয় ও আর্থিক বিবরণী (ক্যাশ ও ডিও হিসাব সহ)"
                 reportSubtitle={`মাস: ${monthNameBn} ${year} • পৃষ্ঠা: ${pageIndex + 1}/${totalPages}`}
                 isContinuedPage={!isFirstPage}
                 metadata={
@@ -322,32 +352,34 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
                         { label: 'মোট ক্যাশ টাকা', value: `${currency} ${totalCashOnly.toLocaleString()}` },
                         { label: 'মোট বাকি জমা', value: `${currency} ${totalDueCollection.toLocaleString()}` },
                         { label: 'সর্বমোট ক্যাশ', value: `${currency} ${totalCash.toLocaleString()}` },
+                        { label: 'মোট ডিও (কোম্পানি)', value: `${currency} ${totalDO.toLocaleString()}` },
                       ]
                     : []
                 }
               />
 
-              {/* 10-Column Landscape Table */}
-              <div className="border border-slate-300 rounded-sm overflow-hidden mt-1.5">
+              {/* 11-Column Landscape Table */}
+              <div className="border border-slate-300 rounded-sm overflow-hidden mt-1">
                 <table className="w-full text-left text-xs border-collapse" style={{ tableLayout: 'fixed' }}>
                   <thead>
-                    <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold text-[10.5px]">
-                      <th style={{ width: '4%' }} className="py-1.5 px-1 text-center border-r border-slate-300">#</th>
-                      <th style={{ width: '14%' }} className="py-1.5 px-2 border-r border-slate-300">তারিখ ও বার</th>
-                      <th style={{ width: '11%' }} className="py-1.5 px-2 text-right border-r border-slate-300">বিক্রয় (Sales)</th>
-                      <th style={{ width: '9%' }} className="py-1.5 px-1.5 text-right border-r border-slate-300">লেস (Less)</th>
-                      <th style={{ width: '10%' }} className="py-1.5 px-1.5 text-right border-r border-slate-300">খরচ (Expense)</th>
-                      <th style={{ width: '9%' }} className="py-1.5 px-1.5 text-right border-r border-slate-300">শর্ট (Short)</th>
-                      <th style={{ width: '9%' }} className="py-1.5 px-1.5 text-right border-r border-slate-300">ড্যামেজ</th>
-                      <th style={{ width: '11%' }} className="py-1.5 px-2 text-right border-r border-slate-300 bg-slate-50">ক্যাশ টাকা</th>
-                      <th style={{ width: '11%' }} className="py-1.5 px-2 text-right border-r border-slate-300 bg-slate-50">বাকি জমা</th>
-                      <th style={{ width: '12%' }} className="py-1.5 px-2 text-right bg-teal-50 text-teal-950">মোট ক্যাশ</th>
+                    <tr className="bg-slate-100 border-b border-slate-300 text-slate-800 font-bold text-[10px]">
+                      <th style={{ width: '3.5%' }} className="py-1 px-1 text-center border-r border-slate-300">#</th>
+                      <th style={{ width: '12.5%' }} className="py-1 px-1.5 border-r border-slate-300">তারিখ ও বার</th>
+                      <th style={{ width: '9.5%' }} className="py-1 px-1.5 text-right border-r border-slate-300">বিক্রয় (Sales)</th>
+                      <th style={{ width: '8%' }} className="py-1 px-1 text-right border-r border-slate-300">লেস (Less)</th>
+                      <th style={{ width: '8.5%' }} className="py-1 px-1 text-right border-r border-slate-300">খরচ (Expense)</th>
+                      <th style={{ width: '8%' }} className="py-1 px-1 text-right border-r border-slate-300">শর্ট (Short)</th>
+                      <th style={{ width: '8%' }} className="py-1 px-1 text-right border-r border-slate-300">ড্যামেজ</th>
+                      <th style={{ width: '10%' }} className="py-1 px-1 text-right border-r border-slate-300 bg-slate-50">ক্যাশ টাকা</th>
+                      <th style={{ width: '10%' }} className="py-1 px-1 text-right border-r border-slate-300 bg-slate-50">বাকি জমা</th>
+                      <th style={{ width: '11%' }} className="py-1 px-1.5 text-right border-r border-slate-300 bg-teal-50 text-teal-950">মোট ক্যাশ</th>
+                      <th style={{ width: '10.5%' }} className="py-1 px-1.5 text-right bg-indigo-50 text-indigo-950">ডিও (টাকা)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
                     {pageRows.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="py-8 text-center text-slate-400">
+                        <td colSpan={11} className="py-8 text-center text-slate-400">
                           এই মাসে কোনো রেকর্ড পাওয়া যায়নি
                         </td>
                       </tr>
@@ -356,43 +388,46 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
                         const globalIdx = pageIndex * ITEMS_PER_PAGE + idx + 1;
 
                         return (
-                          <tr key={row.date} className="hover:bg-slate-50/50 text-[10.5px]">
-                            <td className="py-1 px-1 text-center font-mono text-slate-500 border-r border-slate-200">
+                          <tr key={row.date} className="hover:bg-slate-50/50 text-[9.5px]">
+                            <td className="py-[2.5px] px-1 text-center font-mono text-slate-500 border-r border-slate-200">
                               {globalIdx}
                             </td>
-                            <td className="py-1 px-2 border-r border-slate-200 font-medium truncate">
-                              <span className="font-mono text-[10px] text-slate-800">
+                            <td className="py-[2.5px] px-1.5 border-r border-slate-200 font-medium truncate">
+                              <span className="font-mono text-[9.5px] text-slate-800">
                                 {formatDateBn(row.date)}
                               </span>
                               {row.isPending && (
-                                <span className="ml-1 text-[8.5px] px-1 py-0.2 font-bold rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                <span className="ml-1 text-[8px] px-1 py-0.2 font-bold rounded bg-amber-100 text-amber-800 border border-amber-200">
                                   চলমান
                                 </span>
                               )}
                             </td>
-                            <td className="py-1 px-2 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
+                            <td className="py-[2.5px] px-1.5 text-right font-mono font-bold text-slate-900 border-r border-slate-200">
                               {row.salesAmount > 0 ? `${currency} ${row.salesAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1 px-1.5 text-right font-mono font-bold text-amber-700 border-r border-slate-200">
+                            <td className="py-[2.5px] px-1 text-right font-mono font-bold text-amber-700 border-r border-slate-200">
                               {row.lessAmount > 0 ? `${currency} ${row.lessAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1 px-1.5 text-right font-mono font-bold text-rose-700 border-r border-slate-200">
+                            <td className="py-[2.5px] px-1 text-right font-mono font-bold text-rose-700 border-r border-slate-200">
                               {row.expenseAmount > 0 ? `${currency} ${row.expenseAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1 px-1.5 text-right font-mono font-bold text-orange-700 border-r border-slate-200">
+                            <td className="py-[2.5px] px-1 text-right font-mono font-bold text-orange-700 border-r border-slate-200">
                               {row.shortAmount > 0 ? `${currency} ${row.shortAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1 px-1.5 text-right font-mono font-bold text-purple-700 border-r border-slate-200">
+                            <td className="py-[2.5px] px-1 text-right font-mono font-bold text-purple-700 border-r border-slate-200">
                               {row.damageAmount > 0 ? `${currency} ${row.damageAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1 px-2 text-right font-mono font-medium text-slate-800 border-r border-slate-200 bg-slate-50/30">
+                            <td className="py-[2.5px] px-1 text-right font-mono font-medium text-slate-800 border-r border-slate-200 bg-slate-50/30">
                               {row.cashAmount > 0 ? `${currency} ${row.cashAmount.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1 px-2 text-right font-mono font-medium text-emerald-800 border-r border-slate-200 bg-slate-50/30">
+                            <td className="py-[2.5px] px-1 text-right font-mono font-medium text-emerald-800 border-r border-slate-200 bg-slate-50/30">
                               {row.dueCollection > 0 ? `${currency} ${row.dueCollection.toLocaleString()}` : '-'}
                             </td>
-                            <td className="py-1 px-2 text-right font-mono font-bold text-teal-800 bg-teal-50/40">
+                            <td className="py-[2.5px] px-1.5 text-right font-mono font-bold text-teal-800 border-r border-slate-200 bg-teal-50/40">
                               {row.totalCash > 0 ? `${currency} ${row.totalCash.toLocaleString()}` : '-'}
+                            </td>
+                            <td className="py-[2.5px] px-1.5 text-right font-mono font-bold text-indigo-900 bg-indigo-50/40">
+                              {row.doAmount > 0 ? `${currency} ${row.doAmount.toLocaleString()}` : '-'}
                             </td>
                           </tr>
                         );
@@ -401,33 +436,36 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
                   </tbody>
                   {isLastPage && (
                     <tfoot>
-                      <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-[11px]">
-                        <td colSpan={2} className="py-1.5 px-2 text-right text-slate-900 font-bold font-bengali">
+                      <tr className="bg-slate-100 font-bold border-t-2 border-slate-400 text-[10px]">
+                        <td colSpan={2} className="py-1 px-1.5 text-right text-slate-900 font-bold font-bengali">
                           সর্বমোট মাসিক যোগফল:
                         </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-slate-900">
+                        <td className="py-1 px-1.5 text-right font-mono text-slate-900">
                           {currency} {totalSales.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-1.5 text-right font-mono text-amber-700">
+                        <td className="py-1 px-1 text-right font-mono text-amber-700">
                           {currency} {totalLess.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-1.5 text-right font-mono text-rose-700">
+                        <td className="py-1 px-1 text-right font-mono text-rose-700">
                           {currency} {totalExpense.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-1.5 text-right font-mono text-orange-700">
+                        <td className="py-1 px-1 text-right font-mono text-orange-700">
                           {currency} {totalShort.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-1.5 text-right font-mono text-purple-700">
+                        <td className="py-1 px-1 text-right font-mono text-purple-700">
                           {currency} {totalDamage.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-slate-900 bg-slate-50">
+                        <td className="py-1 px-1 text-right font-mono text-slate-900 bg-slate-50">
                           {currency} {totalCashOnly.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-2 text-right font-mono text-emerald-800 bg-slate-50">
+                        <td className="py-1 px-1 text-right font-mono text-emerald-800 bg-slate-50">
                           {currency} {totalDueCollection.toLocaleString()}
                         </td>
-                        <td className="py-1.5 px-2 text-right font-mono font-black text-teal-900 bg-teal-100/70 border-l border-teal-300">
+                        <td className="py-1 px-1.5 text-right font-mono font-black text-teal-900 bg-teal-100/70 border-l border-teal-300">
                           {currency} {totalCash.toLocaleString()}
+                        </td>
+                        <td className="py-1 px-1.5 text-right font-mono font-black text-indigo-950 bg-indigo-100/70 border-l border-indigo-300">
+                          {currency} {totalDO.toLocaleString()}
                         </td>
                       </tr>
                     </tfoot>
@@ -438,23 +476,23 @@ export const MonthlySalesPrintPreviewModal: React.FC<MonthlySalesPrintPreviewMod
 
             {/* Bottom Signatures (On Last Page) */}
             {isLastPage ? (
-              <div className="pt-3 border-t border-slate-300">
+              <div className="pt-2 border-t border-slate-300">
                 <div className="grid grid-cols-3 gap-8 text-center text-xs text-slate-600">
                   <div>
-                    <div className="border-b border-slate-400 pb-1 mb-1 h-6"></div>
-                    <span className="font-semibold text-slate-800 text-[10.5px]">হিসাব রক্ষক স্বাক্ষর</span>
+                    <div className="border-b border-slate-400 pb-1 mb-1 h-5"></div>
+                    <span className="font-semibold text-slate-800 text-[10px]">হিসাব রক্ষক স্বাক্ষর</span>
                   </div>
                   <div>
-                    <div className="border-b border-slate-400 pb-1 mb-1 h-6"></div>
-                    <span className="font-semibold text-slate-800 text-[10.5px]">অডিট অফিসার স্বাক্ষর</span>
+                    <div className="border-b border-slate-400 pb-1 mb-1 h-5"></div>
+                    <span className="font-semibold text-slate-800 text-[10px]">অডিট অফিসার স্বাক্ষর</span>
                   </div>
                   <div>
-                    <div className="border-b border-slate-400 pb-1 mb-1 h-6"></div>
-                    <span className="font-bold text-slate-900 text-[10.5px]">স্বত্বাধিকারী / মালিকের স্বাক্ষর</span>
+                    <div className="border-b border-slate-400 pb-1 mb-1 h-5"></div>
+                    <span className="font-bold text-slate-900 text-[10px]">স্বত্বাধিকারী / মালিকের স্বাক্ষর</span>
                   </div>
                 </div>
-                <div className="text-[9.5px] text-slate-400 text-center mt-1.5 font-bengali">
-                  * এটি MM TRADERS সিস্টেম প্রস্তুতকৃত চূড়ান্ত মাসিক বিক্রয় ও আর্থিক প্রতিবেদন (ক্যাশ টাকা হিসাব অন্তর্ভুক্ত)।
+                <div className="text-[9px] text-slate-400 text-center mt-1 font-bengali">
+                  * এটি MM TRADERS সিস্টেম প্রস্তুতকৃত চূড়ান্ত মাসিক বিক্রয় ও আর্থিক প্রতিবেদন (ক্যাশ ও ডিও হিসাব অন্তর্ভুক্ত)।
                 </div>
               </div>
             ) : (

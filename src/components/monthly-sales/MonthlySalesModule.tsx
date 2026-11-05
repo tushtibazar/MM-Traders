@@ -16,6 +16,7 @@ import {
   TrendingDown,
   AlertOctagon,
   Wallet,
+  Landmark,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { MonthlySalesPrintPreviewModal } from './MonthlySalesPrintPreviewModal';
@@ -85,8 +86,14 @@ export const MonthlySalesModule: React.FC = () => {
         if (!isNaN(y)) yearsSet.add(y);
       }
     });
+    (db.doPayments || []).forEach((doPay) => {
+      if (doPay.date) {
+        const y = parseInt(doPay.date.split('-')[0], 10);
+        if (!isNaN(y)) yearsSet.add(y);
+      }
+    });
     return Array.from(yearsSet).sort((a, b) => b - a);
-  }, [db.dailySheets, db.payments, db.lessEntries, db.expenses, db.sales, currentYear]);
+  }, [db.dailySheets, db.payments, db.lessEntries, db.expenses, db.sales, db.doPayments, currentYear]);
 
   // Navigate to previous month
   const handlePrevMonth = () => {
@@ -598,6 +605,48 @@ export const MonthlySalesModule: React.FC = () => {
     return totalMonthlyCashOnly + totalMonthlyDueCollection;
   }, [totalMonthlyCashOnly, totalMonthlyDueCollection]);
 
+  // =========================================================================
+  // COLUMN 7: DAILY D.O. PAYMENTS (কোম্পানির ডিও পেমেন্ট হিসাব)
+  // =========================================================================
+  const dailyDOData = useMemo(() => {
+    const dateMap = new Map<
+      string,
+      { totalDO: number; count: number; notes: string[] }
+    >();
+
+    (db.doPayments || []).forEach((p) => {
+      // Ignore voided or deleted ডিও entries
+      const isNotVoid = p.status === 'active' || (!p.status as any) || (p.status as any) !== 'voided';
+      if (isNotVoid && p.date && p.date.startsWith(targetMonthPrefix)) {
+        const d = p.date;
+        const amt = Number(p.amount) || 0;
+        if (amt > 0) {
+          const existing = dateMap.get(d) || { totalDO: 0, count: 0, notes: [] };
+          existing.totalDO += amt;
+          existing.count += 1;
+          if (p.note && p.note.trim() && !existing.notes.includes(p.note.trim())) {
+            existing.notes.push(p.note.trim());
+          }
+          dateMap.set(d, existing);
+        }
+      }
+    });
+
+    const list = Array.from(dateMap.entries()).map(([date, data]) => ({
+      date,
+      doAmount: data.totalDO,
+      count: data.count,
+      notes: data.notes,
+    }));
+
+    return list.sort((a, b) => a.date.localeCompare(b.date));
+  }, [db.doPayments, targetMonthPrefix]);
+
+  const totalMonthlyDO = useMemo(() => {
+    return dailyDOData.reduce((sum, item) => sum + item.doAmount, 0);
+  }, [dailyDOData]);
+
+
 
   // Format date helper with weekday name in Bengali: DD/MM/YYYY (দিন)
   const formatDateBn = (dateStr: string) => {
@@ -651,7 +700,7 @@ export const MonthlySalesModule: React.FC = () => {
                 মাসিক বিক্রি হিসাব (Monthly Sales & Financial Report)
               </h1>
               <p className="text-xs text-slate-500">
-                ৬ কলামের পাশাপাশি লেআউটে নির্বাচিত মাসের প্রতিদিনের বিক্রি, লেস, খরচ, শর্ট, ড্যামেজ এবং ক্যাশ টাকা হিসাব
+                ৭ কলামের পাশাপাশি লেআউটে নির্বাচিত মাসের প্রতিদিনের বিক্রি, লেস, খরচ, শর্ট, ড্যামেজ, ক্যাশ টাকা এবং কোম্পানির ডিও (D.O.) হিসাব
               </p>
             </div>
           </div>
@@ -751,8 +800,8 @@ export const MonthlySalesModule: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. TOP METRIC SUMMARY CARDS (6 FIGURES: SALES, LESS, EXPENSE, SHORT, DAMAGE, CASH) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      {/* 2. TOP METRIC SUMMARY CARDS (7 FIGURES: SALES, LESS, EXPENSE, SHORT, DAMAGE, CASH, DO) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-7 gap-3.5">
         {/* Card 1: Total Monthly Sales */}
         <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-xs">
           <div className="flex items-center justify-between">
@@ -860,12 +909,30 @@ export const MonthlySalesModule: React.FC = () => {
             ক্যাশ: {currency} {totalMonthlyCashOnly.toLocaleString()} | বাকি: {currency} {totalMonthlyDueCollection.toLocaleString()}
           </p>
         </div>
+
+        {/* Card 7: Total Monthly D.O. Payments */}
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50/60 p-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold uppercase tracking-wider text-indigo-950 font-bengali">
+              ৭. মোট ডিও (D.O. Payment)
+            </span>
+            <div className="rounded-lg bg-indigo-200/80 p-1.5 text-indigo-800">
+              <Landmark className="h-4 w-4" />
+            </div>
+          </div>
+          <p className="mt-2 text-2xl font-black font-mono text-indigo-900">
+            {currency} {totalMonthlyDO.toLocaleString()}
+          </p>
+          <p className="mt-1 text-[11px] text-indigo-800 font-medium truncate">
+            মোট {dailyDOData.length} দিনের ডিও পেমেন্ট
+          </p>
+        </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* 6-COLUMN SIDE-BY-SIDE RESPONSIVE LAYOUT */}
+      {/* 7-COLUMN SIDE-BY-SIDE RESPONSIVE LAYOUT */}
       {/* ========================================================================= */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-6 gap-4 items-start">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7 gap-4 items-start">
         {/* ----------------------------------------------------------------------- */}
         {/* COLUMN 1: প্রতিদিনের বিক্রি হিসাব (Daily Sales) */}
         {/* ----------------------------------------------------------------------- */}
@@ -1342,6 +1409,78 @@ export const MonthlySalesModule: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* COLUMN 7: কোম্পানির ডিও হিসাব (Daily D.O. Payments) */}
+        <div className="rounded-xl border border-indigo-200 bg-white shadow-xs overflow-hidden flex flex-col h-full">
+          <div className="border-b border-indigo-100 bg-indigo-50/80 px-4 py-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-xs">
+                ৭
+              </div>
+              <div>
+                <h2 className="text-sm font-bold text-slate-900 font-bengali">
+                  ডিও (D.O. Payment)
+                </h2>
+                <p className="text-[10px] text-slate-500">Paid to Company, Date-wise</p>
+              </div>
+            </div>
+            <span className="text-[11px] font-bold text-indigo-800 bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded-md">
+              {dailyDOData.length} দিন
+            </span>
+          </div>
+
+          {/* Table Content */}
+          <div className="overflow-x-auto flex-1 max-h-[600px] overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 sticky top-0 z-10">
+                <tr>
+                  <th className="py-2.5 px-3 text-left">তারিখ</th>
+                  <th className="py-2.5 px-3 text-right">ডিও (টাকা)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {dailyDOData.map((item) => (
+                  <tr key={item.date} className="hover:bg-indigo-50/40 transition-colors">
+                    <td className="py-2.5 px-3 text-slate-900">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Landmark className="h-3 w-3 text-indigo-500 shrink-0" />
+                        <span className="font-mono text-xs font-semibold text-slate-800">
+                          {formatDateBn(item.date)}
+                        </span>
+                      </div>
+                      {item.notes && item.notes.length > 0 && (
+                        <div className="text-[10px] text-slate-400 truncate max-w-[170px] mt-0.5">
+                          {item.notes.join(', ')}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-xs sm:text-sm text-indigo-900">
+                      {currency} {item.doAmount.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+
+                {dailyDOData.length === 0 && (
+                  <tr>
+                    <td colSpan={2} className="py-12 text-center text-slate-400 text-xs">
+                      এই মাসে কোনো ডিও পেমেন্ট পাওয়া যায়নি
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Column Bottom Totals */}
+          <div className="border-t-2 border-indigo-300 bg-indigo-50 px-4 py-3 flex items-center justify-between font-bold">
+            <span className="text-xs font-black text-indigo-950 font-bengali uppercase">
+              মোট ডিও (এই মাসে):
+            </span>
+            <span className="font-mono font-black text-base text-indigo-900">
+              {currency} {totalMonthlyDO.toLocaleString()}
+            </span>
+          </div>
+        </div>
       </div>
 
       {/* Monthly Sales Print Preview & Export Modal */}
@@ -1358,6 +1497,7 @@ export const MonthlySalesModule: React.FC = () => {
         dailyShort={dailyShortData}
         dailyDamage={dailyDamageData}
         dailyCash={dailyCashData}
+        dailyDO={dailyDOData}
         totalSales={totalMonthlySales}
         totalLess={totalMonthlyLess}
         totalExpense={totalMonthlyExpense}
@@ -1366,6 +1506,7 @@ export const MonthlySalesModule: React.FC = () => {
         totalCashOnly={totalMonthlyCashOnly}
         totalDueCollection={totalMonthlyDueCollection}
         totalCash={totalMonthlyTotalCash}
+        totalDO={totalMonthlyDO}
         initialAction={printAction}
       />
     </div>
