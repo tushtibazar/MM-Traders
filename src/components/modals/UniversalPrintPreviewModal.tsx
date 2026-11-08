@@ -21,6 +21,7 @@ interface UniversalPrintPreviewModalProps {
   subtitle?: string;
   fileNamePrefix: string;
   initialAction?: 'png' | 'pdf' | null;
+  headerActions?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -31,6 +32,7 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
   subtitle,
   fileNamePrefix,
   initialAction = null,
+  headerActions,
   children,
 }) => {
   const [isExporting, setIsExporting] = useState(false);
@@ -163,6 +165,7 @@ export const UniversalPrintPreviewModal: React.FC<UniversalPrintPreviewModalProp
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          {headerActions}
           {/* Print Button */}
           <button
             type="button"

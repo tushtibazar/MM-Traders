@@ -14,10 +14,18 @@ import {
   X,
   SortAsc,
   AlertCircle,
+  MapPin,
+  Wallet,
+  Users,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { toBengaliDigits } from '../../utils/dateUtils';
+import {
+  getAvailableRoutes,
+  getRouteOutstandingDues,
+  sortRouteDues,
+} from '../../utils/dueUtils';
 import { SummaryPrintPreviewModal, formatStockForSummary } from './SummaryPrintPreviewModal';
 
 export const formatBanglaDateTime = (date: Date = new Date()): string => {
@@ -39,6 +47,20 @@ export const SummaryModule: React.FC = () => {
   const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState(false);
   const [generationTime, setGenerationTime] = useState<Date>(new Date());
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Route Dues state ("রুট অনুযায়ী বাকি")
+  const [selectedRoute, setSelectedRoute] = useState<string>('');
+  const [dueSortOrder, setDueSortOrder] = useState<'name' | 'dueNo' | 'amount'>('name');
+
+  const availableRoutes = useMemo(() => getAvailableRoutes(db), [db]);
+
+  const { dues: rawRouteDues, customerCount, totalAmount } = useMemo(() => {
+    return getRouteOutstandingDues(db, selectedRoute);
+  }, [db, selectedRoute]);
+
+  const sortedRouteDues = useMemo(() => {
+    return sortRouteDues(rawRouteDues, dueSortOrder);
+  }, [rawRouteDues, dueSortOrder]);
 
   // Drag-and-drop state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
@@ -653,6 +675,193 @@ export const SummaryModule: React.FC = () => {
         </div>
       </div>
 
+      {/* ------------------------------------------------------------- */}
+      {/* ROUTE-WISE DUE SECTION (রুট অনুযায়ী বাকি) */}
+      {/* ------------------------------------------------------------- */}
+      <div className="no-print mt-6 rounded-2xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+        {/* Header with Title and Dropdown */}
+        <div className="border-b border-slate-200 bg-linear-to-r from-slate-50 to-emerald-50/40 p-4 sm:p-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-2.5">
+              <div className="h-9 w-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs">
+                <MapPin className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900 font-bengali flex items-center gap-2">
+                  <span>রুট অনুযায়ী বাকি</span>
+                  <span className="text-[11px] font-medium text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-full border border-emerald-200">
+                    Route-wise Due
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-500 font-bengali mt-0.5">
+                  গাড়িতে মাল নিয়ে বের হওয়ার সময় এই রুটের দোকানদারদের বকেয়া তালিকা
+                </p>
+              </div>
+            </div>
+
+            {/* Route & Sort Selectors */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Route Dropdown */}
+              <div className="flex items-center gap-1.5">
+                <label className="text-xs font-bold text-slate-700 font-bengali">রুট:</label>
+                <select
+                  value={selectedRoute}
+                  onChange={(e) => setSelectedRoute(e.target.value)}
+                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-900 focus:border-emerald-600 focus:outline-hidden focus:ring-1 focus:ring-emerald-600 shadow-2xs cursor-pointer min-w-[200px]"
+                >
+                  <option value="">-- রুট সিলেক্ট করুন --</option>
+                  {availableRoutes.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                  <option value="no_route">রুট উল্লেখ নেই</option>
+                </select>
+              </div>
+
+              {/* Sort Selector */}
+              {selectedRoute && (
+                <div className="flex items-center gap-1.5">
+                  <label className="text-xs font-bold text-slate-700 font-bengali">ক্রম:</label>
+                  <select
+                    value={dueSortOrder}
+                    onChange={(e) => setDueSortOrder(e.target.value as 'name' | 'dueNo' | 'amount')}
+                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-900 focus:border-emerald-600 focus:outline-hidden focus:ring-1 focus:ring-emerald-600 shadow-2xs cursor-pointer"
+                  >
+                    <option value="name">নাম অনুযায়ী</option>
+                    <option value="dueNo">বাকি নং</option>
+                    <option value="amount">টাকা বেশি থেকে কম</option>
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* When a route is chosen: Small Summary Line */}
+          {selectedRoute && (
+            <div className="mt-3 pt-3 border-t border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-3 flex-wrap">
+                <div className="flex items-center gap-1 text-slate-700 font-medium">
+                  <Wallet className="h-4 w-4 text-emerald-600" />
+                  <span>মোট <strong className="font-bold font-mono text-emerald-950 text-sm">{toBengaliDigits(sortedRouteDues.length)}</strong> টি বাকি</span>
+                </div>
+                <div className="h-3.5 w-px bg-slate-300" />
+                <div className="flex items-center gap-1 text-slate-700 font-medium">
+                  <Users className="h-4 w-4 text-sky-600" />
+                  <span><strong className="font-bold font-mono text-slate-950 text-sm">{toBengaliDigits(customerCount)}</strong> জন কাস্টমার</span>
+                </div>
+                <div className="h-3.5 w-px bg-slate-300" />
+                <div className="flex items-center gap-1 text-slate-700 font-medium">
+                  <span>মোট বকেয়া:</span>
+                  <strong className="font-mono font-black text-rose-700 text-sm">
+                    ৳ {totalAmount.toLocaleString('en-US')}
+                  </strong>
+                </div>
+              </div>
+
+              <span className="text-[11px] text-slate-500 font-bengali italic">
+                * আদায়ের পর শুধুমাত্র অবশিষ্ট বাকি প্রদর্শিত হয়। পূর্ণ পরিশোধিত বাকি লুকানো রয়েছে।
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Content Body */}
+        <div className="p-4">
+          {!selectedRoute ? (
+            <div className="py-8 text-center text-slate-400">
+              <MapPin className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+              <p className="text-sm font-bold text-slate-600 font-bengali">রুট সিলেক্ট করুন</p>
+              <p className="text-xs text-slate-400 font-bengali mt-0.5">
+                উপরে ড্রপডাউন থেকে যেকোনো একটি রুট নির্বাচন করলে সেই রুটের সকল বকেয়ার তালিকা এখানে দেখতে পাবেন।
+              </p>
+            </div>
+          ) : sortedRouteDues.length === 0 ? (
+            <div className="py-8 text-center text-slate-500">
+              <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-500" />
+              <p className="text-sm font-bold text-emerald-800 font-bengali">এই রুটে কোনো বকেয়া নেই</p>
+              <p className="text-xs text-slate-400 font-bengali mt-0.5">
+                এই রুটের সকল কাস্টমারের বাকি পরিশোধিত।
+              </p>
+            </div>
+          ) : (
+            /* Two side-by-side compact blocks (single column on mobile) */
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Left Block */}
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <table className="w-full text-left border-collapse" style={{ tableLayout: 'fixed' }}>
+                  <thead>
+                    <tr className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200" style={{ height: '26px' }}>
+                      <th style={{ width: '12%' }} className="text-center px-1 border-r border-slate-200">ক্র.</th>
+                      <th style={{ width: '25%' }} className="px-2 border-r border-slate-200">বাকি নং</th>
+                      <th style={{ width: '40%' }} className="px-2 border-r border-slate-200">নাম</th>
+                      <th style={{ width: '23%' }} className="text-right px-2">টাকা (৳)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {sortedRouteDues
+                      .slice(0, Math.ceil(sortedRouteDues.length / 2))
+                      .map((item, idx) => (
+                        <tr key={item.id} className="hover:bg-slate-50/70" style={{ height: '26px' }}>
+                          <td className="text-center font-mono text-slate-500 border-r border-slate-100 px-1 truncate">
+                            {toBengaliDigits(idx + 1)}
+                          </td>
+                          <td className="font-mono font-bold text-slate-800 border-r border-slate-100 px-2 truncate" title={item.dueNo}>
+                            {item.dueNo}
+                          </td>
+                          <td className="border-r border-slate-100 px-2 font-medium text-slate-900 truncate" title={item.customerName}>
+                            <span className="text-[11px] font-bengali block truncate">{item.customerName}</span>
+                          </td>
+                          <td className="text-right font-mono font-bold text-rose-700 px-2 truncate">
+                            {item.amount.toLocaleString('en-US')}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Right Block */}
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <table className="w-full text-left border-collapse" style={{ tableLayout: 'fixed' }}>
+                  <thead>
+                    <tr className="bg-slate-100 text-[11px] font-bold text-slate-700 border-b border-slate-200" style={{ height: '26px' }}>
+                      <th style={{ width: '12%' }} className="text-center px-1 border-r border-slate-200">ক্র.</th>
+                      <th style={{ width: '25%' }} className="px-2 border-r border-slate-200">বাকি নং</th>
+                      <th style={{ width: '40%' }} className="px-2 border-r border-slate-200">নাম</th>
+                      <th style={{ width: '23%' }} className="text-right px-2">টাকা (৳)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-[11px]">
+                    {sortedRouteDues
+                      .slice(Math.ceil(sortedRouteDues.length / 2))
+                      .map((item, idx) => {
+                        const globalSerial = Math.ceil(sortedRouteDues.length / 2) + idx + 1;
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50/70" style={{ height: '26px' }}>
+                            <td className="text-center font-mono text-slate-500 border-r border-slate-100 px-1 truncate">
+                              {toBengaliDigits(globalSerial)}
+                            </td>
+                            <td className="font-mono font-bold text-slate-800 border-r border-slate-100 px-2 truncate" title={item.dueNo}>
+                              {item.dueNo}
+                            </td>
+                            <td className="border-r border-slate-100 px-2 font-medium text-slate-900 truncate" title={item.customerName}>
+                              <span className="text-[11px] font-bengali block truncate">{item.customerName}</span>
+                            </td>
+                            <td className="text-right font-mono font-bold text-rose-700 px-2 truncate">
+                              {item.amount.toLocaleString('en-US')}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Print Preview Modal */}
       <SummaryPrintPreviewModal
         isOpen={isPrintPreviewOpen}
@@ -661,6 +870,10 @@ export const SummaryModule: React.FC = () => {
         products={displayProducts}
         generationDateTimeStr={generationDateTimeStr}
         onlyInStock={onlyInStock}
+        selectedRoute={selectedRoute}
+        routeDues={sortedRouteDues}
+        routeCustomerCount={customerCount}
+        routeTotalAmount={totalAmount}
       />
     </div>
   );

@@ -1,5 +1,6 @@
 import { toBengaliDigits, formatDate } from './dateUtils';
-import type { AppDatabase } from '../types';
+import type { AppDatabase, Customer } from '../types';
+import { DEFAULT_ROUTES } from '../services/storage';
 
 /**
  * Converts Bengali digits to English digits
@@ -575,3 +576,415 @@ export function calculateNextDueNumber(
   const nextNum = maxNum + 1 + offsetIndex;
   return `DUE-${nextNum.toString().padStart(6, '0')}`;
 }
+
+/**
+ * Extracts key area words from route string (e.g. 'চকবাজার', 'বেগম বাজার', etc.)
+ */
+export function getRouteKeywords(route: string): string[] {
+  if (!route) return [];
+  const clean = route
+    .replace(/^রুট\s*[\d০-৯\w]+[:\s\-]*/i, '')
+    .replace(/^Route\s*[\d০-৯\w]+[:\s\-]*/i, '');
+  return clean
+    .split(/[\s,;&|/ও+]+/)
+    .map((w) => w.trim().toLowerCase())
+    .filter((w) => w.length >= 2 && w !== 'বাজার' && w !== 'রোড' && w !== 'রুট');
+}
+
+/**
+ * Returns all configured & known routes across customRoutes, SR territories, and daily sheets.
+ */
+export function getAvailableRoutes(db: AppDatabase): string[] {
+  const baseRoutes =
+    db.settings?.customRoutes !== undefined && Array.isArray(db.settings.customRoutes)
+      ? db.settings.customRoutes
+      : DEFAULT_ROUTES;
+  const srRoutes = (db.salesRepresentatives || [])
+    .map((sr) => sr.territory)
+    .filter((t): t is string => Boolean(t && t.trim()));
+  const sheetRoutes = (db.dailySheets || [])
+    .map((s) => s.routeOrVan)
+    .filter((r): r is string => Boolean(r && r.trim()));
+  return Array.from(new Set([...baseRoutes, ...srRoutes, ...sheetRoutes]));
+}
+
+/**
+ * Builds authoritative map of Customer ID -> Set of associated route names.
+ * Matches exact logic from DueModule.
+ */
+export function getCustomerRouteMap(
+  db: AppDatabase,
+  providedRoutes?: string[]
+): Map<string, Set<string>> {
+  const availableRoutes = providedRoutes || getAvailableRoutes(db);
+  const map = new Map<string, Set<string>>();
+
+  const addRouteToCustomer = (custId: string, route: string) => {
+    if (!custId || !route) return;
+    const trimmed = route.trim();
+    if (!trimmed) return;
+    let set = map.get(custId);
+    if (!set) {
+      set = new Set<string>();
+      map.set(custId, set);
+    }
+    set.add(trimmed);
+  };
+
+  // 1. From past daily sheets
+  (db.dailySheets || []).forEach((sheet) => {
+    const sheetRoute = sheet.routeOrVan?.trim();
+    if (!sheetRoute) return;
+
+    (sheet.todayDueEntries || []).forEach((entry) => {
+      if (entry.customerId) {
+        addRouteToCustomer(entry.customerId, sheetRoute);
+      } else {
+        const matched = (db.customers || []).find(
+          (c) =>
+            (entry.shopName && c.shopName.toLowerCase() === entry.shopName.toLowerCase()) ||
+            (entry.customerName && c.name.toLowerCase() === entry.customerName.toLowerCase())
+        );
+        if (matched) addRouteToCustomer(matched.id, sheetRoute);
+      }
+    });
+
+    (sheet.dueCollectionEntries || []).forEach((entry) => {
+      if (entry.customerId) {
+        addRouteToCustomer(entry.customerId, sheetRoute);
+      } else {
+        const matched = (db.customers || []).find(
+          (c) =>
+            (entry.shopName && c.shopName.toLowerCase() === entry.shopName.toLowerCase()) ||
+            (entry.customerName && c.name.toLowerCase() === entry.customerName.toLowerCase())
+        );
+        if (matched) addRouteToCustomer(matched.id, sheetRoute);
+      }
+    });
+  });
+
+  // 2. From customer ledgers
+  (db.customerLedgers || []).forEach((entry) => {
+    if (!entry.customerId || !entry.description) return;
+    const desc = entry.description;
+    availableRoutes.forEach((route) => {
+      if (desc.includes(route)) {
+        addRouteToCustomer(entry.customerId, route);
+      }
+    });
+  });
+
+  // 3. Keyword and name matching in customer's address, shopName, notes, or assigned SR territory
+  const routeKeywordMap = availableRoutes.map((r) => ({
+    route: r,
+    lowerRoute: r.toLowerCase(),
+    keywords: getRouteKeywords(r),
+  }));
+
+  (db.customers || []).forEach((c) => {
+    const addr = (c.address || '').toLowerCase();
+    const shop = (c.shopName || '').toLowerCase();
+    const notes = (c.notes || '').toLowerCase();
+
+    routeKeywordMap.forEach(({ route, lowerRoute, keywords }) => {
+      if (addr.includes(lowerRoute) || shop.includes(lowerRoute) || notes.includes(lowerRoute)) {
+        addRouteToCustomer(c.id, route);
+      } else if (keywords.length > 0) {
+        const match = keywords.some(
+          (kw) => addr.includes(kw) || shop.includes(kw) || notes.includes(kw)
+        );
+        if (match) {
+          addRouteToCustomer(c.id, route);
+        }
+      }
+    });
+
+    // 4. From customer's assigned SR territory
+    if (c.assignedSrId) {
+      const sr = (db.salesRepresentatives || []).find((s) => s.id === c.assignedSrId);
+      if (sr && sr.territory) {
+        const terr = sr.territory.trim();
+        if (terr) {
+          const matchedRoute = availableRoutes.find(
+            (r) =>
+              r.toLowerCase() === terr.toLowerCase() ||
+              terr.toLowerCase().includes(r.toLowerCase()) ||
+              r.toLowerCase().includes(terr.toLowerCase())
+          );
+          if (matchedRoute) {
+            addRouteToCustomer(c.id, matchedRoute);
+          } else {
+            addRouteToCustomer(c.id, terr);
+          }
+        }
+      }
+    }
+  });
+
+  // 5. Authoritative customer.route assignment
+  (db.customers || []).forEach((c) => {
+    if (c.route !== undefined) {
+      if (c.route.trim()) {
+        map.set(c.id, new Set([c.route.trim()]));
+      } else {
+        map.set(c.id, new Set());
+      }
+    }
+  });
+
+  return map;
+}
+
+export interface RouteDueItem {
+  id: string;
+  dueNo: string;
+  rawDueNo: string;
+  customerId: string;
+  customerName: string; // e.g. "শিশু পাক, শেরপুর"
+  shopName: string;
+  amount: number; // remaining outstanding amount after collections
+  date?: string;
+}
+
+/**
+ * Returns all active, outstanding dues for a selected route with their remaining balances.
+ * Fully paid dues are hidden. Partly collected dues show only remaining amount.
+ * The total amount equals the route total on the বাকি page.
+ */
+export function getRouteOutstandingDues(
+  db: AppDatabase,
+  selectedRoute: string,
+  routeMap?: Map<string, Set<string>>
+): {
+  dues: RouteDueItem[];
+  customerCount: number;
+  totalAmount: number;
+} {
+  if (!selectedRoute) {
+    return { dues: [], customerCount: 0, totalAmount: 0 };
+  }
+
+  const customerRouteMap = routeMap || getCustomerRouteMap(db);
+
+  // 1. Get all active customers with outstanding due on this route
+  const targetCustomers = (db.customers || []).filter((c) => {
+    if (c.status === 'inactive') return false;
+    const due = Number(c.currentDue) || 0;
+    if (due <= 0) return false;
+
+    const routes = customerRouteMap.get(c.id);
+    if (selectedRoute === 'no_route') {
+      return !routes || routes.size === 0;
+    }
+    return routes ? routes.has(selectedRoute) : false;
+  });
+
+  const dues: RouteDueItem[] = [];
+
+  for (const cust of targetCustomers) {
+    const custDue = Number(cust.currentDue) || 0;
+    if (custDue <= 0) continue;
+
+    // Formatted name: "দোকানের নাম, কাস্টমারের নাম" or e.g. "শিশু পাক, শেরপুর"
+    let formattedName = cust.shopName?.trim() || cust.name?.trim() || 'কাস্টমার';
+    if (cust.shopName && cust.name && cust.shopName.trim() !== cust.name.trim()) {
+      formattedName = `${cust.shopName.trim()}, ${cust.name.trim()}`;
+    } else if (cust.shopName && cust.address) {
+      const cleanAddr = cust.address.split(',')[0].trim();
+      if (cleanAddr && !cust.shopName.includes(cleanAddr)) {
+        formattedName = `${cust.shopName.trim()}, ${cleanAddr}`;
+      }
+    }
+
+    // Customer debit ledger entries (dues): debit > 0, active (not voided or settled)
+    const debitEntries = (db.customerLedgers || []).filter(
+      (l) =>
+        l.customerId === cust.id &&
+        Number(l.debit) > 0 &&
+        l.status !== 'voided' &&
+        l.status !== 'settled'
+    );
+
+    // Customer credit ledger entries (collections/returns): credit > 0, not voided
+    const creditEntries = (db.customerLedgers || []).filter(
+      (l) => l.customerId === cust.id && Number(l.credit) > 0 && l.status !== 'voided'
+    );
+
+    if (debitEntries.length === 0) {
+      // Customer has currentDue > 0 but no separate debit ledger entries (e.g. initial opening balance)
+      let primaryDueNo = '';
+      const sheetDue = (db.dailySheets || [])
+        .flatMap((s) => s.todayDueEntries || [])
+        .find((e) => e.customerId === cust.id && e.dueNo);
+      if (sheetDue && sheetDue.dueNo) {
+        primaryDueNo = sheetDue.dueNo;
+      } else if (cust.openingBalance && cust.openingBalance > 0) {
+        primaryDueNo = 'OPENING';
+      }
+
+      dues.push({
+        id: `cust-${cust.id}`,
+        dueNo: formatDueNumber(primaryDueNo) || '—',
+        rawDueNo: primaryDueNo,
+        customerId: cust.id,
+        customerName: formattedName,
+        shopName: cust.shopName || cust.name,
+        amount: custDue,
+        date: cust.createdAt ? cust.createdAt.split('T')[0] : undefined,
+      });
+      continue;
+    }
+
+    // Sort debit entries chronologically (oldest first)
+    const sortedDebits = [...debitEntries].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    // Track remaining amount on each debit entry
+    const debitTrackers = sortedDebits.map((d) => ({
+      entry: d,
+      dueNo:
+        d.dueNo ||
+        (d.referenceId && d.referenceId.startsWith('DUE-')
+          ? d.referenceId
+          : d.referenceId && /^\d+$/.test(d.referenceId)
+          ? d.referenceId
+          : ''),
+      rawRef: d.referenceId || '',
+      remaining: Number(d.debit) || 0,
+    }));
+
+    // Apply targeted credits first (payments that reference a specific dueNo)
+    let generalCredits = 0;
+    for (const cred of creditEntries) {
+      const credAmt = Number(cred.credit) || 0;
+      if (credAmt <= 0) continue;
+
+      const normRef = normalizeDueNumber(cred.referenceId);
+      const targetDebit = normRef
+        ? debitTrackers.find(
+            (t) =>
+              (t.dueNo && normalizeDueNumber(t.dueNo) === normRef) ||
+              (t.rawRef && normalizeDueNumber(t.rawRef) === normRef)
+          )
+        : null;
+
+      if (targetDebit && targetDebit.remaining > 0) {
+        const deduction = Math.min(targetDebit.remaining, credAmt);
+        targetDebit.remaining -= deduction;
+        const leftover = credAmt - deduction;
+        if (leftover > 0) {
+          generalCredits += leftover;
+        }
+      } else {
+        generalCredits += credAmt;
+      }
+    }
+
+    // Apply remaining general credits in FIFO order across debit entries
+    if (generalCredits > 0) {
+      for (const tracker of debitTrackers) {
+        if (tracker.remaining > 0) {
+          const deduction = Math.min(tracker.remaining, generalCredits);
+          tracker.remaining -= deduction;
+          generalCredits -= deduction;
+          if (generalCredits <= 0) break;
+        }
+      }
+    }
+
+    // Active debits with remaining > 0
+    let activeTrackers = debitTrackers.filter((t) => t.remaining > 0);
+
+    // Guarantee that sum(activeTrackers.remaining) matches cust.currentDue exactly
+    const calculatedSum = activeTrackers.reduce((s, t) => s + t.remaining, 0);
+
+    if (activeTrackers.length === 0 && custDue > 0) {
+      // If all were reduced to 0 by credits, but customer still has currentDue
+      const lastDebit = debitTrackers[debitTrackers.length - 1];
+      activeTrackers = [
+        {
+          entry: lastDebit.entry,
+          dueNo: lastDebit.dueNo,
+          rawRef: lastDebit.rawRef,
+          remaining: custDue,
+        },
+      ];
+    } else if (calculatedSum !== custDue && activeTrackers.length > 0) {
+      const diff = custDue - calculatedSum;
+      if (diff > 0) {
+        activeTrackers[activeTrackers.length - 1].remaining += diff;
+      } else if (diff < 0) {
+        let excessToSubtract = -diff;
+        for (const tracker of activeTrackers) {
+          if (tracker.remaining > 0) {
+            const deduct = Math.min(tracker.remaining, excessToSubtract);
+            tracker.remaining -= deduct;
+            excessToSubtract -= deduct;
+            if (excessToSubtract <= 0) break;
+          }
+        }
+        activeTrackers = activeTrackers.filter((t) => t.remaining > 0);
+      }
+    }
+
+    // Add each active remaining due to the dues list
+    for (const tracker of activeTrackers) {
+      if (tracker.remaining <= 0) continue; // fully paid dues are hidden!
+
+      const dueNoStr = tracker.dueNo || tracker.rawRef;
+      dues.push({
+        id: tracker.entry.id,
+        dueNo: formatDueNumber(dueNoStr) || '—',
+        rawDueNo: dueNoStr,
+        customerId: cust.id,
+        customerName: formattedName,
+        shopName: cust.shopName || cust.name,
+        amount: tracker.remaining,
+        date: tracker.entry.date,
+      });
+    }
+  }
+
+  const totalAmount = dues.reduce((sum, d) => sum + d.amount, 0);
+  const uniqueCustomerIds = new Set(dues.map((d) => d.customerId));
+
+  return {
+    dues,
+    customerCount: uniqueCustomerIds.size,
+    totalAmount,
+  };
+}
+
+/**
+ * Sorts route dues by 'name' (default), 'dueNo', or 'amount' (descending).
+ * For 'name', multiple dues for the same customer stay together.
+ */
+export function sortRouteDues(
+  dues: RouteDueItem[],
+  sortOrder: 'name' | 'dueNo' | 'amount' = 'name'
+): RouteDueItem[] {
+  const copy = [...dues];
+  if (sortOrder === 'name') {
+    return copy.sort((a, b) => {
+      const nameComp = (a.customerName || '').localeCompare(b.customerName || '', 'bn');
+      if (nameComp !== 0) return nameComp;
+      return (a.dueNo || '').localeCompare(b.dueNo || '');
+    });
+  } else if (sortOrder === 'dueNo') {
+    return copy.sort((a, b) => {
+      const normA = normalizeDueNumber(a.rawDueNo || a.dueNo);
+      const normB = normalizeDueNumber(b.rawDueNo || b.dueNo);
+      const numA = parseInt(normA, 10);
+      const numB = parseInt(normB, 10);
+      if (!isNaN(numA) && !isNaN(numB)) {
+        return numA - numB;
+      }
+      return normA.localeCompare(normB);
+    });
+  } else if (sortOrder === 'amount') {
+    return copy.sort((a, b) => b.amount - a.amount);
+  }
+  return copy;
+}
+
