@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { BusinessSettings, Customer } from '../../types';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
-import { formatDueNumber } from '../../utils/dueUtils';
+import { formatDueNumber, compareCustomersByLastDueNumber, getCustomerDueNumbersInfo } from '../../utils/dueUtils';
+import { useApp } from '../../context/AppContext';
 
 interface DuePrintPreviewModalProps {
   isOpen: boolean;
@@ -16,6 +17,7 @@ interface DuePrintPreviewModalProps {
   routeFilter: string;
   customerRouteMap: Map<string, Set<string>> | Map<string, string>;
   customerDueNumberMap?: Map<string, string>;
+  customerDueNumbersListMap?: Map<string, string[]>;
   todayDateStr: string;
   initialAction?: 'png' | 'pdf' | null;
 }
@@ -73,9 +75,13 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
   todayDateStr,
   initialAction = null,
 }) => {
+  const { db } = useApp();
+
   const activeCustomers = useMemo(() => {
-    return customers.filter((c) => (c.currentDue || 0) > 0);
-  }, [customers]);
+    const list = customers.filter((c) => (c.currentDue || 0) > 0);
+    // Sort customers by their last (largest) due number ascending
+    return list.slice().sort((a, b) => compareCustomersByLastDueNumber(a.id, b.id, db, false));
+  }, [customers, db]);
 
   // Dynamic pagination based on physical printable capacity
   const pages: Customer[][] = useMemo(() => {
@@ -350,7 +356,9 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                         const phone = cleanReportText(c.phone);
                         const srName = cleanReportText(c.assignedSrName);
 
-                        const dueNo = customerDueNumberMap ? customerDueNumberMap.get(c.id) : undefined;
+                        const custDueInfo = getCustomerDueNumbersInfo(c.id, db, false);
+                        const dueNos = custDueInfo.dueNos;
+                        const lastDueNo = custDueInfo.lastDueNo;
 
                         return (
                           <tr
@@ -373,10 +381,24 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                                 <span className="font-bold text-slate-900 text-[10px] truncate">
                                   {c.name}
                                 </span>
-                                {dueNo && (
-                                  <span className="font-mono text-[8.5px] font-bold text-amber-900 bg-amber-50 px-1 py-0.2 rounded border border-amber-200 shrink-0">
-                                    {formatDueNumber(dueNo)}
-                                  </span>
+                                {dueNos.length > 0 && (
+                                  <div className="inline-flex items-center gap-0.5 shrink-0">
+                                    {dueNos.map((dNo) => {
+                                      const isLast = dNo === lastDueNo;
+                                      return (
+                                        <span
+                                          key={dNo}
+                                          className={`font-mono text-[8.5px] px-1 py-0.2 rounded border ${
+                                            isLast
+                                              ? 'font-black text-amber-950 bg-amber-200 border-amber-400'
+                                              : 'font-semibold text-amber-800 bg-amber-50 border-amber-200'
+                                          }`}
+                                        >
+                                          {formatDueNumber(dNo)}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
                               {c.shopName && c.shopName !== c.name && (

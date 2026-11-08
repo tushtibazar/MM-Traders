@@ -28,6 +28,8 @@ import {
   sanitizeDueNumberInput,
   findDueNumberDuplicate,
   getNextFreeAutomaticDueNumber,
+  compareCustomersByLastDueNumber,
+  getCustomerDueNumbersInfo,
 } from '../../utils/dueUtils';
 import { LedgerEntryEditModal } from '../modals/LedgerEntryEditModal';
 
@@ -296,13 +298,20 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
             <select
               value={activeCustomer.id}
               onChange={(e) => setSelectedCustomerId(e.target.value)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-emerald-500 max-w-[240px]"
+              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 focus:border-emerald-500 max-w-[280px]"
             >
-              {db.customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.shopName} ({c.name})
-                </option>
-              ))}
+              {db.customers
+                .slice()
+                .sort((a, b) => compareCustomersByLastDueNumber(a.id, b.id, db, false))
+                .map((c) => {
+                  const info = getCustomerDueNumbersInfo(c.id, db, false);
+                  const lastNo = info.lastDueNo;
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {lastNo ? `[${formatDueNumber(lastNo)}] ` : ''}{c.shopName} ({c.name})
+                    </option>
+                  );
+                })}
             </select>
           </div>
         </div>

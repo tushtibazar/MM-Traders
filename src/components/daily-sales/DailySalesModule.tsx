@@ -50,6 +50,7 @@ import {
   getNextFreeAutomaticDueNumber,
   validateBatchDueNumbers,
   syncDueNumberSuggestions,
+  getMostRecentSavedDue,
 } from '../../utils/dueUtils';
 import {
   isCursorAtStart,
@@ -411,6 +412,12 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
   const dueCollectionCustomerRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const dueCollectionAmountRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const [dueNumberErrors, setDueNumberErrors] = useState<{ [rowId: string]: string }>({});
+
+  // Most recently saved due number across the database (live calculation)
+  const lastSavedDueNo = useMemo(() => {
+    const recent = getMostRecentSavedDue(db);
+    return recent ? recent.dueNo : null;
+  }, [db.customerLedgers, db.dailySheets]);
 
   // Reconciliation & Denomination Panel Linking Refs
   const focusDenominationLastRef = useRef<(() => void) | null>(null);
@@ -4638,7 +4645,14 @@ export const DailySalesModule: React.FC<DailySalesModuleProps> = ({
                     <span className="w-6 text-center shrink-0">#</span>
                     <span className="flex-1 min-w-0">দোকান / কাস্টমার নাম</span>
                     <span className="w-24 sm:w-28 text-right shrink-0">বাকি টাকা ({currency})</span>
-                    <span className="w-20 sm:w-24 text-center shrink-0">বাকি নং</span>
+                    <div className="w-20 sm:w-24 text-center shrink-0 flex flex-col items-center justify-center">
+                      <span>বাকি নং</span>
+                      {lastSavedDueNo && (
+                        <span className="text-[9px] font-normal text-slate-500 font-bengali leading-none mt-0.5" title={`শেষ সংরক্ষিত বাকি নং: ${lastSavedDueNo}`}>
+                          শেষ: {toBengaliDigits(lastSavedDueNo)}
+                        </span>
+                      )}
+                    </div>
                     <span className="w-14 sm:w-16 text-center shrink-0">লেজার</span>
                     <span className="w-6 shrink-0"></span>
                   </div>

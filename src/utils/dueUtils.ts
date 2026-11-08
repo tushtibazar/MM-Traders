@@ -139,6 +139,77 @@ export function matchesDueNumber(targetDueNo?: string | null, searchInput?: stri
   return false;
 }
 
+/**
+ * Natural comparison for due numbers:
+ * Sorts numerically by numeric part (e.g. 501 < 502 < 539 < 540).
+ * Handles prefixes like "DUE-" or "A-", retaining numeric precedence.
+ */
+export function naturalCompareDueNumbers(a?: string | null, b?: string | null): number {
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+
+  const cleanA = toEnglishDigits(a.trim());
+  const cleanB = toEnglishDigits(b.trim());
+
+  // Check if both are purely numeric (or DUE- followed by numeric)
+  const normA = normalizeDueNumber(cleanA);
+  const normB = normalizeDueNumber(cleanB);
+  const numA = /^\d+$/.test(normA) ? parseInt(normA, 10) : NaN;
+  const numB = /^\d+$/.test(normB) ? parseInt(normB, 10) : NaN;
+
+  if (!isNaN(numA) && !isNaN(numB)) {
+    return numA - numB;
+  }
+
+  // Check prefix + trailing digits (e.g. A-45, B-12)
+  const matchA = cleanA.match(/^(.*?)(\d+)$/);
+  const matchB = cleanB.match(/^(.*?)(\d+)$/);
+
+  if (matchA && matchB) {
+    const prefixA = matchA[1].toUpperCase();
+    const prefixB = matchB[1].toUpperCase();
+    if (prefixA === prefixB) {
+      return parseInt(matchA[2], 10) - parseInt(matchB[2], 10);
+    }
+    const prefixComp = prefixA.localeCompare(prefixB);
+    if (prefixComp !== 0) return prefixComp;
+    return parseInt(matchA[2], 10) - parseInt(matchB[2], 10);
+  }
+
+  if (matchA && !matchB) return -1;
+  if (!matchA && matchB) return 1;
+
+  return cleanA.localeCompare(cleanB);
+}
+
+/**
+ * Checks if a due number falls within [min, max] range (inclusive).
+ * Supports English/Bengali digits and natural numeric ranges.
+ */
+export function isDueNumberInRange(dueNo?: string | null, minStr?: string, maxStr?: string): boolean {
+  if (!dueNo) return false;
+  const norm = normalizeDueNumber(dueNo);
+  const val = parseInt(norm, 10);
+
+  const cleanMin = minStr ? normalizeDueNumber(toEnglishDigits(minStr.trim())) : '';
+  const cleanMax = maxStr ? normalizeDueNumber(toEnglishDigits(maxStr.trim())) : '';
+
+  const minVal = cleanMin && /^\d+$/.test(cleanMin) ? parseInt(cleanMin, 10) : null;
+  const maxVal = cleanMax && /^\d+$/.test(cleanMax) ? parseInt(cleanMax, 10) : null;
+
+  if (!isNaN(val)) {
+    if (minVal !== null && val < minVal) return false;
+    if (maxVal !== null && val > maxVal) return false;
+    return true;
+  }
+
+  // Non-numeric fallback
+  if (cleanMin && naturalCompareDueNumbers(dueNo, cleanMin) < 0) return false;
+  if (cleanMax && naturalCompareDueNumbers(dueNo, cleanMax) > 0) return false;
+  return true;
+}
+
 export interface DueNumberUsageInfo {
   normalized: string;
   raw: string;
@@ -449,19 +520,159 @@ export function validateBatchDueNumbers(
 }
 
 /**
- * Finds the next available automatic due number from db.settings.nextDueNumberCounter.
- * Format: "DUE-000123" (prefix DUE-, 6 digits).
- * Skips any number that is already used (manually typed, in ledgers, sheets, or audit trail).
+ * Finds the most recently SAVED due across the database (by saved time/creation time).
+ * Live calculation: if an earlier mistaken number (e.g. 99999) was edited to 509,
+ * the active record now has 509, so this immediately returns 509.
  */
-export function getNextFreeAutomaticDueNumber(
+export function getMostRecentSavedDue(db: AppDatabase): {
+  dueNo: string;
+  timestamp: number;
+} | null {
+  interface Candidate {
+    dueNo: string;
+    timestamp: number;
+    orderIndex: number;
+  }
+
+  const candidates: Candidate[] = [];
+
+  // 1. From customerLedgers (debit > 0, active)
+  if (Array.isArray(db.customerLedgers)) {
+    db.customerLedgers.forEach((l, idx) => {
+      if (l.status === 'voided') return;
+      if (!l.debit || Number(l.debit) <= 0) return;
+      const no = l.dueNo || (l.referenceId && (l.referenceId.startsWith('DUE-') || /^[A-Za-z0-9\-_]+$/.test(l.referenceId)) ? l.referenceId : '');
+      if (!no) return;
+
+      const t = l.createdAt ? new Date(l.createdAt).getTime() : l.date ? new Date(l.date).getTime() : 0;
+      candidates.push({
+        dueNo: no,
+        timestamp: isNaN(t) ? 0 : t,
+        orderIndex: idx,
+      });
+    });
+  }
+
+  // 2. From dailySheets (todayDueEntries)
+  if (Array.isArray(db.dailySheets)) {
+    db.dailySheets.forEach((s, sIdx) => {
+      const sheetTime = s.updatedAt ? new Date(s.updatedAt).getTime() : s.createdAt ? new Date(s.createdAt).getTime() : s.date ? new Date(s.date).getTime() : 0;
+      (s.todayDueEntries || []).forEach((e, eIdx) => {
+        if (!e.dueNo) return;
+        const entryTime = (e as any).createdAt ? new Date((e as any).createdAt).getTime() : sheetTime;
+        candidates.push({
+          dueNo: e.dueNo,
+          timestamp: isNaN(entryTime) ? 0 : entryTime,
+          orderIndex: (sIdx + 1) * 10000 + eIdx,
+        });
+      });
+    });
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Sort descending by timestamp, then by orderIndex
+  candidates.sort((a, b) => {
+    if (b.timestamp !== a.timestamp) return b.timestamp - a.timestamp;
+    return b.orderIndex - a.orderIndex;
+  });
+
+  return {
+    dueNo: candidates[0].dueNo,
+    timestamp: candidates[0].timestamp,
+  };
+}
+
+/**
+ * Formats a numeric value into the pattern of a sample due number:
+ * - "502" (no leading zero) -> value 503 -> "503"
+ * - "009" (length 3, leading zero) -> value 10 -> "010"
+ * - "DUE-000123" (prefix DUE-, length 6) -> value 124 -> "DUE-000124"
+ * - "A-45" (prefix A-, length 2) -> value 46 -> "A-46"
+ */
+export function formatLikeDuePattern(value: number, samplePattern?: string | null): string {
+  if (!samplePattern || !samplePattern.trim()) {
+    return value.toString();
+  }
+
+  const clean = toEnglishDigits(samplePattern.trim());
+
+  // Prefix + trailing digits
+  const match = clean.match(/^(.*?)(\d+)$/);
+  if (match) {
+    const prefix = match[1];
+    const digitsStr = match[2];
+    const hasLeadingZero = digitsStr.length > 1 && digitsStr.startsWith('0');
+
+    if (hasLeadingZero) {
+      const padded = value.toString().padStart(digitsStr.length, '0');
+      return `${prefix}${padded}`;
+    } else {
+      return `${prefix}${value.toString()}`;
+    }
+  }
+
+  return value.toString();
+}
+
+/**
+ * Extracts the base seed and pattern from the most recent saved due number,
+ * or falls back to db.settings.nextDueNumberCounter.
+ */
+export function getNextDueNumberSeed(db: AppDatabase): {
+  lastDueNo: string | null;
+  nextValue: number;
+  pattern: string | null;
+} {
+  const mostRecent = getMostRecentSavedDue(db);
+  const fallbackCounter = db.settings?.nextDueNumberCounter && db.settings.nextDueNumberCounter >= 1
+    ? db.settings.nextDueNumberCounter
+    : 1;
+
+  if (!mostRecent) {
+    return {
+      lastDueNo: null,
+      nextValue: fallbackCounter,
+      pattern: null,
+    };
+  }
+
+  const clean = toEnglishDigits(mostRecent.dueNo.trim());
+  const match = clean.match(/^(.*?)(\d+)$/);
+
+  if (match) {
+    const val = parseInt(match[2], 10);
+    if (!isNaN(val)) {
+      return {
+        lastDueNo: mostRecent.dueNo,
+        nextValue: val + 1,
+        pattern: mostRecent.dueNo,
+      };
+    }
+  }
+
+  return {
+    lastDueNo: mostRecent.dueNo,
+    nextValue: fallbackCounter,
+    pattern: null,
+  };
+}
+
+/**
+ * Computes the next suggested due number from live data.
+ * Skips already used numbers.
+ */
+export function getNextSuggestedDueNumber(
   db: AppDatabase,
-  pendingRows?: Array<{ id?: string; dueNo?: string }>,
-  startOffset: number = 0
-): { dueNumber: string; dueNo: string; counterUsed: number } {
-  const usedMap = getAllUsedDueNumbers(db);
-  
-  // Also collect pending rows in batch
+  pendingRows?: Array<{ dueNo?: string }>,
+  options?: { excludeSheetId?: string; excludeLedgerId?: string }
+): {
+  suggestedDueNo: string;
+  lastSavedDueNo: string | null;
+} {
+  const usedMap = getAllUsedDueNumbers(db, options);
   const pendingNormalized = new Set<string>();
+
   if (pendingRows) {
     for (const r of pendingRows) {
       if (r.dueNo) {
@@ -471,28 +682,47 @@ export function getNextFreeAutomaticDueNumber(
     }
   }
 
-  let counter = db.settings?.nextDueNumberCounter && db.settings.nextDueNumberCounter >= 1
-    ? db.settings.nextDueNumberCounter + startOffset
-    : 1 + startOffset;
+  const seed = getNextDueNumberSeed(db);
+  let val = seed.nextValue;
 
-  // Search forward for first unused number
   while (true) {
-    const candidateStr = `DUE-${counter.toString().padStart(6, '0')}`;
-    const norm = normalizeDueNumber(candidateStr);
+    const candidate = formatLikeDuePattern(val, seed.pattern);
+    const norm = normalizeDueNumber(candidate);
     if (!usedMap.has(norm) && !pendingNormalized.has(norm)) {
       return {
-        dueNumber: candidateStr,
-        dueNo: candidateStr,
-        counterUsed: counter,
+        suggestedDueNo: candidate,
+        lastSavedDueNo: seed.lastDueNo,
       };
     }
-    counter++;
+    val++;
   }
 }
 
 /**
- * Generates consecutive 6-digit suggested due numbers ("DUE-000123") for a set of rows.
- * Reads next free number without consuming or advancing the DB counter.
+ * Finds the next available automatic due number from live data.
+ * Format preserves the pattern of the last saved number, or falls back to settings.
+ * Skips any number that is already used.
+ */
+export function getNextFreeAutomaticDueNumber(
+  db: AppDatabase,
+  pendingRows?: Array<{ id?: string; dueNo?: string }>,
+  _startOffset: number = 0
+): { dueNumber: string; dueNo: string; counterUsed: number; lastSavedDueNo: string | null } {
+  const res = getNextSuggestedDueNumber(db, pendingRows);
+  const numMatch = res.suggestedDueNo.match(/\d+/);
+  const counterVal = numMatch ? parseInt(numMatch[0], 10) : 1;
+
+  return {
+    dueNumber: res.suggestedDueNo,
+    dueNo: res.suggestedDueNo,
+    counterUsed: counterVal,
+    lastSavedDueNo: res.lastSavedDueNo,
+  };
+}
+
+/**
+ * Generates consecutive suggested due numbers for a set of rows.
+ * Reads next free number from live data without consuming or advancing the DB counter.
  * Preserves any manual numbers typed by the owner (marked isManualDueNo) and numbers already saved.
  * When an unsaved row is deleted, recomputes suggestions for remaining unsaved rows so numbers stay contiguous.
  */
@@ -509,9 +739,8 @@ export function syncDueNumberSuggestions<T extends {
     excludeSheetId?: string;
   }
 ): T[] {
-  // Collect occupied numbers in DB (excluding this sheet)
   const usedMap = getAllUsedDueNumbers(db, { excludeSheetId: options?.excludeSheetId });
-  
+
   // Track numbers that are manually typed or already saved to ledger in this batch
   const reservedInBatch = new Set<string>();
   for (const r of rows) {
@@ -521,20 +750,19 @@ export function syncDueNumberSuggestions<T extends {
     }
   }
 
-  let counter = db.settings?.nextDueNumberCounter && db.settings.nextDueNumberCounter >= 1
-    ? db.settings.nextDueNumberCounter
-    : 1;
+  const seed = getNextDueNumberSeed(db);
+  let val = seed.nextValue;
 
   const getNextSuggestion = (): string => {
     while (true) {
-      const candidate = `DUE-${counter.toString().padStart(6, '0')}`;
+      const candidate = formatLikeDuePattern(val, seed.pattern);
       const norm = normalizeDueNumber(candidate);
       if (!usedMap.has(norm) && !reservedInBatch.has(norm)) {
         reservedInBatch.add(norm);
-        counter++;
+        val++;
         return candidate;
       }
-      counter++;
+      val++;
     }
   };
 
@@ -957,30 +1185,208 @@ export function getRouteOutstandingDues(
 }
 
 /**
- * Sorts route dues by 'name' (default), 'dueNo', or 'amount' (descending).
- * For 'name', multiple dues for the same customer stay together.
+ * Retrieves all distinct due numbers for a customer.
+ * - includePaid: if false (default), excludes fully paid dues. If true, includes all dues.
+ * - Sorts due numbers in ASCENDING order (e.g. 501, 540).
+ * - The last due number in the array is the LARGEST due number!
+ */
+export function getCustomerDueNumbersInfo(
+  customerId: string,
+  db: AppDatabase,
+  includePaid: boolean = false
+): {
+  dueNos: string[];
+  lastDueNo: string | null;
+} {
+  if (!customerId) {
+    return { dueNos: [], lastDueNo: null };
+  }
+
+  // 1. Collect from customerLedgers
+  const debitTrackers: Array<{ dueNo: string; remaining: number }> = [];
+  const creditEntries: Array<{ referenceId?: string; credit: number }> = [];
+
+  if (Array.isArray(db.customerLedgers)) {
+    for (const l of db.customerLedgers) {
+      if (l.customerId !== customerId || l.status === 'voided') continue;
+
+      if (Number(l.debit) > 0) {
+        const no =
+          l.dueNo ||
+          (l.referenceId && (l.referenceId.startsWith('DUE-') || /^[A-Za-z0-9\-_]+$/.test(l.referenceId))
+            ? l.referenceId
+            : '');
+        if (no) {
+          debitTrackers.push({
+            dueNo: no,
+            remaining: l.status === 'settled' ? 0 : Number(l.debit) || 0,
+          });
+        }
+      } else if (Number(l.credit) > 0) {
+        creditEntries.push({
+          referenceId: l.referenceId,
+          credit: Number(l.credit) || 0,
+        });
+      }
+    }
+  }
+
+  // Deduct targeted credits
+  let generalCredits = 0;
+  for (const cred of creditEntries) {
+    if (cred.credit <= 0) continue;
+    const normRef = normalizeDueNumber(cred.referenceId);
+    const target = normRef
+      ? debitTrackers.find((t) => normalizeDueNumber(t.dueNo) === normRef)
+      : null;
+
+    if (target && target.remaining > 0) {
+      const deduction = Math.min(target.remaining, cred.credit);
+      target.remaining -= deduction;
+      const leftover = cred.credit - deduction;
+      if (leftover > 0) generalCredits += leftover;
+    } else {
+      generalCredits += cred.credit;
+    }
+  }
+
+  // Deduct FIFO general credits
+  if (generalCredits > 0) {
+    for (const t of debitTrackers) {
+      if (t.remaining > 0) {
+        const deduction = Math.min(t.remaining, generalCredits);
+        t.remaining -= deduction;
+        generalCredits -= deduction;
+        if (generalCredits <= 0) break;
+      }
+    }
+  }
+
+  // 2. Also check dailySheets (todayDueEntries) for unsynced or initial entries
+  if (Array.isArray(db.dailySheets)) {
+    for (const s of db.dailySheets) {
+      for (const e of s.todayDueEntries || []) {
+        if (e.customerId === customerId && e.dueNo) {
+          const norm = normalizeDueNumber(e.dueNo);
+          const already = debitTrackers.some((t) => normalizeDueNumber(t.dueNo) === norm);
+          if (!already) {
+            debitTrackers.push({
+              dueNo: e.dueNo,
+              remaining: Number(e.amount) || 0,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Filter based on includePaid
+  const activeList = includePaid
+    ? debitTrackers
+    : debitTrackers.filter((t) => t.remaining > 0);
+
+  // Distinct due numbers
+  const seenNorm = new Set<string>();
+  const distinctDueNos: string[] = [];
+
+  for (const item of activeList) {
+    const norm = normalizeDueNumber(item.dueNo);
+    if (norm && !seenNorm.has(norm)) {
+      seenNorm.add(norm);
+      distinctDueNos.push(item.dueNo);
+    }
+  }
+
+  // Sort distinct numbers in ASCENDING order using natural comparison
+  distinctDueNos.sort(naturalCompareDueNumbers);
+
+  const lastDueNo = distinctDueNos.length > 0 ? distinctDueNos[distinctDueNos.length - 1] : null;
+
+  return {
+    dueNos: distinctDueNos,
+    lastDueNo,
+  };
+}
+
+/**
+ * Compares two customers by their LAST (largest) due number in ascending order.
+ * Example: Customer A (501, 540) has last 540; Customer B (502) has 502; Customer C (539) has 539.
+ * Sorting order: B (502), C (539), A (540).
+ */
+export function compareCustomersByLastDueNumber(
+  custAId: string,
+  custBId: string,
+  db: AppDatabase,
+  includePaid: boolean = false
+): number {
+  const infoA = getCustomerDueNumbersInfo(custAId, db, includePaid);
+  const infoB = getCustomerDueNumbersInfo(custBId, db, includePaid);
+
+  if (infoA.lastDueNo && infoB.lastDueNo) {
+    const comp = naturalCompareDueNumbers(infoA.lastDueNo, infoB.lastDueNo);
+    if (comp !== 0) return comp;
+  } else if (infoA.lastDueNo && !infoB.lastDueNo) {
+    return -1;
+  } else if (!infoA.lastDueNo && infoB.lastDueNo) {
+    return 1;
+  }
+
+  return 0;
+}
+
+/**
+ * Sorts route dues:
+ * - 'dueNo':
+ *   - If groupByCustomer is true (default): orders customers by their LAST (largest) due number ascending,
+ *     keeping multiple dues for the same customer together!
+ *   - If groupByCustomer is false: plain natural numeric order of each due.
+ * - 'name': by customer name, keeping multiple dues for the same customer together.
+ * - 'amount': by amount descending.
  */
 export function sortRouteDues(
   dues: RouteDueItem[],
-  sortOrder: 'name' | 'dueNo' | 'amount' = 'name'
+  sortOrder: 'name' | 'dueNo' | 'amount' = 'name',
+  options?: {
+    groupByCustomer?: boolean;
+    customerLastDueMap?: Map<string, string>;
+  }
 ): RouteDueItem[] {
   const copy = [...dues];
+  const groupByCust = options?.groupByCustomer ?? true;
+
   if (sortOrder === 'name') {
     return copy.sort((a, b) => {
       const nameComp = (a.customerName || '').localeCompare(b.customerName || '', 'bn');
       if (nameComp !== 0) return nameComp;
-      return (a.dueNo || '').localeCompare(b.dueNo || '');
+      return naturalCompareDueNumbers(a.dueNo, b.dueNo);
     });
   } else if (sortOrder === 'dueNo') {
+    if (!groupByCust) {
+      // Pure per-due plain numeric order
+      return copy.sort((a, b) => naturalCompareDueNumbers(a.rawDueNo || a.dueNo, b.rawDueNo || b.dueNo));
+    }
+
+    // Customer-wise order uses the LAST (largest) number of that customer in the list!
+    const custLastDueMap = options?.customerLastDueMap || new Map<string, string>();
+    if (!options?.customerLastDueMap) {
+      dues.forEach((d) => {
+        const currentLast = custLastDueMap.get(d.customerId);
+        if (!currentLast) {
+          custLastDueMap.set(d.customerId, d.rawDueNo || d.dueNo);
+        } else if (naturalCompareDueNumbers(d.rawDueNo || d.dueNo, currentLast) > 0) {
+          custLastDueMap.set(d.customerId, d.rawDueNo || d.dueNo);
+        }
+      });
+    }
+
     return copy.sort((a, b) => {
-      const normA = normalizeDueNumber(a.rawDueNo || a.dueNo);
-      const normB = normalizeDueNumber(b.rawDueNo || b.dueNo);
-      const numA = parseInt(normA, 10);
-      const numB = parseInt(normB, 10);
-      if (!isNaN(numA) && !isNaN(numB)) {
-        return numA - numB;
+      if (a.customerId !== b.customerId) {
+        const lastA = custLastDueMap.get(a.customerId) || a.rawDueNo || a.dueNo;
+        const lastB = custLastDueMap.get(b.customerId) || b.rawDueNo || b.dueNo;
+        const comp = naturalCompareDueNumbers(lastA, lastB);
+        if (comp !== 0) return comp;
       }
-      return normA.localeCompare(normB);
+      return naturalCompareDueNumbers(a.rawDueNo || a.dueNo, b.rawDueNo || b.dueNo);
     });
   } else if (sortOrder === 'amount') {
     return copy.sort((a, b) => b.amount - a.amount);

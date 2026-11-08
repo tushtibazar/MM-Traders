@@ -14,7 +14,8 @@ import {
 } from 'lucide-react';
 import { Customer, CustomerLedgerEntry } from '../../types';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
-import { formatDueNumber, matchesDueNumber } from '../../utils/dueUtils';
+import { formatDueNumber, matchesDueNumber, compareCustomersByLastDueNumber, getCustomerDueNumbersInfo } from '../../utils/dueUtils';
+import { useApp } from '../../context/AppContext';
 
 interface RouteDueModalProps {
   isOpen: boolean;
@@ -56,26 +57,33 @@ export const RouteDueModal: React.FC<RouteDueModalProps> = ({
     return { lastTxDateMap: dateMap, customerDueNumberMap: dueMap };
   }, [ledgers]);
 
-  // 2. Filter customers with search query (including due number matching)
+  const { db } = useApp();
+
+  // 2. Filter and sort customers with search query (including due number matching)
   const filteredList = useMemo(() => {
     const rawQuery = searchQuery.trim();
-    if (!rawQuery) return customers;
-    const qLower = rawQuery.toLowerCase();
+    let list = customers;
 
-    return customers.filter((c) => {
-      const nameMatch = c.name.toLowerCase().includes(qLower);
-      const shopMatch = c.shopName.toLowerCase().includes(qLower);
-      const phoneMatch = c.phone.includes(rawQuery);
-      const addrMatch = c.address ? c.address.toLowerCase().includes(qLower) : false;
-      const custDueNo = customerDueNumberMap.get(c.id);
-      const dueMatch = matchesDueNumber(custDueNo, rawQuery);
-      const ledgerMatch = (ledgers || []).some(
-        (l) => l.customerId === c.id && matchesDueNumber(l.referenceId, rawQuery)
-      );
+    if (rawQuery) {
+      const qLower = rawQuery.toLowerCase();
+      list = customers.filter((c) => {
+        const nameMatch = c.name.toLowerCase().includes(qLower);
+        const shopMatch = c.shopName.toLowerCase().includes(qLower);
+        const phoneMatch = c.phone.includes(rawQuery);
+        const addrMatch = c.address ? c.address.toLowerCase().includes(qLower) : false;
+        const custDueNo = customerDueNumberMap.get(c.id);
+        const dueMatch = matchesDueNumber(custDueNo, rawQuery);
+        const ledgerMatch = (ledgers || []).some(
+          (l) => l.customerId === c.id && matchesDueNumber(l.referenceId, rawQuery)
+        );
 
-      return nameMatch || shopMatch || phoneMatch || addrMatch || dueMatch || ledgerMatch;
-    });
-  }, [customers, searchQuery, customerDueNumberMap, ledgers]);
+        return nameMatch || shopMatch || phoneMatch || addrMatch || dueMatch || ledgerMatch;
+      });
+    }
+
+    // Sort by last (largest) due number ascending
+    return list.slice().sort((a, b) => compareCustomersByLastDueNumber(a.id, b.id, db, false));
+  }, [customers, searchQuery, customerDueNumberMap, ledgers, db]);
 
   const totalOutstandingOnRoute = useMemo(() => {
     return customers.reduce((sum, c) => sum + (Number(c.currentDue) || 0), 0);
@@ -177,22 +185,47 @@ export const RouteDueModal: React.FC<RouteDueModalProps> = ({
               >
                 {/* Left: Customer Info */}
                 <div className="space-y-1 flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="w-5 text-center font-mono font-bold text-slate-400 text-xs shrink-0">
-                      {toBengaliDigits(idx + 1)}.
-                    </span>
-                    <span className="font-bold text-sm text-slate-900 group-hover:text-emerald-900 transition-colors font-bengali">
-                      {customer.shopName}
-                    </span>
-                    <span className="text-xs text-slate-500 font-bengali">
-                      ({customer.name})
-                    </span>
-                    {customerDueNumberMap.get(customer.id) && (
-                      <span className="inline-flex items-center gap-1 font-mono text-[10px] font-bold text-amber-900 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
-                        {formatDueNumber(customerDueNumberMap.get(customer.id))}
-                      </span>
-                    )}
-                  </div>
+                  {(() => {
+                    const custDueInfo = getCustomerDueNumbersInfo(customer.id, db, false);
+                    const dueNos = custDueInfo.dueNos;
+                    const lastDueNo = custDueInfo.lastDueNo;
+
+                    return (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-5 text-center font-mono font-bold text-slate-400 text-xs shrink-0">
+                          {toBengaliDigits(idx + 1)}.
+                        </span>
+                        <span className="font-bold text-sm text-slate-900 group-hover:text-emerald-900 transition-colors font-bengali">
+                          {customer.shopName}
+                        </span>
+                        <span className="text-xs text-slate-500 font-bengali">
+                          ({customer.name})
+                        </span>
+                        {dueNos.length > 0 && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {dueNos.map((no) => {
+                              const isLast = no === lastDueNo;
+                              return (
+                                <span
+                                  key={no}
+                                  className={`inline-flex items-center font-mono text-[10px] px-1.5 py-0.5 rounded border ${
+                                    isLast
+                                      ? 'font-black text-amber-950 bg-amber-200 border-amber-400 shadow-2xs'
+                                      : 'font-semibold text-amber-800 bg-amber-50 border-amber-200'
+                                  }`}
+                                >
+                                  {formatDueNumber(no)}
+                                  {isLast && dueNos.length > 1 && (
+                                    <span className="ml-0.5 text-[8.5px] text-amber-900" title="সর্বশেষ বাকি">★</span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div className="flex items-center gap-3 text-[11px] text-slate-500 flex-wrap">
                     {customer.phone && (

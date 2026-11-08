@@ -33,10 +33,17 @@ import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
 import {
   formatDueNumber,
   matchesDueNumber,
+  normalizeDueNumber,
   toEnglishDigits,
   sanitizeDueNumberInput,
   findDueNumberDuplicate,
   getNextFreeAutomaticDueNumber,
+  getNextSuggestedDueNumber,
+  naturalCompareDueNumbers,
+  isDueNumberInRange,
+  getCustomerDueNumbersInfo,
+  compareCustomersByLastDueNumber,
+  getMostRecentSavedDue,
 } from '../../utils/dueUtils';
 import { generateDueReportPDF } from '../../services/pdfGenerator';
 import { Customer, CustomerLedgerEntry } from '../../types';
@@ -122,7 +129,45 @@ export const DueModule: React.FC<DueModuleProps> = ({
     'customers' | 'search_collect' | 'collection_history' | 'due_vouchers'
   >('customers');
 
-  // Customer List Filters
+  // Customer List Filters & View Modes
+  const [activeCustomerViewMode, setActiveCustomerViewMode] = useState<'by_customer' | 'by_due'>('by_customer');
+  const [customerSortBy, setCustomerSortBy] = useState<'due_no' | 'amount_desc' | 'amount_asc' | 'name'>('due_no');
+  const [showPaidDues, setShowPaidDues] = useState<boolean>(false);
+  const [dueRangeMin, setDueRangeMin] = useState<string>('');
+  const [dueRangeMax, setDueRangeMax] = useState<string>('');
+  const [jumpDueInput, setJumpDueInput] = useState<string>('');
+  const [highlightedDueNo, setHighlightedDueNo] = useState<string | null>(null);
+
+  const handleJumpToDue = (target?: string) => {
+    const raw = (target !== undefined ? target : jumpDueInput).trim();
+    if (!raw) return;
+    const clean = toEnglishDigits(raw).trim();
+    setHighlightedDueNo(clean);
+
+    // If in by_due mode, scroll to the flat due row
+    if (activeCustomerViewMode === 'by_due') {
+      const el = document.getElementById(`flat-due-row-${clean.toLowerCase().replace(/[^a-z0-9]/g, '-')}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      return;
+    }
+
+    // In by_customer mode, find the customer containing this due number
+    const targetCust = db.customers.find((c) => {
+      const info = customerDueNumbersInfoMap.get(c.id);
+      if (!info) return false;
+      return info.dueNos.some((n) => matchesDueNumber(n, clean));
+    });
+
+    if (targetCust) {
+      const el = document.getElementById(`customer-row-${targetCust.id}`);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+  };
+
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [selectedSrFilter, setSelectedSrFilter] = useState<string>('all');
   const [selectedRouteFilter, setSelectedRouteFilter] = useState<string>('all');
@@ -276,53 +321,41 @@ export const DueModule: React.FC<DueModuleProps> = ({
     return map;
   }, [db.dailySheets, db.customerLedgers, db.customers, db.salesRepresentatives, availableRoutes]);
 
-  // Customer Due Number mapping (for badges and quick lookup)
+  // Live calculation of most recently saved due number across the database
+  const lastSavedDueNo = useMemo(() => {
+    const recent = getMostRecentSavedDue(db);
+    return recent ? recent.dueNo : null;
+  }, [db.customerLedgers, db.dailySheets]);
+
+  // Customer Due Numbers Mapping: retrieves ALL due numbers in ascending order, with last/largest highlighted
+  const customerDueNumbersInfoMap = useMemo(() => {
+    const map = new Map<string, { dueNos: string[]; lastDueNo: string | null }>();
+    db.customers.forEach((c) => {
+      map.set(c.id, getCustomerDueNumbersInfo(c.id, db, showPaidDues));
+    });
+    return map;
+  }, [db.customers, db.customerLedgers, db.dailySheets, showPaidDues]);
+
+  // Fast lookups for legacy badges & chips
   const customerDueNumberMap = useMemo(() => {
     const map = new Map<string, string>();
-    (db.customerLedgers || []).forEach((l) => {
-      if (l.referenceId && l.referenceId.startsWith('DUE-') && l.debit > 0) {
-        if (!map.has(l.customerId)) {
-          map.set(l.customerId, l.referenceId);
-        }
+    customerDueNumbersInfoMap.forEach((info, custId) => {
+      if (info.lastDueNo) {
+        map.set(custId, info.lastDueNo);
       }
     });
-    (db.dailySheets || []).forEach((s) => {
-      (s.todayDueEntries || []).forEach((e) => {
-        if (e.customerId && e.dueNo && !map.has(e.customerId)) {
-          map.set(e.customerId, e.dueNo);
-        }
-      });
-    });
     return map;
-  }, [db.customerLedgers, db.dailySheets]);
+  }, [customerDueNumbersInfoMap]);
 
-  // List of all active/distinct due numbers for each customer (for clickable chips)
   const customerDueNumbersListMap = useMemo(() => {
     const map = new Map<string, string[]>();
-    (db.customerLedgers || []).forEach((l) => {
-      if (l.customerId && l.referenceId && Boolean(l.debit && l.debit > 0)) {
-        const existing = map.get(l.customerId) || [];
-        if (!existing.includes(l.referenceId)) {
-          existing.push(l.referenceId);
-          map.set(l.customerId, existing);
-        }
-      }
-    });
-    (db.dailySheets || []).forEach((s) => {
-      (s.todayDueEntries || []).forEach((e) => {
-        if (e.customerId && e.dueNo) {
-          const existing = map.get(e.customerId) || [];
-          if (!existing.includes(e.dueNo)) {
-            existing.push(e.dueNo);
-            map.set(e.customerId, existing);
-          }
-        }
-      });
+    customerDueNumbersInfoMap.forEach((info, custId) => {
+      map.set(custId, info.dueNos);
     });
     return map;
-  }, [db.customerLedgers, db.dailySheets]);
+  }, [customerDueNumbersInfoMap]);
 
-  // 1. Filtered and sorted customers
+  // 1. Filtered and sorted customers ("কাস্টমার অনুযায়ী" view)
   const filteredCustomers = useMemo(() => {
     let list = db.customers.filter((c) => c.status === 'active');
 
@@ -353,6 +386,15 @@ export const DueModule: React.FC<DueModuleProps> = ({
       }
     }
 
+    // Number-range filter: matches a customer if ANY of their dues falls in the range
+    if (dueRangeMin.trim() || dueRangeMax.trim()) {
+      list = list.filter((c) => {
+        const info = customerDueNumbersInfoMap.get(c.id);
+        if (!info || info.dueNos.length === 0) return false;
+        return info.dueNos.some((no) => isDueNumberInRange(no, dueRangeMin, dueRangeMax));
+      });
+    }
+
     if (searchQuery.trim()) {
       const rawQuery = searchQuery.trim();
       const qLower = rawQuery.toLowerCase();
@@ -364,8 +406,10 @@ export const DueModule: React.FC<DueModuleProps> = ({
           (c.address && c.address.toLowerCase().includes(qLower));
         if (directMatch) return true;
 
-        const custDue = customerDueNumberMap.get(c.id);
-        if (custDue && matchesDueNumber(custDue, rawQuery)) return true;
+        const info = customerDueNumbersInfoMap.get(c.id);
+        if (info && info.dueNos.some((no) => matchesDueNumber(no, rawQuery))) {
+          return true;
+        }
 
         const ledgerMatch = (db.customerLedgers || []).some(
           (l) => l.customerId === c.id && matchesDueNumber(l.referenceId, rawQuery)
@@ -379,11 +423,179 @@ export const DueModule: React.FC<DueModuleProps> = ({
       });
     }
 
-    // Sort by currentDue
+    // Sorting: customer position uses their LAST (largest) due number ascending when customerSortBy === 'due_no'
     return list.sort((a, b) => {
+      if (customerSortBy === 'due_no') {
+        const infoA = customerDueNumbersInfoMap.get(a.id);
+        const infoB = customerDueNumbersInfoMap.get(b.id);
+        const lastA = infoA?.lastDueNo;
+        const lastB = infoB?.lastDueNo;
+
+        if (lastA && lastB) {
+          const comp = naturalCompareDueNumbers(lastA, lastB);
+          if (comp !== 0) return comp;
+        } else if (lastA && !lastB) {
+          return -1;
+        } else if (!lastA && lastB) {
+          return 1;
+        }
+        return (a.shopName || a.name).localeCompare(b.shopName || b.name, 'bn');
+      } else if (customerSortBy === 'amount_desc') {
+        return b.currentDue - a.currentDue;
+      } else if (customerSortBy === 'amount_asc') {
+        return a.currentDue - b.currentDue;
+      } else if (customerSortBy === 'name') {
+        return (a.shopName || a.name).localeCompare(b.shopName || b.name, 'bn');
+      }
       return sortOrder === 'desc' ? b.currentDue - a.currentDue : a.currentDue - b.currentDue;
     });
-  }, [db.customers, isOwner, currentUser, selectedSrFilter, selectedRouteFilter, customerRouteMap, customerDueNumberMap, searchQuery, sortOrder, db.customerLedgers, db.dailySheets]);
+  }, [
+    db.customers,
+    isOwner,
+    currentUser,
+    selectedSrFilter,
+    selectedRouteFilter,
+    customerRouteMap,
+    customerDueNumbersInfoMap,
+    dueRangeMin,
+    dueRangeMax,
+    searchQuery,
+    customerSortBy,
+    sortOrder,
+    db.customerLedgers,
+    db.dailySheets,
+  ]);
+
+  // 2. Filtered flat dues list ("বাকি নং অনুযায়ী" view: one row per due)
+  const flatDueList = useMemo(() => {
+    interface FlatDue {
+      id: string;
+      dueNo: string;
+      rawDueNo: string;
+      customerId: string;
+      customerName: string;
+      shopName: string;
+      phone: string;
+      address: string;
+      assignedSrName: string;
+      routes: string[];
+      date?: string;
+      amount: number;
+      isPaid: boolean;
+      ledgerId?: string;
+    }
+
+    const result: FlatDue[] = [];
+    const custMap = new Map(db.customers.map((c) => [c.id, c]));
+
+    // From customerLedgers
+    (db.customerLedgers || []).forEach((l) => {
+      if (l.status === 'voided') return;
+      if (!l.debit || Number(l.debit) <= 0) return;
+      const refNo = l.dueNo || (l.referenceId && (l.referenceId.startsWith('DUE-') || /^[A-Za-z0-9\-_]+$/.test(l.referenceId)) ? l.referenceId : '');
+      if (!refNo) return;
+
+      const cust = custMap.get(l.customerId);
+      const routes = cust ? Array.from(customerRouteMap.get(cust.id) || []) : [];
+      const isPaid = l.status === 'settled';
+      if (!showPaidDues && isPaid) return;
+
+      result.push({
+        id: l.id,
+        dueNo: formatDueNumber(refNo),
+        rawDueNo: refNo,
+        customerId: l.customerId,
+        customerName: l.customerName || cust?.name || 'কাস্টমার',
+        shopName: cust?.shopName || l.customerName || 'দোকান',
+        phone: cust?.phone || '',
+        address: cust?.address || '',
+        assignedSrName: cust?.assignedSrName || '-',
+        routes,
+        date: l.date,
+        amount: Number(l.debit) || 0,
+        isPaid,
+        ledgerId: l.id,
+      });
+    });
+
+    // Also include daily sheets todayDueEntries not yet in ledgers
+    (db.dailySheets || []).forEach((s) => {
+      (s.todayDueEntries || []).forEach((e) => {
+        if (!e.dueNo) return;
+        const already = result.some((r) => normalizeDueNumber(r.rawDueNo) === normalizeDueNumber(e.dueNo));
+        if (already) return;
+
+        const cust = e.customerId ? custMap.get(e.customerId) : null;
+        const routes = cust ? Array.from(customerRouteMap.get(cust.id) || []) : (s.routeOrVan ? [s.routeOrVan] : []);
+
+        result.push({
+          id: e.id,
+          dueNo: formatDueNumber(e.dueNo),
+          rawDueNo: e.dueNo,
+          customerId: e.customerId || '',
+          customerName: e.customerName || cust?.name || 'কাস্টমার',
+          shopName: e.shopName || cust?.shopName || 'দোকান',
+          phone: cust?.phone || '',
+          address: cust?.address || '',
+          assignedSrName: cust?.assignedSrName || '-',
+          routes,
+          date: s.date,
+          amount: Number(e.amount) || 0,
+          isPaid: false,
+          ledgerId: e.ledgerId,
+        });
+      });
+    });
+
+    let filtered = result;
+
+    if (selectedSrFilter !== 'all') {
+      filtered = filtered.filter((d) => {
+        const cust = custMap.get(d.customerId);
+        return cust && cust.assignedSrId === selectedSrFilter;
+      });
+    }
+
+    if (selectedRouteFilter !== 'all') {
+      if (selectedRouteFilter === 'no_route') {
+        filtered = filtered.filter((d) => d.routes.length === 0);
+      } else {
+        filtered = filtered.filter((d) => d.routes.includes(selectedRouteFilter));
+      }
+    }
+
+    if (dueRangeMin.trim() || dueRangeMax.trim()) {
+      filtered = filtered.filter((d) => isDueNumberInRange(d.rawDueNo, dueRangeMin, dueRangeMax));
+    }
+
+    if (searchQuery.trim()) {
+      const raw = searchQuery.trim();
+      const qLower = raw.toLowerCase();
+      filtered = filtered.filter((d) =>
+        d.customerName.toLowerCase().includes(qLower) ||
+        d.shopName.toLowerCase().includes(qLower) ||
+        d.phone.includes(raw) ||
+        d.address.toLowerCase().includes(qLower) ||
+        matchesDueNumber(d.rawDueNo, raw)
+      );
+    }
+
+    // Every due in natural numeric order
+    filtered.sort((a, b) => naturalCompareDueNumbers(a.rawDueNo, b.rawDueNo));
+
+    return filtered;
+  }, [
+    db.customerLedgers,
+    db.dailySheets,
+    db.customers,
+    customerRouteMap,
+    showPaidDues,
+    selectedSrFilter,
+    selectedRouteFilter,
+    dueRangeMin,
+    dueRangeMax,
+    searchQuery,
+  ]);
 
   const totalFilteredDue = useMemo(() => {
     return filteredCustomers.reduce((sum, c) => sum + (c.currentDue || 0), 0);
@@ -1147,15 +1359,15 @@ export const DueModule: React.FC<DueModuleProps> = ({
                 </div>
               </div>
 
-              {/* Add Due Button & Sort Order Toggle */}
-              <div className="flex items-center gap-2 self-end sm:self-auto">
+              {/* Add Due Button, View Mode Toggle, Range & Jump */}
+              <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto justify-between sm:justify-end">
                 <button
                   type="button"
                   onClick={() => {
                     setAddDueErrorMsg('');
                     setAddDueSuccessMsg('');
-                    const auto = getNextFreeAutomaticDueNumber(db);
-                    setAddDueNumberInput(auto.dueNumber);
+                    const auto = getNextSuggestedDueNumber(db);
+                    setAddDueNumberInput(auto.suggestedDueNo);
                     setAddDueNumberError('');
                     setIsAddDueModalOpen(true);
                   }}
@@ -1166,14 +1378,118 @@ export const DueModule: React.FC<DueModuleProps> = ({
                   <span>+ বাকি এন্ট্রি</span>
                 </button>
 
-                <span className="text-xs text-slate-500 hidden sm:inline">সাজান:</span>
-                <button
-                  onClick={() => setSortOrder(sortOrder === 'desc' ? 'asc' : 'desc')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                {/* View Mode Toggle: কাস্টমার অনুযায়ী vs বাকি নং অনুযায়ী */}
+                <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setActiveCustomerViewMode('by_customer')}
+                    className={`px-2.5 py-1 rounded-md transition-colors ${
+                      activeCustomerViewMode === 'by_customer'
+                        ? 'bg-white text-rose-700 shadow-2xs font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    কাস্টমার অনুযায়ী
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveCustomerViewMode('by_due')}
+                    className={`px-2.5 py-1 rounded-md transition-colors ${
+                      activeCustomerViewMode === 'by_due'
+                        ? 'bg-white text-rose-700 shadow-2xs font-extrabold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    বাকি নং অনুযায়ী ({toBengaliDigits(flatDueList.length)})
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Second row of controls: Range filter, Quick Jump, Show Paid, and Sort */}
+            <div className="mt-3 pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Number-range filter */}
+                <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
+                  <span className="text-[11px] font-bold text-slate-600 font-bengali">বাকি নং রেঞ্জ:</span>
+                  <input
+                    type="text"
+                    value={dueRangeMin}
+                    onChange={(e) => setDueRangeMin(e.target.value)}
+                    placeholder="হতে (যেমন ৫০১)"
+                    className="w-20 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-center text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-rose-500"
+                  />
+                  <span className="text-slate-400 font-bold">-</span>
+                  <input
+                    type="text"
+                    value={dueRangeMax}
+                    onChange={(e) => setDueRangeMax(e.target.value)}
+                    placeholder="পর্যন্ত (যেমন ৫৪০)"
+                    className="w-20 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-center text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-rose-500"
+                  />
+                  {(dueRangeMin || dueRangeMax) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDueRangeMin('');
+                        setDueRangeMax('');
+                      }}
+                      className="text-[10px] text-rose-600 font-bold hover:underline ml-1"
+                    >
+                      রিসেট
+                    </button>
+                  )}
+                </div>
+
+                {/* Quick jump to due number */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleJumpToDue();
+                  }}
+                  className="flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1"
                 >
-                  <ArrowUpDown className="h-3.5 w-3.5 text-slate-400" />
-                  <span>{sortOrder === 'desc' ? 'সর্বোচ্চ বাকি আগে' : 'সর্বনিম্ন বাকি আগে'}</span>
-                </button>
+                  <span className="text-[11px] font-bold text-slate-600 font-bengali">বাকি নং-এ যান:</span>
+                  <input
+                    type="text"
+                    value={jumpDueInput}
+                    onChange={(e) => setJumpDueInput(e.target.value)}
+                    placeholder="যেমন ৫৪০"
+                    className="w-16 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-center text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-rose-500"
+                  />
+                  <button
+                    type="submit"
+                    className="px-2 py-0.5 bg-rose-600 hover:bg-rose-700 text-white rounded font-bold text-[11px] transition-colors cursor-pointer"
+                  >
+                    যান
+                  </button>
+                </form>
+
+                {/* Show Paid Toggle */}
+                <label className="flex items-center gap-1.5 cursor-pointer select-none text-slate-700 hover:text-slate-900">
+                  <input
+                    type="checkbox"
+                    checked={showPaidDues}
+                    onChange={(e) => setShowPaidDues(e.target.checked)}
+                    className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 h-3.5 w-3.5"
+                  />
+                  <span className="text-[11px] font-semibold">পরিশোধিত দেখান</span>
+                </label>
+              </div>
+
+              {/* Sort Order Selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-slate-500 font-medium">সাজান:</span>
+                <select
+                  value={customerSortBy}
+                  onChange={(e) => setCustomerSortBy(e.target.value as 'due_no' | 'amount_desc' | 'amount_asc' | 'name')}
+                  className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700 focus:border-rose-500 focus:outline-none"
+                >
+                  <option value="due_no">বাকি নং অনুযায়ী (শেষ নম্বর - ক্রমানুসারে)</option>
+                  <option value="amount_desc">সর্বোচ্চ বকেয়া আগে</option>
+                  <option value="amount_asc">সর্বনিম্ন বকেয়া আগে</option>
+                  <option value="name">কাস্টমারের নাম অনুযায়ী</option>
+                </select>
               </div>
             </div>
           </div>
@@ -1235,212 +1551,365 @@ export const DueModule: React.FC<DueModuleProps> = ({
             </div>
           )}
 
-          {/* Customer Due Table */}
-          <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
-                  <tr>
-                    <th className="py-3 px-2 text-center w-10 shrink-0">#</th>
-                    <th className="py-3 px-4">কাস্টমার / দোকান</th>
-                    <th className="py-3 px-3">যোগাযোগ ও ঠিকানা</th>
-                    <th className="py-3 px-3">এসআর</th>
-                    <th className="py-3 px-3 text-right">পূর্বের বকেয়া</th>
-                    <th className="py-3 px-3 text-right">বর্তমান বকেয়া</th>
-                    <th className="py-3 px-4 text-right">অ্যাকশন</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredCustomers.map((cust, idx) => {
-                    const hasDue = cust.currentDue > 0;
-                    const isHighDue = cust.currentDue > 10000;
-                    const custRoutes = Array.from(customerRouteMap.get(cust.id) || []);
+          {/* Customer Due Table / By Due View */}
+          {activeCustomerViewMode === 'by_customer' ? (
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-2 text-center w-10 shrink-0">#</th>
+                      <th className="py-3 px-4">কাস্টমার / দোকান</th>
+                      <th className="py-3 px-3">যোগাযোগ ও ঠিকানা</th>
+                      <th className="py-3 px-3">এসআর</th>
+                      <th className="py-3 px-3 text-right">পূর্বের বকেয়া</th>
+                      <th className="py-3 px-3 text-right">বর্তমান বকেয়া</th>
+                      <th className="py-3 px-4 text-right">অ্যাকশন</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredCustomers.map((cust, idx) => {
+                      const hasDue = cust.currentDue > 0;
+                      const isHighDue = cust.currentDue > 10000;
+                      const custRoutes = Array.from(customerRouteMap.get(cust.id) || []);
+                      const info = customerDueNumbersInfoMap.get(cust.id);
+                      const dueNos = info ? info.dueNos : [];
+                      const lastDueNo = info?.lastDueNo;
 
-                    return (
-                      <tr
-                        key={cust.id}
-                        className={`hover:bg-slate-50/70 transition-colors ${
-                          hasDue ? 'bg-white' : 'bg-slate-50/30'
-                        }`}
-                      >
-                        {/* Index */}
-                        <td className="py-3 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 shrink-0">
-                          {toBengaliDigits(idx + 1)}
-                        </td>
+                      return (
+                        <tr
+                          key={cust.id}
+                          id={`customer-row-${cust.id}`}
+                          className={`hover:bg-slate-50/70 transition-colors ${
+                            hasDue ? 'bg-white' : 'bg-slate-50/30'
+                          }`}
+                        >
+                          {/* Index */}
+                          <td className="py-3 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 shrink-0">
+                            {toBengaliDigits(idx + 1)}
+                          </td>
 
-                        {/* Customer / Shop */}
-                        <td className="py-3 px-4">
-                          <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
-                            <Store className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                            <span>{cust.shopName}</span>
-                            {/* Clickable Due Number Chips */}
-                            {(() => {
-                              const dueNos = (customerDueNumbersListMap.get(cust.id) || []).slice();
-                              if (dueNos.length === 0 && customerDueNumberMap.get(cust.id)) {
-                                dueNos.push(customerDueNumberMap.get(cust.id)!);
-                              }
-                              if (dueNos.length === 0) return null;
-                              return (
+                          {/* Customer / Shop */}
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-slate-900 flex items-center gap-1.5 flex-wrap">
+                              <Store className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span>{cust.shopName}</span>
+                              {/* Clickable Due Number Chips (All ascending, last emphasized) */}
+                              {dueNos.length > 0 && (
                                 <div className="flex items-center gap-1 flex-wrap">
-                                  {dueNos.map((no) => (
-                                    <button
-                                      key={no}
-                                      type="button"
-                                      onClick={() => handleOpenCustomerEdit(cust, no)}
-                                      className="inline-flex items-center font-mono text-[10px] font-bold text-amber-900 bg-amber-50 hover:bg-amber-100 hover:border-amber-400 px-1.5 py-0.5 rounded border border-amber-200 transition-colors cursor-pointer"
-                                      title={`বাকি নং ${formatDueNumber(no)} — ক্লিক করে এডিট পপআপে যান`}
-                                    >
-                                      {formatDueNumber(no)}
-                                    </button>
-                                  ))}
+                                  {dueNos.map((no) => {
+                                    const isLast = no === lastDueNo;
+                                    const isHighlighted =
+                                      highlightedDueNo &&
+                                      no.toLowerCase().trim() === highlightedDueNo.toLowerCase().trim();
+
+                                    return (
+                                      <button
+                                        key={no}
+                                        type="button"
+                                        onClick={() => handleOpenCustomerEdit(cust, no)}
+                                        className={`inline-flex items-center font-mono text-[10px] px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                                          isHighlighted
+                                            ? 'bg-rose-200 text-rose-950 font-black border-2 border-rose-600 ring-2 ring-rose-400 scale-105 animate-pulse'
+                                            : isLast
+                                            ? 'bg-amber-200/90 text-amber-950 font-black border border-amber-500 shadow-2xs ring-1 ring-amber-300'
+                                            : 'bg-amber-50 text-amber-800 font-semibold border border-amber-200 hover:bg-amber-100 hover:border-amber-400'
+                                        }`}
+                                        title={`বাকি নং ${formatDueNumber(no)}${
+                                          isLast ? ' (সর্বশেষ নম্বর - সিরিয়াল নির্ধারণকারী)' : ''
+                                        } — ক্লিক করে এডিট পপআপে যান`}
+                                      >
+                                        <span>{formatDueNumber(no)}</span>
+                                        {isLast && dueNos.length > 1 && (
+                                          <span className="ml-0.5 text-[9px] text-amber-800" title="সর্বশেষ বাকি">★</span>
+                                        )}
+                                      </button>
+                                    );
+                                  })}
                                 </div>
-                              );
-                            })()}
-                          </div>
-                          <p className="text-[11px] text-slate-500 mt-0.5">{cust.name}</p>
-                        </td>
-
-                        {/* Contact & Address */}
-                        <td className="py-3 px-3">
-                          <div className="flex items-center gap-1 text-slate-600">
-                            <Phone className="h-3 w-3 text-slate-400" />
-                            <span>{cust.phone}</span>
-                          </div>
-                          {cust.address && (
-                            <p className="text-[11px] text-slate-400 truncate max-w-[180px] mt-0.5">
-                              {cust.address}
-                            </p>
-                          )}
-                          {custRoutes.length > 0 ? (
-                            <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-600 font-medium">
-                              <MapPin className="h-3 w-3 text-rose-500 shrink-0" />
-                              <span className="truncate max-w-[170px]" title={custRoutes.join(', ')}>
-                                {custRoutes[0]}
-                              </span>
+                              )}
                             </div>
-                          ) : (
-                            <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
-                              <MapPin className="h-3 w-3 text-slate-300 shrink-0" />
-                              <span>রুট উল্লেখ নেই</span>
+                            <p className="text-[11px] text-slate-500 mt-0.5">{cust.name}</p>
+                          </td>
+
+                          {/* Contact & Address */}
+                          <td className="py-3 px-3">
+                            <div className="flex items-center gap-1 text-slate-600">
+                              <Phone className="h-3 w-3 text-slate-400" />
+                              <span>{cust.phone}</span>
                             </div>
-                          )}
-                        </td>
-
-                        {/* SR */}
-                        <td className="py-3 px-3 text-slate-600 font-medium">
-                          {cust.assignedSrName || '-'}
-                        </td>
-
-                        {/* Opening Balance */}
-                        <td className="py-3 px-3 text-right text-slate-500">
-                          {currency} {cust.openingBalance.toLocaleString()}
-                        </td>
-
-                        {/* Current Due */}
-                        <td className="py-3 px-3 text-right">
-                          <span
-                            className={`font-bold text-sm ${
-                              hasDue ? 'text-rose-700' : 'text-emerald-700'
-                            }`}
-                          >
-                            {currency} {cust.currentDue.toLocaleString()}
-                          </span>
-                          {isHighDue && (
-                            <span className="block text-[10px] font-semibold text-rose-500">
-                              উচ্চ বকেয়া
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Actions */}
-                        <td className="py-3 px-4 text-right">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => onOpenCustomerLedger(cust)}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                              title="খতিয়ান দেখুন"
-                            >
-                              <BookOpen className="h-3.5 w-3.5 text-slate-500" />
-                              <span>খতিয়ান</span>
-                            </button>
-
-                            <button
-                              id={`collect-row-btn-${cust.id}`}
-                              onClick={() => {
-                                setModalCustomer(cust);
-                                setModalDueNo(undefined);
-                                setModalDefaultAmount(cust.currentDue > 0 ? cust.currentDue : undefined);
-                                setIsDueConfirmModalOpen(true);
-                              }}
-                              className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs cursor-pointer active:scale-95"
-                              title={`${cust.shopName || cust.name}-এর বাকি জমা নিন`}
-                            >
-                              <HandCoins className="h-3.5 w-3.5" />
-                              <span>জমা নিন</span>
-                            </button>
-
-                            <button
-                              id={`edit-customer-btn-${cust.id}`}
-                              onClick={() => {
-                                handleOpenCustomerEdit(cust);
-                              }}
-                              className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 hover:border-amber-400 transition cursor-pointer"
-                              title={`${cust.shopName || cust.name}-এর তথ্য ও হিসাব এডিট করুন`}
-                            >
-                              <Edit className="h-3.5 w-3.5 text-amber-600" />
-                              <span>এডিট</span>
-                            </button>
-
-                            {isOwner && (
-                              <button
-                                onClick={() => {
-                                  setCustomerToDelete(cust);
-                                  setIsDeleteCustomerPinModalOpen(true);
-                                }}
-                                className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition"
-                                title="কাস্টমার ডিলিট করুন (মালিকের পিন আবশ্যক)"
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-                                <span className="hidden sm:inline">ডিলিট</span>
-                              </button>
+                            {cust.address && (
+                              <p className="text-[11px] text-slate-400 truncate max-w-[180px] mt-0.5">
+                                {cust.address}
+                              </p>
                             )}
+                            {custRoutes.length > 0 ? (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-600 font-medium">
+                                <MapPin className="h-3 w-3 text-rose-500 shrink-0" />
+                                <span className="truncate max-w-[170px]" title={custRoutes.join(', ')}>
+                                  {custRoutes[0]}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className="mt-1 flex items-center gap-1 text-[10px] text-slate-400">
+                                <MapPin className="h-3 w-3 text-slate-300 shrink-0" />
+                                <span>রুট উল্লেখ নেই</span>
+                              </div>
+                            )}
+                          </td>
+
+                          {/* SR */}
+                          <td className="py-3 px-3 text-slate-600 font-medium">
+                            {cust.assignedSrName || '-'}
+                          </td>
+
+                          {/* Opening Balance */}
+                          <td className="py-3 px-3 text-right text-slate-500">
+                            {currency} {cust.openingBalance.toLocaleString()}
+                          </td>
+
+                          {/* Current Due */}
+                          <td className="py-3 px-3 text-right">
+                            <span
+                              className={`font-bold text-sm ${
+                                hasDue ? 'text-rose-700' : 'text-emerald-700'
+                              }`}
+                            >
+                              {currency} {cust.currentDue.toLocaleString()}
+                            </span>
+                            {isHighDue && (
+                              <span className="block text-[10px] font-semibold text-rose-500">
+                                উচ্চ বকেয়া
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                onClick={() => onOpenCustomerLedger(cust)}
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                title="খতিয়ান দেখুন"
+                              >
+                                <BookOpen className="h-3.5 w-3.5 text-slate-500" />
+                                <span>খতিয়ান</span>
+                              </button>
+
+                              <button
+                                id={`collect-row-btn-${cust.id}`}
+                                onClick={() => {
+                                  setModalCustomer(cust);
+                                  setModalDueNo(lastDueNo || undefined);
+                                  setModalDefaultAmount(cust.currentDue > 0 ? cust.currentDue : undefined);
+                                  setIsDueConfirmModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2.5 py-1.5 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs cursor-pointer active:scale-95"
+                                title={`${cust.shopName || cust.name}-এর বাকি জমা নিন`}
+                              >
+                                <HandCoins className="h-3.5 w-3.5" />
+                                <span>জমা নিন</span>
+                              </button>
+
+                              <button
+                                id={`edit-customer-btn-${cust.id}`}
+                                onClick={() => {
+                                  handleOpenCustomerEdit(cust);
+                                }}
+                                className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 hover:border-amber-400 transition cursor-pointer"
+                                title={`${cust.shopName || cust.name}-এর তথ্য ও হিসাব এডিট করুন`}
+                              >
+                                <Edit className="h-3.5 w-3.5 text-amber-600" />
+                                <span>এডিট</span>
+                              </button>
+
+                              {isOwner && (
+                                <button
+                                  onClick={() => {
+                                    setCustomerToDelete(cust);
+                                    setIsDeleteCustomerPinModalOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100 hover:border-rose-300 transition"
+                                  title="কাস্টমার ডিলিট করুন (মালিকের পিন আবশ্যক)"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5 text-rose-600" />
+                                  <span className="hidden sm:inline">ডিলিট</span>
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {filteredCustomers.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="py-12 text-center text-slate-500 text-xs">
+                          <div className="flex flex-col items-center justify-center gap-2 max-w-sm mx-auto">
+                            <div className="h-10 w-10 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mb-1">
+                              <Wallet className="h-5 w-5" />
+                            </div>
+                            <p className="font-bold text-slate-700 text-sm">কোন কাস্টমারের বকেয়া তথ্য পাওয়া যায়নি</p>
+                            <p className="text-[11px] text-slate-400 leading-relaxed">
+                              সিস্টেম ব্যবহারের পূর্বের বকেয়া বাকি বা নতুন বাকি এন্ট্রি যোগ করতে নিচের বাটনে ক্লিক করুন।
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddDueErrorMsg('');
+                                setAddDueSuccessMsg('');
+                                setIsAddDueModalOpen(true);
+                              }}
+                              className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-rose-700 transition-colors shadow-xs cursor-pointer"
+                            >
+                              <Plus className="h-4 w-4" />
+                              <span>+ বাকি এন্ট্রি যোগ করুন</span>
+                            </button>
                           </div>
                         </td>
                       </tr>
-                    );
-                  })}
-
-                  {filteredCustomers.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="py-12 text-center text-slate-500 text-xs">
-                        <div className="flex flex-col items-center justify-center gap-2 max-w-sm mx-auto">
-                          <div className="h-10 w-10 rounded-full bg-rose-50 border border-rose-100 flex items-center justify-center text-rose-600 mb-1">
-                            <Wallet className="h-5 w-5" />
-                          </div>
-                          <p className="font-bold text-slate-700 text-sm">কোন কাস্টমারের বকেয়া তথ্য পাওয়া যায়নি</p>
-                          <p className="text-[11px] text-slate-400 leading-relaxed">
-                            সিস্টেম ব্যবহারের পূর্বের বকেয়া বাকি বা নতুন বাকি এন্ট্রি যোগ করতে নিচের বাটনে ক্লিক করুন।
-                          </p>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setAddDueErrorMsg('');
-                              setAddDueSuccessMsg('');
-                              setIsAddDueModalOpen(true);
-                            }}
-                            className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-rose-700 transition-colors shadow-xs cursor-pointer"
-                          >
-                            <Plus className="h-4 w-4" />
-                            <span>+ বাকি এন্ট্রি যোগ করুন</span>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          ) : (
+            /* By Due View: one row per due number in natural numeric order */
+            <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="py-3 px-2 text-center w-10 shrink-0">#</th>
+                      <th className="py-3 px-3">বাকি নং</th>
+                      <th className="py-3 px-4">কাস্টমার ও দোকান</th>
+                      <th className="py-3 px-3">তারিখ</th>
+                      <th className="py-3 px-3">রুট / ঠিকানা</th>
+                      <th className="py-3 px-3 text-right">বাকি পরিমাণ</th>
+                      <th className="py-3 px-3 text-right">বাকি জমা</th>
+                      <th className="py-3 px-3 text-right">অবশিষ্ট বকেয়া</th>
+                      <th className="py-3 px-4 text-right">অ্যাকশন</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {flatDueList.map((item, idx) => {
+                      const isHighlighted =
+                        highlightedDueNo &&
+                        item.rawDueNo.toLowerCase().trim() === highlightedDueNo.toLowerCase().trim();
+                      const cust = db.customers.find((c) => c.id === item.customerId);
+
+                      return (
+                        <tr
+                          key={`${item.customerId}-${item.rawDueNo}-${idx}`}
+                          id={`flat-due-row-${item.rawDueNo.toLowerCase().replace(/[^a-z0-9]/g, '-')}`}
+                          className={`hover:bg-slate-50/70 transition-colors ${
+                            isHighlighted
+                              ? 'bg-rose-50 border-y-2 border-rose-500 font-semibold'
+                              : item.isPaid
+                              ? 'bg-slate-50/40 text-slate-400'
+                              : 'bg-white'
+                          }`}
+                        >
+                          <td className="py-3 px-2 text-center font-mono font-medium text-slate-400 text-xs w-10 shrink-0">
+                            {toBengaliDigits(idx + 1)}
+                          </td>
+                          <td className="py-3 px-3">
+                            <span
+                              className={`inline-flex items-center font-mono text-xs font-black px-2 py-0.5 rounded border ${
+                                isHighlighted
+                                  ? 'bg-rose-600 text-white border-rose-700 shadow-xs'
+                                  : item.isPaid
+                                  ? 'bg-slate-100 text-slate-600 border-slate-300'
+                                  : 'bg-amber-100 text-amber-950 border-amber-300'
+                              }`}
+                            >
+                              {formatDueNumber(item.rawDueNo)}
+                            </span>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                              <Store className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                              <span>{item.shopName}</span>
+                            </div>
+                            <p className="text-[11px] text-slate-500 mt-0.5">{item.customerName}</p>
+                          </td>
+                          <td className="py-3 px-3 font-mono text-slate-600 text-[11px]">
+                            {item.date ? formatDate(item.date) : '-'}
+                          </td>
+                          <td className="py-3 px-3 text-slate-600 text-[11px] truncate max-w-[160px]">
+                            {item.routes.length > 0 ? item.routes.join(', ') : '-'}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-bold">
+                            <span className={!item.isPaid ? 'text-rose-700' : 'text-slate-400'}>
+                              {currency} {item.amount.toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {item.isPaid ? (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">
+                                <Check className="h-3 w-3" />
+                                <span>পরিশোধিত</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200">
+                                <span>বকেয়া</span>
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {cust && (
+                                <>
+                                  <button
+                                    onClick={() => onOpenCustomerLedger(cust)}
+                                    className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                    title="খতিয়ান দেখুন"
+                                  >
+                                    <BookOpen className="h-3 w-3 text-slate-500" />
+                                    <span>খতিয়ান</span>
+                                  </button>
+                                  {!item.isPaid && (
+                                    <button
+                                      onClick={() => {
+                                        setModalCustomer(cust);
+                                        setModalDueNo(item.rawDueNo);
+                                        setModalDefaultAmount(item.amount > 0 ? item.amount : undefined);
+                                        setIsDueConfirmModalOpen(true);
+                                      }}
+                                      className="inline-flex items-center gap-1 rounded-md bg-emerald-600 px-2 py-1 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs cursor-pointer"
+                                      title={`বাকি নং ${formatDueNumber(item.rawDueNo)}-এর টাকা জমা নিন`}
+                                    >
+                                      <HandCoins className="h-3 w-3" />
+                                      <span>জমা</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => handleOpenCustomerEdit(cust, item.rawDueNo)}
+                                    className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100"
+                                    title="এডিট"
+                                  >
+                                    <Edit className="h-3 w-3 text-amber-600" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {flatDueList.length === 0 && (
+                      <tr>
+                        <td colSpan={9} className="py-10 text-center text-slate-400 text-xs">
+                          কোন বাকি রেকর্ড পাওয়া যায়নি
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* STEP 5: DATE-WISE বাকি জমার তালিকা AT THE BOTTOM OF THE বাকি PAGE */}
           <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden mt-6">
@@ -2619,8 +3088,13 @@ export const DueModule: React.FC<DueModuleProps> = ({
                       </button>
                     </div>
                   ) : (
-                    <p className="mt-0.5 text-[10px] text-slate-400">
-                      খালি রাখলে স্বয়ংক্রিয় বসবে
+                    <p className="mt-0.5 text-[10px] text-slate-500 font-bengali flex items-center justify-between">
+                      <span>খালি রাখলে স্বয়ংক্রিয় বসবে</span>
+                      {lastSavedDueNo && (
+                        <span className="font-mono text-slate-600 bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200">
+                          শেষ নম্বর: <strong>{toBengaliDigits(lastSavedDueNo)}</strong>
+                        </span>
+                      )}
                     </p>
                   )}
                 </div>
