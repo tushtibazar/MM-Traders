@@ -2,7 +2,12 @@ import React, { useMemo } from 'react';
 import { UniversalPrintPreviewModal } from '../modals/UniversalPrintPreviewModal';
 import { BusinessSettings, Customer } from '../../types';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
-import { formatDueNumber, compareCustomersByLastDueNumber, getCustomerDueNumbersInfo } from '../../utils/dueUtils';
+import {
+  formatDueNumber,
+  formatShortDueNumber,
+  compareCustomersByLastDueNumber,
+  getCustomerDueNumbersInfo,
+} from '../../utils/dueUtils';
 import { useApp } from '../../context/AppContext';
 
 interface DuePrintPreviewModalProps {
@@ -43,24 +48,77 @@ interface DuePrintPreviewModalProps {
 // Total page size: 210mm x 297mm
 // Margins: top 12mm, right 10mm, bottom 14mm, left 10mm
 // Printable content area: 190mm width x 271mm height
-const ROW_HEIGHT_MM = 7.0;
+const DUE_ROW_HEIGHT_MM = 7.0;
+const CUST_ROW_HEIGHT_MM = 9.2;
 
 // Maximum capacity calibrated by physical component heights:
-// Page 1 with Signatures & Totals (Single-page document):
-// 271mm - 6mm (footer) - 31mm (p1 header) - 7.5mm (thead) - 34mm (signatures & totals) = 192.5mm -> 25 rows safely
-const PAGE_1_MAX_WITH_SIG = 25;
+// For By-Due mode (1-line rows, 7.0mm):
+const DUE_PAGE_1_MAX_WITH_SIG = 25;
+const DUE_PAGE_1_MAX_NO_SIG = 30;
+const DUE_CONT_MAX_NO_SIG = 34;
+const DUE_CONT_MAX_WITH_SIG = 29;
 
-// Page 1 without Signatures (First page of multi-page document):
-// 271mm - 6mm (footer) - 31mm (p1 header) - 7.5mm (thead) = 226.5mm -> 30 rows safely
-const PAGE_1_MAX_NO_SIG = 30;
+// For By-Customer mode (2-line rows with due numbers, 9.2mm):
+const CUST_PAGE_1_MAX_WITH_SIG = 20;
+const CUST_PAGE_1_MAX_NO_SIG = 24;
+const CUST_CONT_MAX_NO_SIG = 26;
+const CUST_CONT_MAX_WITH_SIG = 22;
 
-// Continued page without Signatures (Middle pages):
-// 271mm - 6mm (footer) - 10mm (cont header) - 7.5mm (thead) = 247.5mm -> 34 rows safely
-const CONT_MAX_NO_SIG = 34;
+/**
+ * Renders outstanding due numbers on the second line of the customer name cell.
+ * Numbers in ascending natural order, separated by ' · '.
+ * The last (largest) number is bold.
+ * If > 4 dues: shows first 3, '…', last number, and (+N).
+ */
+const renderCustomerDueNumbersSummary = (dueNos: string[]) => {
+  if (!dueNos || dueNos.length === 0) return null;
 
-// Continued page with Signatures & Totals (Last page of multi-page document):
-// 271mm - 6mm (footer) - 10mm (cont header) - 7.5mm (thead) - 34mm (signatures & totals) = 213.5mm -> 29 rows safely
-const CONT_MAX_WITH_SIG = 29;
+  if (dueNos.length <= 4) {
+    return (
+      <span className="inline-flex items-center gap-0.5 font-mono text-[8pt] leading-tight truncate whitespace-nowrap">
+        {dueNos.map((no, idx) => {
+          const isLast = idx === dueNos.length - 1;
+          const formatted = formatShortDueNumber(no);
+          return (
+            <React.Fragment key={`${no}-${idx}`}>
+              {idx > 0 && <span className="text-slate-400 mx-0.5 font-sans">·</span>}
+              <span className={isLast ? 'font-black text-slate-950 font-mono' : 'font-medium text-slate-700 font-mono'}>
+                {formatted}
+              </span>
+            </React.Fragment>
+          );
+        })}
+      </span>
+    );
+  }
+
+  // More than 4 dues: first 3, then "…", then last number, then (+N)
+  const first3 = dueNos.slice(0, 3);
+  const lastNo = dueNos[dueNos.length - 1];
+  const hiddenCount = dueNos.length - 4;
+
+  return (
+    <span className="inline-flex items-center gap-0.5 font-mono text-[8pt] leading-tight truncate whitespace-nowrap">
+      {first3.map((no, idx) => (
+        <React.Fragment key={`${no}-${idx}`}>
+          {idx > 0 && <span className="text-slate-400 mx-0.5 font-sans">·</span>}
+          <span className="font-medium text-slate-700 font-mono">
+            {formatShortDueNumber(no)}
+          </span>
+        </React.Fragment>
+      ))}
+      <span className="text-slate-400 mx-0.5 font-sans">…</span>
+      <span className="font-black text-slate-950 font-mono">
+        {formatShortDueNumber(lastNo)}
+      </span>
+      {hiddenCount > 0 && (
+        <span className="ml-1 font-sans font-bold text-[7.5pt] text-rose-700">
+          (+{toBengaliDigits(hiddenCount)})
+        </span>
+      )}
+    </span>
+  );
+};
 
 /**
  * Sanitizes table text values: converts "0", "রুট নেই", empty, null, undefined,
@@ -114,8 +172,13 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
     const total = items.length;
     if (total === 0) return [[]];
 
-    // Case 1: Fits entirely on Page 1 with totals and signatures (up to 25 rows)
-    if (total <= PAGE_1_MAX_WITH_SIG) {
+    const p1MaxWithSig = isDueMode ? DUE_PAGE_1_MAX_WITH_SIG : CUST_PAGE_1_MAX_WITH_SIG;
+    const p1MaxNoSig = isDueMode ? DUE_PAGE_1_MAX_NO_SIG : CUST_PAGE_1_MAX_NO_SIG;
+    const contMaxNoSig = isDueMode ? DUE_CONT_MAX_NO_SIG : CUST_CONT_MAX_NO_SIG;
+    const contMaxWithSig = isDueMode ? DUE_CONT_MAX_WITH_SIG : CUST_CONT_MAX_WITH_SIG;
+
+    // Case 1: Fits entirely on Page 1 with totals and signatures
+    if (total <= p1MaxWithSig) {
       return [items];
     }
 
@@ -125,7 +188,7 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
 
     while (remaining.length > 0) {
       if (isFirstPage) {
-        let take = PAGE_1_MAX_NO_SIG;
+        let take = p1MaxNoSig;
         const leftAfterP1 = remaining.length - take;
         // Keep at least 2 rows with the totals block on the next page
         if (leftAfterP1 > 0 && leftAfterP1 < 2) {
@@ -136,11 +199,11 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
         isFirstPage = false;
       } else {
         // If remaining fits on this page with totals and signatures
-        if (remaining.length <= CONT_MAX_WITH_SIG) {
+        if (remaining.length <= contMaxWithSig) {
           result.push(remaining);
           remaining = [];
         } else {
-          let take = CONT_MAX_NO_SIG;
+          let take = contMaxNoSig;
           const leftAfter = remaining.length - take;
           // Keep at least 2 rows with the totals block on the next page
           if (leftAfter > 0 && leftAfter < 2) {
@@ -366,21 +429,21 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                   }}
                 >
                   {isDueMode ? (
-                    /* "বাকি নং অনুযায়ী" print: ক্র. | বাকি নং | নাম | মোবাইল | বাকির তারিখ | রুট | বর্তমান বকেয়া | স্বাক্ষর */
+                    /* "বাকি নং অনুযায়ী" print: ক্র. 4% | বাকি নং 9% | নাম 27% | মোবাইল 11% | বাকির তারিখ 10% | রুট 12% | বর্তমান বকেয়া 11% | স্বাক্ষর 16% */
                     <>
                       <thead>
                         <tr
                           className="bg-slate-100 border-b border-slate-400 text-slate-800 font-bold"
                           style={{ height: '7.5mm' }}
                         >
-                          <th style={{ width: '5%' }} className="py-[1.8mm] px-[2mm] text-center border-r border-slate-300">ক্র.</th>
-                          <th style={{ width: '13%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকি নং</th>
-                          <th style={{ width: '23%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">নাম ও দোকান</th>
-                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">মোবাইল</th>
-                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকির তারিখ</th>
+                          <th style={{ width: '4%' }} className="py-[1.8mm] px-[1.5mm] text-center border-r border-slate-300">ক্র.</th>
+                          <th style={{ width: '9%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকি নং</th>
+                          <th style={{ width: '27%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">নাম ও দোকান</th>
+                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">মোবাইল</th>
+                          <th style={{ width: '10%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকির তারিখ</th>
                           <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">রুট</th>
                           <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] text-right border-r border-slate-300">বর্তমান বকেয়া ({currency})</th>
-                          <th style={{ width: '13%' }} className="py-[1.8mm] px-[2mm] text-center">স্বাক্ষর</th>
+                          <th style={{ width: '16%' }} className="py-[1.8mm] px-[2mm] text-center">স্বাক্ষর</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -402,18 +465,18 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                                 key={`${d.customerId}-${d.rawDueNo}-${idx}`}
                                 className="border-b border-slate-200 hover:bg-slate-50/50"
                                 style={{
-                                  height: `${ROW_HEIGHT_MM}mm`,
-                                  maxHeight: `${ROW_HEIGHT_MM}mm`,
+                                  height: `${DUE_ROW_HEIGHT_MM}mm`,
+                                  maxHeight: `${DUE_ROW_HEIGHT_MM}mm`,
                                   overflow: 'hidden',
                                   boxSizing: 'border-box',
                                   pageBreakInside: 'avoid',
                                   breakInside: 'avoid',
                                 }}
                               >
-                                <td className="py-[1.8mm] px-[2mm] text-center font-mono text-[9.5px] text-slate-500 border-r border-slate-200 truncate">
+                                <td className="py-[1.8mm] px-[1.5mm] text-center font-mono text-[9.5px] text-slate-500 border-r border-slate-200 truncate">
                                   {toBengaliDigits(globalIdx)}
                                 </td>
-                                <td className="py-[1.8mm] px-[2mm] font-mono font-bold text-[9.5px] text-slate-900 border-r border-slate-200 truncate">
+                                <td className="py-[1.8mm] px-[2mm] font-mono font-bold text-[9px] text-slate-900 border-r border-slate-200 truncate">
                                   {formatDueNumber(d.rawDueNo)}
                                 </td>
                                 <td className="py-[1.8mm] px-[2mm] border-r border-slate-200 leading-tight truncate">
@@ -458,21 +521,21 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                       )}
                     </>
                   ) : (
-                    /* "কাস্টমার অনুযায়ী" print: ক্র. (5%) | কাস্টমার ও দোকানের নাম (22%) | মোবাইল (12%) | বাকির তারিখ (11%) | রুট / ঠিকানা (13%) | এসআর (8%) | বর্তমান বকেয়া (12%) | স্বাক্ষর / রিসিট (17%) */
+                    /* "কাস্টমার অনুযায়ী" print: ক্র. 4% | কাস্টমার ও দোকানের নাম (with numbers) 29% | মোবাইল 11% | বাকির তারিখ 10% | রুট / ঠিকানা 12% | এসআর 7% | বর্তমান বকেয়া 11% | স্বাক্ষর / রিসিট 16% */
                     <>
                       <thead>
                         <tr
                           className="bg-slate-100 border-b border-slate-400 text-slate-800 font-bold"
                           style={{ height: '7.5mm' }}
                         >
-                          <th style={{ width: '5%' }} className="py-[1.8mm] px-[2mm] text-center border-r border-slate-300">ক্র.</th>
-                          <th style={{ width: '22%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">কাস্টমার ও দোকানের নাম</th>
-                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">মোবাইল</th>
-                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকির তারিখ</th>
-                          <th style={{ width: '13%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">রুট / ঠিকানা</th>
-                          <th style={{ width: '8%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">এসআর</th>
-                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] text-right border-r border-slate-300">বর্তমান বকেয়া ({currency})</th>
-                          <th style={{ width: '17%' }} className="py-[1.8mm] px-[2mm] text-center">স্বাক্ষর / রিসিট</th>
+                          <th style={{ width: '4%' }} className="py-[1.8mm] px-[1.5mm] text-center border-r border-slate-300">ক্র.</th>
+                          <th style={{ width: '29%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">কাস্টমার ও দোকানের নাম</th>
+                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">মোবাইল</th>
+                          <th style={{ width: '10%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকির তারিখ</th>
+                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">রুট / ঠিকানা</th>
+                          <th style={{ width: '7%' }} className="py-[1.8mm] px-[1.5mm] border-r border-slate-300">এসআর</th>
+                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] text-right border-r border-slate-300">বর্তমান বকেয়া ({currency})</th>
+                          <th style={{ width: '16%' }} className="py-[1.8mm] px-[2mm] text-center">স্বাক্ষর / রিসিট</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -505,31 +568,35 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                                 key={c.id}
                                 className="border-b border-slate-200 hover:bg-slate-50/50"
                                 style={{
-                                  height: `${ROW_HEIGHT_MM}mm`,
-                                  maxHeight: `${ROW_HEIGHT_MM}mm`,
+                                  height: `${CUST_ROW_HEIGHT_MM}mm`,
+                                  maxHeight: `${CUST_ROW_HEIGHT_MM}mm`,
                                   overflow: 'hidden',
                                   boxSizing: 'border-box',
                                   pageBreakInside: 'avoid',
                                   breakInside: 'avoid',
                                 }}
                               >
-                                <td className="py-[1.8mm] px-[2mm] text-center font-mono text-[9.5px] text-slate-500 border-r border-slate-200 truncate">
+                                <td className="py-[1.2mm] px-[1.5mm] text-center font-mono text-[9pt] text-slate-500 border-r border-slate-200 truncate">
                                   {toBengaliDigits(globalIdx)}
                                 </td>
-                                <td className="py-[1.8mm] px-[2mm] border-r border-slate-200 leading-tight truncate">
+                                <td className="py-[1mm] px-[2mm] border-r border-slate-200 leading-tight overflow-hidden">
                                   <span
-                                    className="font-bold text-slate-900 block truncate"
+                                    className="font-bold text-slate-900 block truncate leading-tight"
                                     style={{ fontSize: '9pt' }}
-                                    title={`${c.name}${c.shopName && c.shopName !== c.name ? ` (${c.shopName})` : ''}`}
+                                    title={`${c.shopName || ''} ${c.name || ''}`}
                                   >
-                                    {c.name}
-                                    {c.shopName && c.shopName !== c.name ? ` (${c.shopName})` : ''}
+                                    {c.shopName && c.name && c.shopName !== c.name
+                                      ? `${c.shopName}, ${c.name}`
+                                      : c.shopName || c.name || '-'}
                                   </span>
+                                  <div className="mt-0.5 truncate leading-tight flex items-center">
+                                    {renderCustomerDueNumbersSummary(custDueInfo.dueNos)}
+                                  </div>
                                 </td>
-                                <td className="py-[1.8mm] px-[2mm] font-mono text-[9.5px] text-slate-700 border-r border-slate-200 truncate">
+                                <td className="py-[1.2mm] px-[2mm] font-mono text-[9pt] text-slate-700 border-r border-slate-200 truncate">
                                   {phone}
                                 </td>
-                                <td className="py-[1.8mm] px-[2mm] font-mono text-[9.5px] text-slate-700 border-r border-slate-200 truncate whitespace-nowrap">
+                                <td className="py-[1.2mm] px-[2mm] font-mono text-[9pt] text-slate-700 border-r border-slate-200 truncate whitespace-nowrap">
                                   {oldestDate ? (
                                     <span>
                                       {formatDate(oldestDate)}
@@ -543,16 +610,16 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                                     '-'
                                   )}
                                 </td>
-                                <td className="py-[1.8mm] px-[2mm] text-[9.5px] text-slate-700 border-r border-slate-200 truncate" title={route}>
+                                <td className="py-[1.2mm] px-[2mm] text-[9pt] text-slate-700 border-r border-slate-200 truncate" title={route}>
                                   {route}
                                 </td>
-                                <td className="py-[1.8mm] px-[2mm] text-[9.5px] text-slate-600 border-r border-slate-200 truncate" title={srName}>
+                                <td className="py-[1.2mm] px-[1.5mm] text-[8.5pt] text-slate-600 border-r border-slate-200 truncate" title={srName}>
                                   {srName}
                                 </td>
-                                <td className="py-[1.8mm] px-[2mm] text-right font-mono font-bold text-rose-700 text-[10px] border-r border-slate-200 truncate">
+                                <td className="py-[1.2mm] px-[2mm] text-right font-mono font-bold text-rose-700 text-[9.5pt] border-r border-slate-200 truncate">
                                   {(c.currentDue || 0).toLocaleString()}
                                 </td>
-                                <td className="py-[1.8mm] px-[1.5mm] border-r-0 border-slate-200"></td>
+                                <td className="py-[1.2mm] px-[1.5mm] border-r-0 border-slate-200"></td>
                               </tr>
                             );
                           })
