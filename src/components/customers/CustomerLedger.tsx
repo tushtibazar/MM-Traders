@@ -555,6 +555,14 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
                           >
                             {formatDueNumber(entry.referenceId)}
                           </button>
+                          {entry.debit > 0 && entry.date && (
+                            <span
+                              className="text-[10px] font-mono text-slate-500 bg-slate-50 px-1 py-0.5 rounded border border-slate-200"
+                              title={`বাকির তারিখ: ${formatDate(entry.date)}`}
+                            >
+                              {formatDate(entry.date)}
+                            </span>
+                          )}
                           {entry.debit > 0 && (
                             <button
                               type="button"

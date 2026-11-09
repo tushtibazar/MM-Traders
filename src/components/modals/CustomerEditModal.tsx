@@ -186,21 +186,25 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
     });
   }, [customer, db.customerLedgers]);
 
-  // Due Number Editing States (No PIN needed)
+  // Due Number & Date Editing States (No PIN needed)
   const [dueNumberInputs, setDueNumberInputs] = useState<Record<string, string>>({});
+  const [dueDateInputs, setDueDateInputs] = useState<Record<string, string>>({});
   const [dueNumberErrors, setDueNumberErrors] = useState<Record<string, string>>({});
   const [dueSaveSuccessMsg, setDueSaveSuccessMsg] = useState('');
   const [dueSaveErrorMsg, setDueSaveErrorMsg] = useState('');
   const [isSavingDueNumbers, setIsSavingDueNumbers] = useState(false);
 
-  // Sync due numbers when customer or modal opens
+  // Sync due numbers and dates when customer or modal opens
   useEffect(() => {
     if (customer && isOpen) {
       const initialMap: Record<string, string> = {};
+      const initialDateMap: Record<string, string> = {};
       customerDues.forEach((d) => {
         initialMap[d.id] = d.referenceId || '';
+        initialDateMap[d.id] = d.date || '';
       });
       setDueNumberInputs(initialMap);
+      setDueDateInputs(initialDateMap);
       setDueNumberErrors({});
       setDueSaveSuccessMsg('');
       setDueSaveErrorMsg('');
@@ -319,21 +323,28 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
       return;
     }
 
-    // 4. Collect changed updates
-    const updates: { ledgerId: string; oldDueNo: string; newDueNo: string }[] = [];
+    // 4. Collect changed updates (both number changes and date changes for non-sheet dues)
+    const updates: { ledgerId: string; oldDueNo: string; newDueNo: string; oldDate?: string; newDate?: string }[] = [];
     customerDues.forEach((due) => {
+      const isFromSheet = Boolean(due.sheetId || (due.id && due.id.startsWith('sheet-')) || (due.description && due.description.includes('ডেইলি হিসাব')));
       const effNo = effectiveMap[due.id];
-      if (effNo && effNo !== (due.referenceId || '')) {
+      const typedDate = dueDateInputs[due.id] ? dueDateInputs[due.id].trim() : due.date;
+      const numChanged = effNo && effNo !== (due.referenceId || '');
+      const dateChanged = !isFromSheet && Boolean(typedDate && typedDate !== due.date);
+
+      if (numChanged || dateChanged) {
         updates.push({
           ledgerId: due.id,
           oldDueNo: due.referenceId || '',
-          newDueNo: effNo,
+          newDueNo: effNo || (due.referenceId || ''),
+          oldDate: due.date,
+          newDate: dateChanged ? typedDate : undefined,
         });
       }
     });
 
     if (updates.length === 0) {
-      setDueSaveSuccessMsg('বাকি নম্বরে কোনো পরিবর্তন করা হয়নি');
+      setDueSaveSuccessMsg('বাকি নম্বর বা তারিখে কোনো পরিবর্তন করা হয়নি');
       return;
     }
 
@@ -690,6 +701,9 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
                         const isSettled = due.calculatedStatus === 'settled';
                         const isPartial = due.calculatedStatus === 'partial';
 
+                        const isFromSheet = Boolean(due.sheetId || (due.id && due.id.startsWith('sheet-')) || (due.description && due.description.includes('ডেইলি হিসাব')));
+                        const dateVal = dueDateInputs[due.id] !== undefined ? dueDateInputs[due.id] : due.date;
+
                         return (
                           <tr
                             key={due.id}
@@ -699,8 +713,31 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
                             <td className="py-2.5 px-2.5 text-center font-mono font-medium text-slate-500">
                               {toBengaliDigits(idx + 1)}
                             </td>
-                            <td className="py-2.5 px-3 whitespace-nowrap text-slate-700 font-medium">
-                              {formatDate(due.date)}
+                            <td className="py-2 px-2.5 whitespace-nowrap text-slate-700 font-medium">
+                              {isFromSheet ? (
+                                <span
+                                  className="inline-flex items-center gap-1 font-mono text-xs text-slate-700 bg-slate-50 px-2 py-1 rounded border border-slate-200 cursor-help"
+                                  title="ডেইলি হিসাবের তারিখ; বদলাতে হিসাবের তারিখ পরিবর্তন করুন"
+                                >
+                                  <span>{formatDate(due.date)}</span>
+                                  <span className="text-[10px] text-slate-400">🔒</span>
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-1">
+                                  <input
+                                    type="date"
+                                    value={dateVal}
+                                    onChange={(e) => {
+                                      const newVal = e.target.value;
+                                      setDueDateInputs((prev) => ({ ...prev, [due.id]: newVal }));
+                                      setDueSaveErrorMsg('');
+                                      setDueSaveSuccessMsg('');
+                                    }}
+                                    className="rounded-lg border border-amber-300 bg-white px-2 py-1 text-xs font-mono font-bold text-slate-800 focus:outline-hidden focus:border-amber-600 shadow-2xs"
+                                    title="বাকির তারিখ পরিবর্তন করুন (কোনো পিন প্রয়োজন নেই)"
+                                  />
+                                </div>
+                              )}
                             </td>
                             <td className="py-2.5 px-3 text-right whitespace-nowrap font-mono font-bold text-rose-700">
                               {currency} {(due.debit || 0).toLocaleString()}

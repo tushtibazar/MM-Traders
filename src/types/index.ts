@@ -386,6 +386,8 @@ export interface DueNumberAuditEntry {
   id: string;
   oldDueNo: string;
   newDueNo: string;
+  oldDate?: string;
+  newDate?: string;
   customerId?: string;
   customerName?: string;
   sheetId?: string;

@@ -1783,11 +1783,10 @@ export const DueModule: React.FC<DueModuleProps> = ({
                       <th className="py-3 px-2 text-center w-10 shrink-0">#</th>
                       <th className="py-3 px-3">বাকি নং</th>
                       <th className="py-3 px-4">কাস্টমার ও দোকান</th>
-                      <th className="py-3 px-3">তারিখ</th>
+                      <th className="py-3 px-3">বাকির তারিখ</th>
                       <th className="py-3 px-3">রুট / ঠিকানা</th>
-                      <th className="py-3 px-3 text-right">বাকি পরিমাণ</th>
-                      <th className="py-3 px-3 text-right">বাকি জমা</th>
-                      <th className="py-3 px-3 text-right">অবশিষ্ট বকেয়া</th>
+                      <th className="py-3 px-3 text-right">টাকা ({currency})</th>
+                      <th className="py-3 px-3 text-center">অবস্থা</th>
                       <th className="py-3 px-4 text-right">অ্যাকশন</th>
                     </tr>
                   </thead>
@@ -1833,7 +1832,7 @@ export const DueModule: React.FC<DueModuleProps> = ({
                             </div>
                             <p className="text-[11px] text-slate-500 mt-0.5">{item.customerName}</p>
                           </td>
-                          <td className="py-3 px-3 font-mono text-slate-600 text-[11px]">
+                          <td className="py-3 px-3 font-mono text-slate-700 text-xs font-semibold whitespace-nowrap">
                             {item.date ? formatDate(item.date) : '-'}
                           </td>
                           <td className="py-3 px-3 text-slate-600 text-[11px] truncate max-w-[160px]">
@@ -2809,6 +2808,8 @@ export const DueModule: React.FC<DueModuleProps> = ({
         customerDueNumberMap={customerDueNumberMap}
         todayDateStr={todayDateStr}
         initialAction={printAction}
+        printViewMode={activeCustomerViewMode}
+        flatDues={flatDueList}
       />
 
       {/* 6. Manual Due Entry Modal ("+ বাকি এন্ট্রি" - Add Existing/Opening Due) */}

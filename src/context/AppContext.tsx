@@ -146,7 +146,7 @@ interface AppContextType {
   ) => { success: boolean; error?: string };
   updateCustomerDueNumbers: (
     customerId: string,
-    updates: Array<{ ledgerId?: string; oldDueNo: string; newDueNo: string }>,
+    updates: Array<{ ledgerId?: string; oldDueNo: string; newDueNo: string; oldDate?: string; newDate?: string }>,
     reason?: string
   ) => { success: boolean; updatedCount: number; error?: string };
 
@@ -1638,55 +1638,67 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const updateCustomerDueNumbers = (
     customerId: string,
-    updates: Array<{ ledgerId?: string; oldDueNo: string; newDueNo: string }>,
+    updates: Array<{ ledgerId?: string; oldDueNo: string; newDueNo: string; oldDate?: string; newDate?: string }>,
     reason?: string
   ): { success: boolean; updatedCount: number; error?: string } => {
     const cust = db.customers.find((c) => c.id === customerId);
     const custName = cust ? (cust.shopName || cust.name) : 'কাস্টমার';
 
-    // Filter to changed items with non-empty numbers
+    // Filter to changed items: either number changed or date changed
     const validChanges = updates
       .map((u) => ({
         ledgerId: u.ledgerId,
         oldDueNo: u.oldDueNo.trim(),
         newDueNo: sanitizeDueNumberInput(u.newDueNo),
+        oldDate: u.oldDate?.trim(),
+        newDate: u.newDate?.trim(),
       }))
-      .filter((u) => u.newDueNo && normalizeDueNumber(u.oldDueNo) !== normalizeDueNumber(u.newDueNo));
+      .filter((u) => {
+        const numChanged = u.newDueNo && normalizeDueNumber(u.oldDueNo) !== normalizeDueNumber(u.newDueNo);
+        const dateChanged = u.newDate && u.oldDate && u.newDate !== u.oldDate;
+        return numChanged || dateChanged;
+      });
 
     if (validChanges.length === 0) {
       return { success: true, updatedCount: 0 };
     }
 
-    // 1. Check for duplicates AMONG the new numbers being saved together in this popup
+    // 1. Check for duplicates AMONG the new numbers being saved together in this popup (if number changed)
     const candidateNormSet = new Set<string>();
     for (const u of validChanges) {
-      const norm = normalizeDueNumber(u.newDueNo);
-      if (candidateNormSet.has(norm)) {
-        return {
-          success: false,
-          updatedCount: 0,
-          error: `একই নম্বর (${u.newDueNo}) এই কাস্টমারের একাধিক বাকিতে দেওয়া হয়েছে`,
-        };
+      if (u.newDueNo && normalizeDueNumber(u.oldDueNo) !== normalizeDueNumber(u.newDueNo)) {
+        const norm = normalizeDueNumber(u.newDueNo);
+        if (candidateNormSet.has(norm)) {
+          return {
+            success: false,
+            updatedCount: 0,
+            error: `একই নম্বর (${u.newDueNo}) এই কাস্টমারের একাধিক বাকিতে দেওয়া হয়েছে`,
+          };
+        }
+        candidateNormSet.add(norm);
       }
-      candidateNormSet.add(norm);
     }
 
     // 2. Collect all old numbers being replaced for this customer so they can be swapped without clashing
-    const oldDueNosBeingReplaced = validChanges.map((u) => u.oldDueNo);
+    const oldDueNosBeingReplaced = validChanges
+      .filter((u) => u.newDueNo && normalizeDueNumber(u.oldDueNo) !== normalizeDueNumber(u.newDueNo))
+      .map((u) => u.oldDueNo);
 
     // 3. Validate against external records (other customers, deleted reserved dues)
     for (const u of validChanges) {
-      const dup = findDueNumberDuplicate(u.newDueNo, db, {
-        excludeLedgerId: u.ledgerId,
-        excludeCustomerId: customerId,
-        excludeDueNos: oldDueNosBeingReplaced,
-      });
-      if (dup.isDuplicate) {
-        return {
-          success: false,
-          updatedCount: 0,
-          error: dup.message || `নম্বর ${u.newDueNo} ইতিমধ্যে ব্যবহৃত হয়েছে`,
-        };
+      if (u.newDueNo && normalizeDueNumber(u.oldDueNo) !== normalizeDueNumber(u.newDueNo)) {
+        const dup = findDueNumberDuplicate(u.newDueNo, db, {
+          excludeLedgerId: u.ledgerId,
+          excludeCustomerId: customerId,
+          excludeDueNos: oldDueNosBeingReplaced,
+        });
+        if (dup.isDuplicate) {
+          return {
+            success: false,
+            updatedCount: 0,
+            error: dup.message || `নম্বর ${u.newDueNo} ইতিমধ্যে ব্যবহৃত হয়েছে`,
+          };
+        }
       }
     }
 
@@ -1698,65 +1710,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const nowIso = new Date().toISOString();
 
     for (const change of validChanges) {
-      const { ledgerId, oldDueNo, newDueNo } = change;
+      const { ledgerId, oldDueNo, newDueNo, oldDate, newDate } = change;
+      const numChanged = newDueNo && normalizeDueNumber(oldDueNo) !== normalizeDueNumber(newDueNo);
+      const dateChanged = Boolean(newDate && oldDate && newDate !== oldDate);
 
       // Update matching ledgers
       updatedLedgers = updatedLedgers.map((l) => {
         const isMatch = (ledgerId && l.id === ledgerId) ||
           (oldDueNo && (l.referenceId === oldDueNo || l.dueNo === oldDueNo));
         if (isMatch) {
+          const effectiveDueNo = numChanged ? newDueNo : (l.referenceId || oldDueNo);
+          const effectiveDate = (dateChanged && newDate) ? newDate : l.date;
           const oldRef = l.referenceId || oldDueNo;
-          const newDesc = l.description ? l.description.replace(oldRef, newDueNo) : l.description;
+          let newDesc = l.description;
+          if (numChanged && oldRef && newDesc) {
+            newDesc = newDesc.replace(oldRef, newDueNo);
+          }
           return {
             ...l,
-            referenceId: newDueNo,
-            dueNo: newDueNo,
+            referenceId: effectiveDueNo,
+            dueNo: effectiveDueNo,
+            date: effectiveDate,
             description: newDesc,
           };
         }
         return l;
       });
 
-      // Update matching daily sheets
-      updatedSheets = updatedSheets.map((s) => {
-        let sheetChanged = false;
-        const updatedTodayDue = (s.todayDueEntries || []).map((e) => {
-          if (e.dueNo === oldDueNo) {
-            sheetChanged = true;
-            return { ...e, dueNo: newDueNo };
+      // Update matching daily sheets (for due numbers)
+      if (numChanged) {
+        updatedSheets = updatedSheets.map((s) => {
+          let sheetChanged = false;
+          const updatedTodayDue = (s.todayDueEntries || []).map((e) => {
+            if (e.dueNo === oldDueNo) {
+              sheetChanged = true;
+              return { ...e, dueNo: newDueNo };
+            }
+            return e;
+          });
+          const updatedDueCollection = (s.dueCollectionEntries || []).map((e) => {
+            if (e.dueNo === oldDueNo) {
+              sheetChanged = true;
+              return { ...e, dueNo: newDueNo };
+            }
+            return e;
+          });
+          if (sheetChanged) {
+            return {
+              ...s,
+              todayDueEntries: updatedTodayDue,
+              dueCollectionEntries: updatedDueCollection,
+              updatedAt: nowIso,
+            };
           }
-          return e;
+          return s;
         });
-        const updatedDueCollection = (s.dueCollectionEntries || []).map((e) => {
-          if (e.dueNo === oldDueNo) {
-            sheetChanged = true;
-            return { ...e, dueNo: newDueNo };
-          }
-          return e;
-        });
-        if (sheetChanged) {
-          return {
-            ...s,
-            todayDueEntries: updatedTodayDue,
-            dueCollectionEntries: updatedDueCollection,
-            updatedAt: nowIso,
-          };
-        }
-        return s;
-      });
+      }
 
       // Create audit trail entry
+      const auditReason = reason || (
+        numChanged && dateChanged
+          ? `বাকি নম্বর (${oldDueNo} -> ${newDueNo}) ও বাকির তারিখ (${oldDate} -> ${newDate}) পরিবর্তন`
+          : dateChanged
+          ? `বাকির তারিখ পরিবর্তন (${oldDate} -> ${newDate})`
+          : 'কাস্টমার এডিট পপআপ থেকে বাকি নম্বর পরিবর্তন'
+      );
+
       newAuditEntries.push({
         id: `audit-due-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         oldDueNo,
-        newDueNo,
+        newDueNo: numChanged ? newDueNo : oldDueNo,
+        oldDate,
+        newDate,
         ledgerId,
         customerId,
         customerName: custName,
         date: today,
         changedAt: nowIso,
         changedBy: currentUser.name || 'মালিক',
-        reason: reason || 'কাস্টমার এডিট পপআপ থেকে বাকি নম্বর পরিবর্তন',
+        reason: auditReason,
       });
     }
 

@@ -1197,9 +1197,11 @@ export function getCustomerDueNumbersInfo(
 ): {
   dueNos: string[];
   lastDueNo: string | null;
+  oldestDate?: string | null;
+  outstandingCount?: number;
 } {
   if (!customerId) {
-    return { dueNos: [], lastDueNo: null };
+    return { dueNos: [], lastDueNo: null, oldestDate: null, outstandingCount: 0 };
   }
 
   // 1. Collect from customerLedgers
@@ -1285,9 +1287,10 @@ export function getCustomerDueNumbersInfo(
     ? debitTrackers
     : debitTrackers.filter((t) => t.remaining > 0);
 
-  // Distinct due numbers
+  // Distinct due numbers and track their dates
   const seenNorm = new Set<string>();
   const distinctDueNos: string[] = [];
+  const activeDates: string[] = [];
 
   for (const item of activeList) {
     const norm = normalizeDueNumber(item.dueNo);
@@ -1297,14 +1300,46 @@ export function getCustomerDueNumbersInfo(
     }
   }
 
+  // Find dates for active outstanding dues
+  if (Array.isArray(db.customerLedgers)) {
+    for (const l of db.customerLedgers) {
+      if (l.customerId !== customerId || l.status === 'voided') continue;
+      if (Number(l.debit) > 0 && l.date) {
+        const no = l.dueNo || l.referenceId || '';
+        const norm = normalizeDueNumber(no);
+        if (norm && seenNorm.has(norm)) {
+          activeDates.push(l.date);
+        }
+      }
+    }
+  }
+  if (Array.isArray(db.dailySheets)) {
+    for (const s of db.dailySheets) {
+      for (const e of s.todayDueEntries || []) {
+        if (e.customerId === customerId && e.dueNo && s.date) {
+          const norm = normalizeDueNumber(e.dueNo);
+          if (norm && seenNorm.has(norm)) {
+            activeDates.push(s.date);
+          }
+        }
+      }
+    }
+  }
+
   // Sort distinct numbers in ASCENDING order using natural comparison
   distinctDueNos.sort(naturalCompareDueNumbers);
+
+  // Oldest date (earliest date) among outstanding dues
+  activeDates.sort((a, b) => a.localeCompare(b));
+  const oldestDate = activeDates.length > 0 ? activeDates[0] : null;
 
   const lastDueNo = distinctDueNos.length > 0 ? distinctDueNos[distinctDueNos.length - 1] : null;
 
   return {
     dueNos: distinctDueNos,
     lastDueNo,
+    oldestDate,
+    outstandingCount: distinctDueNos.length,
   };
 }
 

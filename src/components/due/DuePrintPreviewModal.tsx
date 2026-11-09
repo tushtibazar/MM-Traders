@@ -20,6 +20,23 @@ interface DuePrintPreviewModalProps {
   customerDueNumbersListMap?: Map<string, string[]>;
   todayDateStr: string;
   initialAction?: 'png' | 'pdf' | null;
+  printViewMode?: 'by_customer' | 'by_due';
+  flatDues?: Array<{
+    id: string;
+    dueNo: string;
+    rawDueNo: string;
+    customerId: string;
+    customerName: string;
+    shopName: string;
+    phone: string;
+    address: string;
+    assignedSrName: string;
+    routes: string[];
+    date?: string;
+    amount: number;
+    isPaid: boolean;
+    ledgerId?: string;
+  }>;
 }
 
 // Physical A4 constants (exact measurements in mm matching @page { size: A4 portrait; margin: 12mm 10mm 14mm 10mm; })
@@ -74,8 +91,12 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
   customerDueNumberMap,
   todayDateStr,
   initialAction = null,
+  printViewMode = 'by_customer',
+  flatDues = [],
 }) => {
   const { db } = useApp();
+
+  const isDueMode = printViewMode === 'by_due';
 
   const activeCustomers = useMemo(() => {
     const list = customers.filter((c) => (c.currentDue || 0) > 0);
@@ -83,18 +104,23 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
     return list.slice().sort((a, b) => compareCustomersByLastDueNumber(a.id, b.id, db, false));
   }, [customers, db]);
 
+  const activeDues = useMemo(() => {
+    return flatDues.filter((d) => !d.isPaid);
+  }, [flatDues]);
+
   // Dynamic pagination based on physical printable capacity
-  const pages: Customer[][] = useMemo(() => {
-    const total = activeCustomers.length;
+  const pages: any[][] = useMemo(() => {
+    const items = isDueMode ? activeDues : activeCustomers;
+    const total = items.length;
     if (total === 0) return [[]];
 
-    // Case 1: Fits entirely on Page 1 with totals and signatures (up to 25 customers)
+    // Case 1: Fits entirely on Page 1 with totals and signatures (up to 25 rows)
     if (total <= PAGE_1_MAX_WITH_SIG) {
-      return [activeCustomers];
+      return [items];
     }
 
-    const result: Customer[][] = [];
-    let remaining = activeCustomers.slice();
+    const result: any[][] = [];
+    let remaining = items.slice();
     let isFirstPage = true;
 
     while (remaining.length > 0) {
@@ -127,7 +153,7 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
     }
 
     return result;
-  }, [activeCustomers]);
+  }, [isDueMode, activeDues, activeCustomers]);
 
   const totalPages = pages.length;
 
@@ -145,13 +171,28 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
   const businessName = settings.businessName || 'MM TRADERS';
   const subtitle = settings.subtitle || 'ডিস্ট্রিবিউটর ও পাইকারি বিক্রেতা';
 
+  const displayedTotalDue = useMemo(() => {
+    if (isDueMode) {
+      return activeDues.reduce((sum, d) => sum + (d.amount || 0), 0);
+    }
+    return totalDue;
+  }, [isDueMode, activeDues, totalDue]);
+
   return (
     <UniversalPrintPreviewModal
       isOpen={isOpen}
       onClose={onClose}
-      title="কাস্টমার বকেয়া খতিয়ান ও তালিকা (A4)"
-      subtitle={`মোট বকেয়া: ${currency} ${totalDue.toLocaleString()} • ${toBengaliDigits(activeCustomers.length)} জন কাস্টমার • ${toBengaliDigits(totalPages)} পাতা`}
-      fileNamePrefix={`Customer_Due_List_${todayDateStr}_${routeFilter !== 'all' ? routeFilter : 'All_Routes'}`}
+      title={isDueMode ? "বাকি নং অনুযায়ী বকেয়া তালিকা (A4)" : "কাস্টমার বকেয়া খতিয়ান ও তালিকা (A4)"}
+      subtitle={
+        isDueMode
+          ? `মোট বকেয়া: ${currency} ${displayedTotalDue.toLocaleString()} • ${toBengaliDigits(activeDues.length)}টি বাকি • ${toBengaliDigits(totalPages)} পাতা`
+          : `মোট বকেয়া: ${currency} ${displayedTotalDue.toLocaleString()} • ${toBengaliDigits(activeCustomers.length)} জন কাস্টমার • ${toBengaliDigits(totalPages)} পাতা`
+      }
+      fileNamePrefix={
+        isDueMode
+          ? `Due_Number_List_${todayDateStr}_${routeFilter !== 'all' ? routeFilter : 'All_Routes'}`
+          : `Customer_Due_List_${todayDateStr}_${routeFilter !== 'all' ? routeFilter : 'All_Routes'}`
+      }
       initialAction={initialAction}
     >
       {/* Scoped style tag enforcing exact 12mm 10mm 14mm 10mm page margin and 190mm x 271mm printable area in @media print */}
@@ -261,7 +302,7 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
 
                     <div className="text-right shrink-0">
                       <span className="inline-block px-3 py-1 bg-slate-900 text-white text-xs font-bold rounded shadow-xs">
-                        কাস্টমার বকেয়া তালিকা
+                        {isDueMode ? 'বাকি নং তালিকা' : 'কাস্টমার বকেয়া তালিকা'}
                       </span>
                       <p className="text-[9.5px] text-slate-500 font-mono mt-1">
                         তারিখ: {formatDate(todayDateStr)} • প্রিন্ট: {new Date().toLocaleTimeString('bn-BD', { hour: '2-digit', minute: '2-digit' })}
@@ -289,13 +330,15 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                     <div>
                       <span className="text-slate-500 block">মোট বকেয়া:</span>
                       <span className="font-bold text-rose-700 truncate block font-mono">
-                        {currency} {totalDue.toLocaleString()}
+                        {currency} {displayedTotalDue.toLocaleString()}
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-500 block">মোট কাস্টমার:</span>
+                      <span className="text-slate-500 block">{isDueMode ? 'মোট বাকি:' : 'মোট কাস্টমার:'}</span>
                       <span className="font-bold text-slate-900 truncate block">
-                        {toBengaliDigits(activeCustomers.length)} জন (পাতা ১/{toBengaliDigits(totalPages)})
+                        {isDueMode
+                          ? `${toBengaliDigits(activeDues.length)} টি (পাতা ১/${toBengaliDigits(totalPages)})`
+                          : `${toBengaliDigits(activeCustomers.length)} জন (পাতা ১/${toBengaliDigits(totalPages)})`}
                       </span>
                     </div>
                   </div>
@@ -304,7 +347,7 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                 /* CONTINUED PAGE COMPACT RUNNING HEADER */
                 <div className="border-b border-slate-300 pb-1.5 mb-[4mm] flex items-center justify-between text-xs font-semibold text-slate-600">
                   <span className="font-bold text-slate-900">
-                    {businessName} — কাস্টমার বকেয়া তালিকা (চলমান) • রুট: {routeFilter === 'all' ? 'সকল রুট' : cleanReportText(routeFilter)}
+                    {businessName} — {isDueMode ? 'বাকি নং তালিকা' : 'কাস্টমার বকেয়া তালিকা'} (চলমান) • রুট: {routeFilter === 'all' ? 'সকল রুট' : cleanReportText(routeFilter)}
                   </span>
                   <span className="font-mono text-[11px] text-slate-700">
                     তারিখ: {formatDate(todayDateStr)} • পাতা: {toBengaliDigits(pageIndex + 1)}/{toBengaliDigits(totalPages)}
@@ -319,128 +362,219 @@ export const DuePrintPreviewModal: React.FC<DuePrintPreviewModalProps> = ({
                   style={{
                     tableLayout: 'fixed',
                     width: '100%',
-                    fontSize: '10.5px',
+                    fontSize: '10px',
                   }}
                 >
-                  <thead>
-                    <tr
-                      className="bg-slate-100 border-b border-slate-400 text-slate-800 font-bold"
-                      style={{ height: '7.5mm' }}
-                    >
-                      <th style={{ width: '10mm' }} className="py-[1.8mm] px-[2.5mm] text-center border-r border-slate-300">#</th>
-                      <th style={{ width: '52mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">কাস্টমার ও দোকানের নাম</th>
-                      <th style={{ width: '28mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">মোবাইল</th>
-                      <th style={{ width: '36mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">রুট / ঠিকানা</th>
-                      <th style={{ width: '24mm' }} className="py-[1.8mm] px-[2.5mm] border-r border-slate-300">এসআর</th>
-                      <th style={{ width: '24mm' }} className="py-[1.8mm] px-[2.5mm] text-right border-r border-slate-300">বর্তমান বকেয়া</th>
-                      <th style={{ width: '16mm' }} className="py-[1.8mm] px-[1.5mm] text-center">স্বাক্ষর / রিসিট</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageCustomers.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="py-8 text-center text-slate-400">
-                          কোনো বকেয়া রেকর্ড পাওয়া যায়নি
-                        </td>
-                      </tr>
-                    ) : (
-                      pageCustomers.map((c, idx) => {
-                        const globalIdx = pageStartIdx + idx;
-                        const routeVal = customerRouteMap.get(c.id);
-                        const rawRoute = routeVal
-                          ? routeVal instanceof Set
-                            ? Array.from(routeVal).join(', ')
-                            : String(routeVal)
-                          : c.address || '';
-                        const route = cleanReportText(rawRoute);
-                        const phone = cleanReportText(c.phone);
-                        const srName = cleanReportText(c.assignedSrName);
-
-                        const custDueInfo = getCustomerDueNumbersInfo(c.id, db, false);
-                        const dueNos = custDueInfo.dueNos;
-                        const lastDueNo = custDueInfo.lastDueNo;
-
-                        return (
-                          <tr
-                            key={c.id}
-                            className="border-b border-slate-200 hover:bg-slate-50/50"
-                            style={{
-                              height: `${ROW_HEIGHT_MM}mm`,
-                              maxHeight: `${ROW_HEIGHT_MM}mm`,
-                              overflow: 'hidden',
-                              boxSizing: 'border-box',
-                              pageBreakInside: 'avoid',
-                              breakInside: 'avoid',
-                            }}
-                          >
-                            <td className="py-[1.8mm] px-[2.5mm] text-center font-mono text-[10px] text-slate-500 border-r border-slate-200 truncate">
-                              {toBengaliDigits(globalIdx)}
+                  {isDueMode ? (
+                    /* "বাকি নং অনুযায়ী" print: ক্র. | বাকি নং | নাম | মোবাইল | বাকির তারিখ | রুট | বর্তমান বকেয়া | স্বাক্ষর */
+                    <>
+                      <thead>
+                        <tr
+                          className="bg-slate-100 border-b border-slate-400 text-slate-800 font-bold"
+                          style={{ height: '7.5mm' }}
+                        >
+                          <th style={{ width: '5%' }} className="py-[1.8mm] px-[2mm] text-center border-r border-slate-300">ক্র.</th>
+                          <th style={{ width: '13%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকি নং</th>
+                          <th style={{ width: '23%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">নাম ও দোকান</th>
+                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">মোবাইল</th>
+                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকির তারিখ</th>
+                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">রুট</th>
+                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] text-right border-r border-slate-300">বর্তমান বকেয়া ({currency})</th>
+                          <th style={{ width: '13%' }} className="py-[1.8mm] px-[2mm] text-center">স্বাক্ষর</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pageCustomers.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-8 text-center text-slate-400">
+                              কোনো বকেয়া রেকর্ড পাওয়া যায়নি
                             </td>
-                            <td className="py-[1.8mm] px-[2.5mm] border-r border-slate-200 leading-tight truncate">
-                              <div className="flex items-center gap-1 truncate">
-                                <span className="font-bold text-slate-900 text-[10px] truncate">
-                                  {c.name}
-                                </span>
-                                {dueNos.length > 0 && (
-                                  <div className="inline-flex items-center gap-0.5 shrink-0">
-                                    {dueNos.map((dNo) => {
-                                      const isLast = dNo === lastDueNo;
-                                      return (
-                                        <span
-                                          key={dNo}
-                                          className={`font-mono text-[8.5px] px-1 py-0.2 rounded border ${
-                                            isLast
-                                              ? 'font-black text-amber-950 bg-amber-200 border-amber-400'
-                                              : 'font-semibold text-amber-800 bg-amber-50 border-amber-200'
-                                          }`}
-                                        >
-                                          {formatDueNumber(dNo)}
-                                        </span>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                              {c.shopName && c.shopName !== c.name && (
-                                <span className="text-[9px] text-slate-500 block truncate font-normal">
-                                  দোকান: {c.shopName}
-                                </span>
-                              )}
-                            </td>
-                            <td className="py-[1.8mm] px-[2.5mm] font-mono text-[10px] text-slate-700 border-r border-slate-200 truncate">
-                              {phone}
-                            </td>
-                            <td className="py-[1.8mm] px-[2.5mm] text-[10px] text-slate-700 border-r border-slate-200 truncate" title={route}>
-                              {route}
-                            </td>
-                            <td className="py-[1.8mm] px-[2.5mm] text-[10px] text-slate-600 border-r border-slate-200 truncate" title={srName}>
-                              {srName}
-                            </td>
-                            <td className="py-[1.8mm] px-[2.5mm] text-right font-mono font-bold text-rose-700 text-[10.5px] border-r border-slate-200 truncate">
-                              {currency} {(c.currentDue || 0).toLocaleString()}
-                            </td>
-                            <td className="py-[1.8mm] px-[1.5mm] border-r-0 border-slate-200"></td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                  {/* Totals Row (Displayed directly under the last row on the final page) */}
-                  {isLastPage && (
-                    <tfoot>
-                      <tr
-                        className="bg-slate-100 font-bold border-t-2 border-slate-400 text-xs"
-                        style={{ height: '7.5mm', pageBreakInside: 'avoid', breakInside: 'avoid' }}
-                      >
-                        <td colSpan={5} className="py-[1.8mm] px-[2.5mm] text-right text-slate-900 font-bold text-[11px]">
-                          সর্বমোট বকেয়া ({toBengaliDigits(activeCustomers.length)} জন কাস্টমার):
-                        </td>
-                        <td className="py-[1.8mm] px-[2.5mm] text-right font-mono text-rose-700 text-xs font-bold">
-                          {currency} {totalDue.toLocaleString()}
-                        </td>
-                        <td className="border-l border-slate-300"></td>
-                      </tr>
-                    </tfoot>
+                        ) : (
+                          pageCustomers.map((d: any, idx) => {
+                            const globalIdx = pageStartIdx + idx;
+                            const routeStr = d.routes && d.routes.length > 0 ? d.routes.join(', ') : d.address || '';
+                            const route = cleanReportText(routeStr);
+                            const phone = cleanReportText(d.phone);
+
+                            return (
+                              <tr
+                                key={`${d.customerId}-${d.rawDueNo}-${idx}`}
+                                className="border-b border-slate-200 hover:bg-slate-50/50"
+                                style={{
+                                  height: `${ROW_HEIGHT_MM}mm`,
+                                  maxHeight: `${ROW_HEIGHT_MM}mm`,
+                                  overflow: 'hidden',
+                                  boxSizing: 'border-box',
+                                  pageBreakInside: 'avoid',
+                                  breakInside: 'avoid',
+                                }}
+                              >
+                                <td className="py-[1.8mm] px-[2mm] text-center font-mono text-[9.5px] text-slate-500 border-r border-slate-200 truncate">
+                                  {toBengaliDigits(globalIdx)}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] font-mono font-bold text-[9.5px] text-slate-900 border-r border-slate-200 truncate">
+                                  {formatDueNumber(d.rawDueNo)}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] border-r border-slate-200 leading-tight truncate">
+                                  <span className="font-bold text-slate-900 text-[9.5px] truncate block" style={{ fontSize: '9pt' }}>
+                                    {d.customerName}
+                                    {d.shopName && d.shopName !== d.customerName ? ` (${d.shopName})` : ''}
+                                  </span>
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] font-mono text-[9.5px] text-slate-700 border-r border-slate-200 truncate">
+                                  {phone}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] font-mono text-[9.5px] text-slate-700 border-r border-slate-200 truncate whitespace-nowrap">
+                                  {d.date ? formatDate(d.date) : '-'}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] text-[9.5px] text-slate-700 border-r border-slate-200 truncate" title={route}>
+                                  {route}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] text-right font-mono font-bold text-rose-700 text-[10px] border-r border-slate-200 truncate">
+                                  {(d.amount || 0).toLocaleString()}
+                                </td>
+                                <td className="py-[1.8mm] px-[1.5mm] border-r-0 border-slate-200"></td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                      {isLastPage && (
+                        <tfoot>
+                          <tr
+                            className="bg-slate-100 font-bold border-t-2 border-slate-400 text-xs"
+                            style={{ height: '7.5mm', pageBreakInside: 'avoid', breakInside: 'avoid' }}
+                          >
+                            <td colSpan={6} className="py-[1.8mm] px-[2.5mm] text-right text-slate-900 font-bold text-[10.5px]">
+                              সর্বমোট বকেয়া ({toBengaliDigits(activeDues.length)}টি বাকি):
+                            </td>
+                            <td className="py-[1.8mm] px-[2.5mm] text-right font-mono text-rose-700 text-xs font-bold">
+                              {currency} {displayedTotalDue.toLocaleString()}
+                            </td>
+                            <td className="border-l border-slate-300"></td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </>
+                  ) : (
+                    /* "কাস্টমার অনুযায়ী" print: ক্র. (5%) | কাস্টমার ও দোকানের নাম (22%) | মোবাইল (12%) | বাকির তারিখ (11%) | রুট / ঠিকানা (13%) | এসআর (8%) | বর্তমান বকেয়া (12%) | স্বাক্ষর / রিসিট (17%) */
+                    <>
+                      <thead>
+                        <tr
+                          className="bg-slate-100 border-b border-slate-400 text-slate-800 font-bold"
+                          style={{ height: '7.5mm' }}
+                        >
+                          <th style={{ width: '5%' }} className="py-[1.8mm] px-[2mm] text-center border-r border-slate-300">ক্র.</th>
+                          <th style={{ width: '22%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">কাস্টমার ও দোকানের নাম</th>
+                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">মোবাইল</th>
+                          <th style={{ width: '11%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">বাকির তারিখ</th>
+                          <th style={{ width: '13%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">রুট / ঠিকানা</th>
+                          <th style={{ width: '8%' }} className="py-[1.8mm] px-[2mm] border-r border-slate-300">এসআর</th>
+                          <th style={{ width: '12%' }} className="py-[1.8mm] px-[2mm] text-right border-r border-slate-300">বর্তমান বকেয়া ({currency})</th>
+                          <th style={{ width: '17%' }} className="py-[1.8mm] px-[2mm] text-center">স্বাক্ষর / রিসিট</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pageCustomers.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="py-8 text-center text-slate-400">
+                              কোনো বকেয়া রেকর্ড পাওয়া যায়নি
+                            </td>
+                          </tr>
+                        ) : (
+                          pageCustomers.map((c: any, idx) => {
+                            const globalIdx = pageStartIdx + idx;
+                            const routeVal = customerRouteMap.get(c.id);
+                            const rawRoute = routeVal
+                              ? routeVal instanceof Set
+                                ? Array.from(routeVal).join(', ')
+                                : String(routeVal)
+                              : c.address || '';
+                            const route = cleanReportText(rawRoute);
+                            const phone = cleanReportText(c.phone);
+                            const srName = cleanReportText(c.assignedSrName);
+
+                            const custDueInfo = getCustomerDueNumbersInfo(c.id, db, false);
+                            const oldestDate = custDueInfo.oldestDate;
+                            const count = custDueInfo.outstandingCount || custDueInfo.dueNos.length;
+                            const additionalCount = count > 1 ? count - 1 : 0;
+
+                            return (
+                              <tr
+                                key={c.id}
+                                className="border-b border-slate-200 hover:bg-slate-50/50"
+                                style={{
+                                  height: `${ROW_HEIGHT_MM}mm`,
+                                  maxHeight: `${ROW_HEIGHT_MM}mm`,
+                                  overflow: 'hidden',
+                                  boxSizing: 'border-box',
+                                  pageBreakInside: 'avoid',
+                                  breakInside: 'avoid',
+                                }}
+                              >
+                                <td className="py-[1.8mm] px-[2mm] text-center font-mono text-[9.5px] text-slate-500 border-r border-slate-200 truncate">
+                                  {toBengaliDigits(globalIdx)}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] border-r border-slate-200 leading-tight truncate">
+                                  <span
+                                    className="font-bold text-slate-900 block truncate"
+                                    style={{ fontSize: '9pt' }}
+                                    title={`${c.name}${c.shopName && c.shopName !== c.name ? ` (${c.shopName})` : ''}`}
+                                  >
+                                    {c.name}
+                                    {c.shopName && c.shopName !== c.name ? ` (${c.shopName})` : ''}
+                                  </span>
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] font-mono text-[9.5px] text-slate-700 border-r border-slate-200 truncate">
+                                  {phone}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] font-mono text-[9.5px] text-slate-700 border-r border-slate-200 truncate whitespace-nowrap">
+                                  {oldestDate ? (
+                                    <span>
+                                      {formatDate(oldestDate)}
+                                      {additionalCount > 0 && (
+                                        <span className="font-sans font-bold text-[8.5px] text-rose-700 ml-1">
+                                          (+{toBengaliDigits(additionalCount)})
+                                        </span>
+                                      )}
+                                    </span>
+                                  ) : (
+                                    '-'
+                                  )}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] text-[9.5px] text-slate-700 border-r border-slate-200 truncate" title={route}>
+                                  {route}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] text-[9.5px] text-slate-600 border-r border-slate-200 truncate" title={srName}>
+                                  {srName}
+                                </td>
+                                <td className="py-[1.8mm] px-[2mm] text-right font-mono font-bold text-rose-700 text-[10px] border-r border-slate-200 truncate">
+                                  {(c.currentDue || 0).toLocaleString()}
+                                </td>
+                                <td className="py-[1.8mm] px-[1.5mm] border-r-0 border-slate-200"></td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                      {isLastPage && (
+                        <tfoot>
+                          <tr
+                            className="bg-slate-100 font-bold border-t-2 border-slate-400 text-xs"
+                            style={{ height: '7.5mm', pageBreakInside: 'avoid', breakInside: 'avoid' }}
+                          >
+                            <td colSpan={6} className="py-[1.8mm] px-[2.5mm] text-right text-slate-900 font-bold text-[10.5px]">
+                              সর্বমোট বকেয়া ({toBengaliDigits(activeCustomers.length)} জন কাস্টমার):
+                            </td>
+                            <td className="py-[1.8mm] px-[2.5mm] text-right font-mono text-rose-700 text-xs font-bold">
+                              {currency} {totalDue.toLocaleString()}
+                            </td>
+                            <td className="border-l border-slate-300"></td>
+                          </tr>
+                        </tfoot>
+                      )}
+                    </>
                   )}
                 </table>
               </div>
