@@ -28,6 +28,7 @@ import { QuickPaymentModal } from './components/modals/QuickPaymentModal';
 import { ExpenseModal } from './components/modals/ExpenseModal';
 import { UnsavedChangesModal } from './components/modals/UnsavedChangesModal';
 import { LoginScreen } from './components/auth/LoginScreen';
+import { CheckCircle2 } from 'lucide-react';
 import { Customer, Sale } from './types';
 
 function MainLayout() {
@@ -41,6 +42,7 @@ function MainLayout() {
     onLeaveWithoutSavingModal,
     onStayModal,
     isSavingAndLeaving,
+    globalToast,
   } = useApp();
   const [currentTab, setCurrentTab] = useState<TabType>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -300,6 +302,14 @@ function MainLayout() {
         onStay={onStayModal}
         isSaving={isSavingAndLeaving}
       />
+
+      {/* Global Toast Notification */}
+      {globalToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-bold text-white shadow-xl animate-in fade-in slide-in-from-bottom-3 duration-200">
+          <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+          <span>{globalToast}</span>
+        </div>
+      )}
     </div>
   );
 }

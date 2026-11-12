@@ -36,6 +36,7 @@ import {
   detectDuplicateExpenses,
   cleanupDuplicateExpenses,
 } from '../services/expenseCleanupService';
+import { migrateDueMessageTemplate } from '../utils/shareUtils';
 
 export interface UnsavedChangesGuard {
   hasUnsavedChanges: () => boolean;
@@ -240,6 +241,8 @@ interface AppContextType {
   onLeaveWithoutSavingModal: () => void;
   onStayModal: () => void;
   isSavingAndLeaving: boolean;
+  globalToast: string | null;
+  setGlobalToast: (msg: string | null) => void;
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -265,6 +268,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const pendingNavActionRef = useRef<(() => void) | null>(null);
   const [isUnsavedChangesModalOpen, setIsUnsavedChangesModalOpen] = useState<boolean>(false);
   const [isSavingAndLeaving, setIsSavingAndLeaving] = useState<boolean>(false);
+
+  // Global Toast Notification State
+  const [globalToast, setGlobalToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (globalToast) {
+      const timer = setTimeout(() => {
+        setGlobalToast(null);
+      }, 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [globalToast]);
+
+  // Migration for due message template:
+  // - If saved template has old default greeting (e.g. contains 'আসসালামু আলাইকুম'),
+  //   updates first line to 'সম্মানিত {নাম},'
+  // - If owner edited custom template, leaves text unchanged and only updates default
+  // - Shows one-time toast "মেসেজ টেমপ্লেট আপডেট হয়েছে"
+  useEffect(() => {
+    const savedTemplate = db.settings?.dueMessageTemplate;
+    const { updatedTemplate, wasMigrated } = migrateDueMessageTemplate(savedTemplate);
+
+    const migrationKey = 'mm_traders_due_template_migrated_v2';
+    const alreadyMigrated = localStorage.getItem(migrationKey) === 'true';
+
+    if (wasMigrated && (!alreadyMigrated || updatedTemplate !== savedTemplate)) {
+      updateDb({
+        ...db,
+        settings: {
+          ...db.settings,
+          dueMessageTemplate: updatedTemplate,
+        },
+      });
+      localStorage.setItem(migrationKey, 'true');
+      setGlobalToast('মেসেজ টেমপ্লেট আপডেট হয়েছে');
+    }
+  }, []);
 
   const registerUnsavedChangesGuard = (guard: UnsavedChangesGuard | null) => {
     unsavedGuardRef.current = guard;
@@ -3268,6 +3308,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         onLeaveWithoutSavingModal,
         onStayModal,
         isSavingAndLeaving,
+        globalToast,
+        setGlobalToast,
       }}
     >
       {children}

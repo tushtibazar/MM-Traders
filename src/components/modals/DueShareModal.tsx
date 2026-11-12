@@ -19,7 +19,7 @@ import {
 import { Customer, AppDatabase } from '../../types';
 import { useApp } from '../../context/AppContext';
 import { formatDate, toBengaliDigits } from '../../utils/dateUtils';
-import { formatDueNumber } from '../../utils/dueUtils';
+import { formatDueNumber, calculateCustomerDueAllocation } from '../../utils/dueUtils';
 import {
   normalizeWhatsAppNumber,
   normalizeFacebookProfile,
@@ -56,83 +56,27 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
   const [isManuallyEdited, setIsManuallyEdited] = useState(false);
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'info' | 'warning' } | null>(null);
 
-  // Find all active/outstanding dues for this customer from ledgers & daily sheets
-  const customerOutstandingDues = useMemo<ShareDueItem[]>(() => {
-    if (!customer) return [];
-
-    const duesMap = new Map<string, ShareDueItem>();
-
-    // 1. Dues from customer ledger
-    const ledgers = db.customerLedgers || [];
-    ledgers.forEach((l) => {
-      if (l.customerId !== customer.id) return;
-      if (l.type === 'void_sale' || l.type === 'void_payment' || l.type === 'void_due') return;
-
-      const isDueEntry = l.type === 'sale' || l.type === 'opening' || (l.debit > 0 && l.credit === 0);
-      if (!isDueEntry) return;
-
-      // Check if settled or voided
-      if (l.status === 'settled' || l.status === 'voided') return;
-
-      const key = l.id;
-      duesMap.set(key, {
-        ledgerId: l.id,
-        dueNo: l.dueNo || l.referenceId || '',
-        rawDueNo: l.dueNo || l.referenceId || '',
-        date: l.date,
-        amount: l.debit || 0,
-      });
-    });
-
-    // 2. Also check daily sheets for unledgered todayDueEntries
-    const sheets = db.dailySheets || [];
-    sheets.forEach((sheet) => {
-      if ((sheet.status as string) === 'void') return;
-      (sheet.todayDueEntries || []).forEach((entry) => {
-        const matchesCustomer =
-          entry.customerId === customer.id ||
-          (!entry.customerId &&
-            (entry.shopName?.trim() === customer.shopName?.trim() ||
-              entry.customerName?.trim() === customer.name?.trim()));
-
-        if (!matchesCustomer) return;
-        if (entry.ledgerId && duesMap.has(entry.ledgerId)) return;
-
-        const key = entry.id || `sheet-${sheet.id}-${entry.dueNo}`;
-        if (!duesMap.has(key)) {
-          duesMap.set(key, {
-            dueNo: entry.dueNo || '',
-            rawDueNo: entry.dueNo || '',
-            date: sheet.date,
-            amount: entry.amount || 0,
-          });
-        }
-      });
-    });
-
-    // If no individual due records found, but customer has currentDue, provide a general opening due item
-    if (duesMap.size === 0 && (customer.currentDue > 0 || customer.openingBalance > 0)) {
-      duesMap.set('general-due', {
-        dueNo: '০১',
-        rawDueNo: '০১',
-        date: customer.createdAt ? customer.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
-        amount: customer.currentDue || customer.openingBalance,
-      });
+  // Calculate customer due allocation using the shared function:
+  // - Targeted collections applied first
+  // - General collections applied FIFO to oldest dues first
+  // - Only dues with remainingAmount > 0 are considered outstanding
+  const allocation = useMemo(() => {
+    if (!customer) {
+      return {
+        allDues: [],
+        outstandingDues: [],
+        totalOriginalAmount: 0,
+        totalRemainingAmount: 0,
+        adjustmentAmount: 0,
+        customerOutstandingDue: 0,
+        hasAnyOutstanding: false,
+      };
     }
+    return calculateCustomerDueAllocation(customer, db);
+  }, [customer, db]);
 
-    const items = Array.from(duesMap.values());
-    // Sort in ascending order
-    items.sort((a, b) => {
-      const numA = (a.rawDueNo || a.dueNo || '').replace(/\D/g, '');
-      const numB = (b.rawDueNo || b.dueNo || '').replace(/\D/g, '');
-      if (numA && numB && !isNaN(Number(numA)) && !isNaN(Number(numB))) {
-        return Number(numA) - Number(numB);
-      }
-      return (a.date || '').localeCompare(b.date || '');
-    });
-
-    return items;
-  }, [customer, db.customerLedgers, db.dailySheets]);
+  const customerOutstandingDues = allocation.outstandingDues;
+  const hasAnyOutstanding = allocation.hasAnyOutstanding && customerOutstandingDues.length > 0;
 
   // Initialize or reset state when modal opens
   useEffect(() => {
@@ -145,22 +89,30 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
       setIsManuallyEdited(false);
 
       // Select all outstanding dues by default
-      const allIds = customerOutstandingDues.map((d, idx) => d.ledgerId || d.dueNo || String(idx));
+      const allIds = customerOutstandingDues.map((d) => d.id);
       setSelectedDueIds(allIds);
     }
   }, [customer, isOpen, customerOutstandingDues]);
 
   // Selected due items
   const selectedDuesList = useMemo(() => {
-    return customerOutstandingDues.filter((d, idx) => {
-      const id = d.ledgerId || d.dueNo || String(idx);
-      return selectedDueIds.includes(id);
-    });
+    return customerOutstandingDues.filter((d) => selectedDueIds.includes(d.id));
+  }, [customerOutstandingDues, selectedDueIds]);
+
+  const allRemainingTicked = useMemo(() => {
+    return (
+      customerOutstandingDues.length > 0 &&
+      selectedDueIds.length === customerOutstandingDues.length
+    );
   }, [customerOutstandingDues, selectedDueIds]);
 
   const totalSelectedDue = useMemo(() => {
-    return selectedDuesList.reduce((sum, d) => sum + (d.amount || 0), 0);
-  }, [selectedDuesList]);
+    const sum = selectedDuesList.reduce((s, d) => s + (d.remainingAmount || 0), 0);
+    if (allRemainingTicked && allocation.adjustmentAmount !== 0) {
+      return sum + allocation.adjustmentAmount;
+    }
+    return sum;
+  }, [selectedDuesList, allRemainingTicked, allocation.adjustmentAmount]);
 
   // Re-generate message text when selected dues or customer changes (unless manually edited)
   useEffect(() => {
@@ -169,11 +121,30 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
 
     const generated = generateDueMessageText({
       customer,
-      dues: selectedDuesList,
+      dues: selectedDuesList.map((d) => ({
+        id: d.id,
+        dueNo: d.dueNo,
+        rawDueNo: d.rawDueNo,
+        date: d.date,
+        amount: d.remainingAmount,
+        originalAmount: d.originalAmount,
+        isPartiallyPaid: d.isPartiallyPaid,
+        ledgerId: d.ledgerId,
+      })),
       settings: db.settings,
+      adjustmentAmount: allocation.adjustmentAmount,
+      allRemainingTicked,
     });
     setMessageText(generated);
-  }, [customer, selectedDuesList, db.settings, isOpen, isManuallyEdited]);
+  }, [
+    customer,
+    selectedDuesList,
+    db.settings,
+    isOpen,
+    isManuallyEdited,
+    allocation.adjustmentAmount,
+    allRemainingTicked,
+  ]);
 
   if (!isOpen || !customer) return null;
 
@@ -194,7 +165,7 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
     if (selectedDueIds.length === customerOutstandingDues.length) {
       setSelectedDueIds([]);
     } else {
-      setSelectedDueIds(customerOutstandingDues.map((d, idx) => d.ledgerId || d.dueNo || String(idx)));
+      setSelectedDueIds(customerOutstandingDues.map((d) => d.id));
     }
   };
 
@@ -236,6 +207,7 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
 
   // 1. Send via WhatsApp (official click-to-chat)
   const handleSendWhatsApp = () => {
+    if (!hasAnyOutstanding || selectedDueIds.length === 0) return;
     if (!whatsappPhone.trim()) {
       setToastMessage({ text: 'অনুগ্রহ করে WhatsApp নম্বর প্রদান করুন।', type: 'warning' });
       return;
@@ -274,6 +246,7 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
 
   // 2. Send via Facebook Messenger (m.me with auto clipboard copy)
   const handleSendMessenger = async () => {
+    if (!hasAnyOutstanding || selectedDueIds.length === 0) return;
     ensureContactUpdated();
 
     // 1. Copy message text to clipboard first
@@ -319,6 +292,7 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
 
   // 3. Copy message only
   const handleCopyMessage = async () => {
+    if (!hasAnyOutstanding || selectedDueIds.length === 0) return;
     const copied = await copyTextToClipboard(messageText);
     if (copied) {
       addDueMessageRecord({
@@ -349,8 +323,19 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
     setIsManuallyEdited(false);
     const generated = generateDueMessageText({
       customer,
-      dues: selectedDuesList,
+      dues: selectedDuesList.map((d) => ({
+        id: d.id,
+        dueNo: d.dueNo,
+        rawDueNo: d.rawDueNo,
+        date: d.date,
+        amount: d.remainingAmount,
+        originalAmount: d.originalAmount,
+        isPartiallyPaid: d.isPartiallyPaid,
+        ledgerId: d.ledgerId,
+      })),
       settings: db.settings,
+      adjustmentAmount: allocation.adjustmentAmount,
+      allRemainingTicked,
     });
     setMessageText(generated);
     setToastMessage({ text: 'মেসেজ ডিফল্ট টেমপ্লেটে পুনর্নির্মাণ করা হয়েছে।', type: 'info' });
@@ -544,14 +529,14 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
             </div>
 
             {/* Dues List */}
-            {customerOutstandingDues.length === 0 ? (
-              <div className="p-4 text-center text-slate-400 border border-dashed border-slate-200 rounded-xl">
-                এই কাস্টমারের কোনো বকেয়া বাকি নেই।
+            {customerOutstandingDues.length === 0 || !hasAnyOutstanding ? (
+              <div className="p-4 text-center text-slate-500 font-medium bg-slate-50/80 border border-dashed border-slate-200 rounded-xl">
+                এই কাস্টমারের কোনো বকেয়া নেই
               </div>
             ) : (
               <div className="max-h-36 overflow-y-auto space-y-1.5 border border-slate-200 rounded-xl p-2 bg-slate-50/40">
-                {customerOutstandingDues.map((due, idx) => {
-                  const id = due.ledgerId || due.dueNo || String(idx);
+                {customerOutstandingDues.map((due) => {
+                  const id = due.id;
                   const isChecked = selectedDueIds.includes(id);
 
                   return (
@@ -570,7 +555,7 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
                           onChange={() => handleToggleDue(id)}
                           className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 h-4 w-4"
                         />
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-[11px] font-bold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded border border-amber-300">
                             বাকি নং {formatDueNumber(due.rawDueNo || due.dueNo || '')}
                           </span>
@@ -580,11 +565,23 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
                               {formatDate(due.date)}
                             </span>
                           )}
+                          {due.isPartiallyPaid && (
+                            <span className="text-[9.5px] font-bold text-amber-800 bg-amber-100/80 border border-amber-300 px-1.5 py-0.2 rounded font-bengali">
+                              আংশিক বাকি
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <span className="font-bold font-mono text-xs text-rose-700">
-                        {currency} {due.amount.toLocaleString()}
-                      </span>
+                      <div className="text-right">
+                        <span className="font-bold font-mono text-xs text-rose-700">
+                          {currency} {due.remainingAmount.toLocaleString()}
+                        </span>
+                        {due.isPartiallyPaid && (
+                          <span className="block text-[9.5px] text-slate-400 line-through">
+                            আসল {currency}{due.originalAmount.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
                     </label>
                   );
                 })}
@@ -600,6 +597,15 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
                 নির্বাচিত মোট বকেয়া: {currency} {totalSelectedDue.toLocaleString()}
               </span>
             </div>
+            {allRemainingTicked && allocation.adjustmentAmount !== 0 && (
+              <div className="px-2 text-[10.5px] text-slate-500 flex items-center justify-between">
+                <span>পূর্বের হিসাব সমন্বয়:</span>
+                <span className="font-mono font-semibold">
+                  {allocation.adjustmentAmount > 0 ? '+' : ''}
+                  {currency} {allocation.adjustmentAmount.toLocaleString()}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Section 3: Live Message Textarea */}
@@ -661,7 +667,8 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
             <button
               type="button"
               onClick={handleCopyMessage}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 transition-colors shadow-2xs cursor-pointer w-full sm:w-auto"
+              disabled={!hasAnyOutstanding || selectedDueIds.length === 0}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-2xs cursor-pointer w-full sm:w-auto"
               title="মেসেজ টেক্সট কপি করুন"
             >
               <Copy className="h-4 w-4 text-slate-500" />
@@ -681,7 +688,8 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
             <button
               type="button"
               onClick={handleSendMessenger}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 flex-1 sm:flex-initial"
+              disabled={!hasAnyOutstanding || selectedDueIds.length === 0}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-sky-600 hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 flex-1 sm:flex-initial"
               title="Messenger-এ পাঠান (মেসেজ কপি হয়ে চ্যাট খুলবে)"
             >
               <Send className="h-4 w-4" />
@@ -692,7 +700,8 @@ export const DueShareModal: React.FC<DueShareModalProps> = ({
             <button
               type="button"
               onClick={handleSendWhatsApp}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 flex-1 sm:flex-initial"
+              disabled={!hasAnyOutstanding || selectedDueIds.length === 0}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 text-xs font-bold transition-all shadow-xs cursor-pointer active:scale-95 flex-1 sm:flex-initial"
               title="WhatsApp click-to-chat ওপেন করুন"
             >
               <MessageSquare className="h-4 w-4" />

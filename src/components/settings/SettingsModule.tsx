@@ -76,6 +76,9 @@ export const SettingsModule: React.FC = () => {
   const [dueMessageTemplate, setDueMessageTemplate] = useState<string>(
     db.settings.dueMessageTemplate || DEFAULT_DUE_MESSAGE_TEMPLATE
   );
+  const [includeShopInDueMessage, setIncludeShopInDueMessage] = useState<boolean>(
+    Boolean(db.settings.includeShopInDueMessage)
+  );
   const [dueCounterWarning, setDueCounterWarning] = useState<string>('');
   const [saveMsg, setSaveMsg] = useState('');
 
@@ -145,6 +148,7 @@ export const SettingsModule: React.FC = () => {
       securityPin: securityPin.trim() || '1234',
       nextDueNumberCounter: Math.max(1, parsedCounter),
       dueMessageTemplate: dueMessageTemplate.trim() || DEFAULT_DUE_MESSAGE_TEMPLATE,
+      includeShopInDueMessage,
     });
     setSaveMsg('সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
     setTimeout(() => setSaveMsg(''), 3500);
@@ -512,15 +516,27 @@ export const SettingsModule: React.FC = () => {
                   বাকি পেজ ও লেজার থেকে কাস্টমারকে বকেয়ার বিবরণ পাঠানোর জন্য ব্যবহৃত মেসেজের ফরম্যাট।
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => setDueMessageTemplate(DEFAULT_DUE_MESSAGE_TEMPLATE)}
-                className="inline-flex items-center gap-1 self-start sm:self-auto text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
-                title="ডিফল্ট টেমপ্লেটে ফিরিয়ে আনুন"
-              >
-                <RotateCcw className="h-3 w-3" />
-                <span>ডিফল্টে ফিরুন</span>
-              </button>
+              <div className="flex items-center gap-2 flex-wrap self-start sm:self-auto">
+                {/* Switch: নামের সাথে দোকান/এলাকাও লিখুন */}
+                <label className="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg text-[11px] font-bold text-slate-700 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={includeShopInDueMessage}
+                    onChange={(e) => setIncludeShopInDueMessage(e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                  />
+                  <span>নামের সাথে দোকান/এলাকাও লিখুন</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setDueMessageTemplate(DEFAULT_DUE_MESSAGE_TEMPLATE)}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                  title="ডিফল্ট টেমপ্লেটে ফিরিয়ে আনুন"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span>ডিফল্টে ফিরুন</span>
+                </button>
+              </div>
             </div>
 
             <textarea
@@ -538,7 +554,12 @@ export const SettingsModule: React.FC = () => {
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {[
-                  { tag: '{নাম}', desc: 'কাস্টমার / দোকানের নাম' },
+                  {
+                    tag: '{নাম}',
+                    desc: includeShopInDueMessage
+                      ? 'দোকান ও কাস্টমারের নাম'
+                      : 'শুধুমাত্র ব্যক্তিগত নাম (যেমন মামুন)',
+                  },
                   { tag: '{বাকির_তালিকা}', desc: 'বকেয়া বাকিগুলোর তালিকা (তারিখ ও নম্বরসহ)' },
                   { tag: '{মোট_বকেয়া}', desc: 'মোট নির্বাচিত বকেয়া টাকা' },
                   { tag: '{ব্যবসার_নাম}', desc: 'ব্যবসার নাম (যেমন MM TRADERS)' },

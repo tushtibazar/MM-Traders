@@ -282,6 +282,7 @@ export interface BusinessSettings {
   summaryProductOrder?: string[];
   nextDueNumberCounter?: number; // Starting counter for automatic sequential due numbers
   dueMessageTemplate?: string; // Customizable template for sharing customer due messages
+  includeShopInDueMessage?: boolean; // When true, includes shop/area in {নাম} in share due message (default false)
 }
 
 export interface DailyAccountItem {

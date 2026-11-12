@@ -112,10 +112,35 @@ export function normalizeFacebookProfile(input?: string): {
 }
 
 /**
+ * Extracts customer personal name or full display name based on setting
+ * - If includeShopOrArea is false (default): extracts ONLY personal name,
+ *   stripping comma-separated place/area (e.g. "মামুন, মাছপাড়া" -> "মামুন").
+ * - If includeShopOrArea is true: includes shop and full name as before.
+ */
+export function getCustomerDisplayName(
+  customer: Customer,
+  includeShopOrArea: boolean = false
+): string {
+  if (includeShopOrArea) {
+    if (customer.shopName && customer.name && customer.shopName.trim() !== customer.name.trim()) {
+      return `${customer.shopName} (${customer.name})`;
+    }
+    return customer.shopName || customer.name || 'গ্রাহক';
+  }
+
+  // Personal name only: take portion before the first comma, ignore shop/area
+  const rawName = customer.name?.trim() || customer.shopName?.trim() || 'গ্রাহক';
+  const beforeComma = rawName.split(',')[0].trim();
+  return beforeComma || 'গ্রাহক';
+}
+
+/**
  * Default Due Message Template in Bengali
+ * First line: "সম্মানিত {নাম},"
+ * Second line: "{ব্যবসার_নাম} থেকে আপনার বকেয়া হিসাব বিবরণ:"
  */
 export const DEFAULT_DUE_MESSAGE_TEMPLATE = `সম্মানিত {নাম},
-{ব্যবসার_নাম} থেকে আপনার বকেয়া হিসাবের বিবরণ:
+{ব্যবসার_নাম} থেকে আপনার বকেয়া হিসাব বিবরণ:
 
 {বাকির_তালিকা}
 
@@ -125,11 +150,42 @@ export const DEFAULT_DUE_MESSAGE_TEMPLATE = `সম্মানিত {নাম
 — {মালিকের_নাম}, {ব্যবসার_নাম}
 মোবাইল: {অফিসের_ফোন}`;
 
+/**
+ * Automatically migrates saved template:
+ * - If first line contains old greeting like 'আসসালামু আলাইকুম', updates to 'সম্মানিত {নাম},'
+ * - If owner custom edited his template, keeps his custom text intact
+ */
+export function migrateDueMessageTemplate(savedTemplate?: string): {
+  updatedTemplate: string;
+  wasMigrated: boolean;
+} {
+  if (!savedTemplate) {
+    return { updatedTemplate: DEFAULT_DUE_MESSAGE_TEMPLATE, wasMigrated: false };
+  }
+
+  const lines = savedTemplate.split('\n');
+  if (lines.length > 0) {
+    const firstLine = lines[0].trim();
+    if (firstLine.includes('আসসালামু আলাইকুম')) {
+      lines[0] = 'সম্মানিত {নাম},';
+      return {
+        updatedTemplate: lines.join('\n'),
+        wasMigrated: true,
+      };
+    }
+  }
+
+  return { updatedTemplate: savedTemplate, wasMigrated: false };
+}
+
 export interface ShareDueItem {
+  id?: string;
   dueNo?: string;
   rawDueNo?: string;
   date?: string;
-  amount: number;
+  amount: number; // remainingAmount
+  originalAmount?: number;
+  isPartiallyPaid?: boolean;
   ledgerId?: string;
 }
 
@@ -142,8 +198,18 @@ export function generateDueMessageText(params: {
   settings: BusinessSettings;
   customTemplate?: string;
   maxDuesLines?: number;
+  adjustmentAmount?: number;
+  allRemainingTicked?: boolean;
 }): string {
-  const { customer, dues, settings, customTemplate, maxDuesLines = 15 } = params;
+  const {
+    customer,
+    dues,
+    settings,
+    customTemplate,
+    maxDuesLines = 15,
+    adjustmentAmount = 0,
+    allRemainingTicked = false,
+  } = params;
 
   // Sort dues in ascending order of due number / date
   const sortedDues = [...dues].sort((a, b) => {
@@ -155,7 +221,7 @@ export function generateDueMessageText(params: {
     return (a.date || '').localeCompare(b.date || '');
   });
 
-  const totalAmount = sortedDues.reduce((sum, d) => sum + (d.amount || 0), 0);
+  const duesSubtotal = sortedDues.reduce((sum, d) => sum + (d.amount || 0), 0);
 
   // Format dues lines up to maxDuesLines (default 15)
   const displayDues = sortedDues.slice(0, maxDuesLines);
@@ -177,18 +243,29 @@ export function generateDueMessageText(params: {
     );
   }
 
+  // If all remaining dues are ticked and there's an unallocated adjustment, show adjustment line
+  let finalTotal = duesSubtotal;
+  if (allRemainingTicked && adjustmentAmount !== 0) {
+    const adjAbs = Math.abs(adjustmentAmount).toLocaleString('bn-BD');
+    if (adjustmentAmount > 0) {
+      duesLines.push(`• পূর্বের হিসাব সমন্বয়: ৳${adjAbs}`);
+    } else {
+      duesLines.push(`• পূর্বের হিসাব সমন্বয়: -৳${adjAbs}`);
+    }
+    finalTotal += adjustmentAmount;
+  }
+
   const duesListFormatted = duesLines.length > 0 ? duesLines.join('\n') : 'কোনো বকেয়া বাকি নেই';
 
-  const customerDisplayName = customer.shopName
-    ? `${customer.shopName} (${customer.name})`
-    : customer.name || 'গ্রাহক';
+  // Personal name only unless setting switch is enabled
+  const customerDisplayName = getCustomerDisplayName(customer, settings.includeShopInDueMessage);
 
   const template = (customTemplate || settings.dueMessageTemplate || DEFAULT_DUE_MESSAGE_TEMPLATE).trim();
 
   let message = template
     .replace(/\{নাম\}/g, customerDisplayName)
     .replace(/\{বাকির_তালিকা\}/g, duesListFormatted)
-    .replace(/\{মোট_বকেয়া\}/g, totalAmount.toLocaleString('bn-BD'))
+    .replace(/\{মোট_বকেয়া\}/g, finalTotal.toLocaleString('bn-BD'))
     .replace(/\{ব্যবসার_নাম\}/g, settings.businessName || 'MM TRADERS')
     .replace(/\{মালিকের_নাম\}/g, settings.proprietorName || 'Mohammad Mamun')
     .replace(/\{অফিসের_ফোন\}/g, settings.phone || '01757200400');

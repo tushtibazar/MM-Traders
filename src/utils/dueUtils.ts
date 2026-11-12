@@ -1429,3 +1429,265 @@ export function sortRouteDues(
   return copy;
 }
 
+export interface AllocatedDueItem {
+  id: string;
+  dueNo: string;
+  rawDueNo: string;
+  date: string;
+  originalAmount: number;
+  remainingAmount: number;
+  paidAmount: number;
+  isPaid: boolean;
+  isPartiallyPaid: boolean;
+  ledgerId?: string;
+  sourceType?: 'ledger' | 'sheet' | 'general';
+}
+
+export interface CustomerDueAllocationResult {
+  allDues: AllocatedDueItem[];
+  outstandingDues: AllocatedDueItem[];
+  totalOriginalAmount: number;
+  totalRemainingAmount: number;
+  adjustmentAmount: number;
+  customerOutstandingDue: number;
+  hasAnyOutstanding: boolean;
+}
+
+/**
+ * Calculates remaining balance of every due for a customer using:
+ * - Targeted collection allocation first (matching referenceId to dueNo)
+ * - Oldest-first FIFO allocation for general collections/credits
+ * - Capped to customer.currentDue so remaining dues never exceed the customer's real outstanding
+ */
+export function calculateCustomerDueAllocation(
+  customer: Customer,
+  db: AppDatabase
+): CustomerDueAllocationResult {
+  const customerId = customer.id;
+  const currentOutstanding = Math.max(0, Number(customer.currentDue) || 0);
+
+  if (currentOutstanding <= 0) {
+    return {
+      allDues: [],
+      outstandingDues: [],
+      totalOriginalAmount: 0,
+      totalRemainingAmount: 0,
+      adjustmentAmount: 0,
+      customerOutstandingDue: 0,
+      hasAnyOutstanding: false,
+    };
+  }
+
+  interface CandidateDue {
+    id: string;
+    dueNo: string;
+    rawDueNo: string;
+    date: string;
+    amount: number;
+    remaining: number;
+    isSettled: boolean;
+    ledgerId?: string;
+    sourceType: 'ledger' | 'sheet' | 'general';
+  }
+
+  const candidateDues: CandidateDue[] = [];
+  const seenNormDueNos = new Set<string>();
+
+  // A. From customerLedgers
+  if (Array.isArray(db.customerLedgers)) {
+    for (const l of db.customerLedgers) {
+      if (l.customerId !== customerId) continue;
+      if (
+        l.status === 'voided' ||
+        l.type === 'void_due' ||
+        l.type === 'void_sale' ||
+        l.type === 'void_payment'
+      ) {
+        continue;
+      }
+
+      const debitAmt = Number(l.debit) || 0;
+      if (debitAmt > 0) {
+        const refNo =
+          l.dueNo ||
+          (l.referenceId && (l.referenceId.startsWith('DUE-') || /^[A-Za-z0-9\-_]+$/.test(l.referenceId))
+            ? l.referenceId
+            : '');
+        const normRef = normalizeDueNumber(refNo);
+        if (normRef) {
+          seenNormDueNos.add(normRef);
+        }
+
+        const isSettled = l.status === 'settled';
+        candidateDues.push({
+          id: l.id,
+          dueNo: refNo ? formatDueNumber(refNo) : '',
+          rawDueNo: refNo || '',
+          date: l.date || '',
+          amount: debitAmt,
+          remaining: isSettled ? 0 : debitAmt,
+          isSettled,
+          ledgerId: l.id,
+          sourceType: 'ledger',
+        });
+      }
+    }
+  }
+
+  // B. From dailySheets (todayDueEntries not yet in ledgers)
+  if (Array.isArray(db.dailySheets)) {
+    for (const s of db.dailySheets) {
+      if ((s.status as string) === 'void') continue;
+      for (const e of s.todayDueEntries || []) {
+        const matches =
+          e.customerId === customerId ||
+          (!e.customerId &&
+            (e.shopName?.trim() === customer.shopName?.trim() ||
+              e.customerName?.trim() === customer.name?.trim()));
+        if (!matches || !e.dueNo) continue;
+
+        const norm = normalizeDueNumber(e.dueNo);
+        if (norm && seenNormDueNos.has(norm)) continue;
+        if (norm) seenNormDueNos.add(norm);
+
+        const amt = Number(e.amount) || 0;
+        if (amt > 0) {
+          candidateDues.push({
+            id: e.id || `sheet-${s.id}-${e.dueNo}`,
+            dueNo: formatDueNumber(e.dueNo),
+            rawDueNo: e.dueNo,
+            date: s.date || '',
+            amount: amt,
+            remaining: amt,
+            isSettled: false,
+            ledgerId: e.ledgerId,
+            sourceType: 'sheet',
+          });
+        }
+      }
+    }
+  }
+
+  // Fallback: If no candidate debit records were found but customer has currentDue > 0
+  if (candidateDues.length === 0 && currentOutstanding > 0) {
+    candidateDues.push({
+      id: `gen-open-${customer.id}`,
+      dueNo: '০১',
+      rawDueNo: '০১',
+      date: customer.createdAt ? customer.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      amount: currentOutstanding,
+      remaining: currentOutstanding,
+      isSettled: false,
+      sourceType: 'general',
+    });
+  }
+
+  // Sort candidate dues oldest first by date ascending, ties broken by natural due number ascending
+  candidateDues.sort((a, b) => {
+    const dateComp = (a.date || '').localeCompare(b.date || '');
+    if (dateComp !== 0) return dateComp;
+    return naturalCompareDueNumbers(a.rawDueNo || a.dueNo, b.rawDueNo || b.dueNo);
+  });
+
+  // 2. Gather collections and credits
+  const creditsList: Array<{ referenceId?: string; amount: number }> = [];
+
+  if (Array.isArray(db.customerLedgers)) {
+    for (const l of db.customerLedgers) {
+      if (l.customerId !== customerId) continue;
+      if (
+        l.status === 'voided' ||
+        l.type === 'void_due' ||
+        l.type === 'void_sale' ||
+        l.type === 'void_payment'
+      ) {
+        continue;
+      }
+
+      const creditAmt = Number(l.credit) || 0;
+      if (creditAmt > 0) {
+        creditsList.push({
+          referenceId: l.referenceId || l.dueNo,
+          amount: creditAmt,
+        });
+      }
+    }
+  }
+
+  // 3. Deduct targeted collections first
+  let generalCredits = 0;
+  for (const cred of creditsList) {
+    if (cred.amount <= 0) continue;
+    const normRef = normalizeDueNumber(cred.referenceId);
+    const targetDue = normRef
+      ? candidateDues.find((d) => normalizeDueNumber(d.rawDueNo) === normRef)
+      : null;
+
+    if (targetDue && targetDue.remaining > 0) {
+      const deduction = Math.min(targetDue.remaining, cred.amount);
+      targetDue.remaining -= deduction;
+      const leftover = cred.amount - deduction;
+      if (leftover > 0) {
+        generalCredits += leftover;
+      }
+    } else {
+      generalCredits += cred.amount;
+    }
+  }
+
+  // 4. Deduct general credits FIFO from oldest to newest
+  if (generalCredits > 0) {
+    for (const d of candidateDues) {
+      if (d.remaining > 0) {
+        const deduction = Math.min(d.remaining, generalCredits);
+        d.remaining -= deduction;
+        generalCredits -= deduction;
+        if (generalCredits <= 0) break;
+      }
+    }
+  }
+
+  // Cap total remaining to customer's currentOutstanding
+  const currentRemainingSum = candidateDues.reduce((sum, d) => sum + d.remaining, 0);
+  if (currentRemainingSum > currentOutstanding) {
+    let excessToDeduct = currentRemainingSum - currentOutstanding;
+    for (const d of candidateDues) {
+      if (d.remaining > 0) {
+        const deduction = Math.min(d.remaining, excessToDeduct);
+        d.remaining -= deduction;
+        excessToDeduct -= deduction;
+        if (excessToDeduct <= 0) break;
+      }
+    }
+  }
+
+  const allDues: AllocatedDueItem[] = candidateDues.map((d) => ({
+    id: d.id,
+    dueNo: d.dueNo,
+    rawDueNo: d.rawDueNo,
+    date: d.date,
+    originalAmount: d.amount,
+    remainingAmount: Math.max(0, d.remaining),
+    paidAmount: Math.max(0, d.amount - d.remaining),
+    isPaid: d.remaining <= 0,
+    isPartiallyPaid: d.remaining > 0 && d.remaining < d.amount,
+    ledgerId: d.ledgerId,
+    sourceType: d.sourceType,
+  }));
+
+  const outstandingDues = allDues.filter((d) => d.remainingAmount > 0);
+  const totalOriginalAmount = allDues.reduce((sum, d) => sum + d.originalAmount, 0);
+  const totalRemainingAmount = outstandingDues.reduce((sum, d) => sum + d.remainingAmount, 0);
+  const adjustmentAmount = currentOutstanding - totalRemainingAmount;
+
+  return {
+    allDues,
+    outstandingDues,
+    totalOriginalAmount,
+    totalRemainingAmount,
+    adjustmentAmount,
+    customerOutstandingDue: currentOutstanding,
+    hasAnyOutstanding: currentOutstanding > 0,
+  };
+}
+

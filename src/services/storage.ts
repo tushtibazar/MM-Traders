@@ -48,6 +48,7 @@ export const INITIAL_SETTINGS: BusinessSettings = {
   dsrList: [],
   nextDueNumberCounter: 1,
   dueMessageTemplate: DEFAULT_DUE_MESSAGE_TEMPLATE,
+  includeShopInDueMessage: false,
   businessPosition: {
     stockAdjustment: 0,
     stockNote: '',
@@ -196,6 +197,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
       dsrList: [],
       nextDueNumberCounter: 1,
       dueMessageTemplate: preservedSettings?.dueMessageTemplate || INITIAL_SETTINGS.dueMessageTemplate,
+      includeShopInDueMessage: preservedSettings?.includeShopInDueMessage ?? false,
       businessPosition: {
         stockAdjustment: 0,
         stockNote: '',
