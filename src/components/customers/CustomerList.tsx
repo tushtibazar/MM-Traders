@@ -53,6 +53,8 @@ export const CustomerList: React.FC<CustomerListProps> = ({
   const [formName, setFormName] = useState<string>('');
   const [formShopName, setFormShopName] = useState<string>('');
   const [formPhone, setFormPhone] = useState<string>('');
+  const [formWhatsappNumber, setFormWhatsappNumber] = useState<string>('');
+  const [formFacebookProfile, setFormFacebookProfile] = useState<string>('');
   const [formAddress, setFormAddress] = useState<string>('');
   const [formSrId, setFormSrId] = useState<string>(db.salesRepresentatives[0]?.id || '');
   const [formOpeningBalance, setFormOpeningBalance] = useState<number>(0);
@@ -64,6 +66,8 @@ export const CustomerList: React.FC<CustomerListProps> = ({
     setFormName('');
     setFormShopName('');
     setFormPhone('');
+    setFormWhatsappNumber('');
+    setFormFacebookProfile('');
     setFormAddress('');
     setFormSrId(db.salesRepresentatives[0]?.id || '');
     setFormOpeningBalance(0);
@@ -88,6 +92,8 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         name: formName,
         shopName: formShopName,
         phone: formPhone,
+        whatsappNumber: formWhatsappNumber.trim(),
+        facebookProfile: formFacebookProfile.trim(),
         address: formAddress,
         assignedSrId: formSrId,
         assignedSrName,
@@ -99,6 +105,8 @@ export const CustomerList: React.FC<CustomerListProps> = ({
         name: formName,
         shopName: formShopName,
         phone: formPhone,
+        whatsappNumber: formWhatsappNumber.trim(),
+        facebookProfile: formFacebookProfile.trim(),
         address: formAddress,
         assignedSrId: formSrId,
         assignedSrName,
@@ -413,6 +421,33 @@ export const CustomerList: React.FC<CustomerListProps> = ({
                   placeholder="দোকানের অবস্থান বা বাজার"
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-emerald-500"
                 />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    WhatsApp নম্বর (ঐচ্ছিক)
+                  </label>
+                  <input
+                    type="text"
+                    value={formWhatsappNumber}
+                    onChange={(e) => setFormWhatsappNumber(e.target.value)}
+                    placeholder="খালি রাখলে ফোন নম্বর ব্যবহৃত হবে"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-emerald-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Facebook লিংক / ইউজারনেম (ঐচ্ছিক)
+                  </label>
+                  <input
+                    type="text"
+                    value={formFacebookProfile}
+                    onChange={(e) => setFormFacebookProfile(e.target.value)}
+                    placeholder="যেমন: facebook.com/username"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               {!editingCustomer && (

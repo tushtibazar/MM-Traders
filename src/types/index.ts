@@ -23,6 +23,8 @@ export interface Customer {
   status: 'active' | 'inactive';
   notes?: string;
   route?: string;
+  whatsappNumber?: string;
+  facebookProfile?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -279,6 +281,7 @@ export interface BusinessSettings {
   businessPosition?: BusinessPositionSettings;
   summaryProductOrder?: string[];
   nextDueNumberCounter?: number; // Starting counter for automatic sequential due numbers
+  dueMessageTemplate?: string; // Customizable template for sharing customer due messages
 }
 
 export interface DailyAccountItem {
@@ -418,6 +421,21 @@ export interface CashAdjustment {
   createdBy: string;
 }
 
+export interface DueMessageRecord {
+  id: string;
+  customerId: string;
+  customerName: string;
+  channel: 'whatsapp' | 'messenger' | 'copy';
+  createdAt: string;
+  createdBy?: string;
+  includedDueIds: string[];
+  totalOutstanding: number;
+  recipientPhone?: string;
+  recipientFacebook?: string;
+  messageText?: string;
+  note?: string;
+}
+
 export interface AppDatabase {
   users: User[];
   customers: Customer[];
@@ -436,7 +454,9 @@ export interface AppDatabase {
   cashAdjustments?: CashAdjustment[];
   summaryProductOrder?: string[];
   dueNumberAuditTrail?: DueNumberAuditEntry[];
+  dueMessages?: DueMessageRecord[];
   settings: BusinessSettings;
   lastUpdated: string;
 }
+
 

@@ -21,6 +21,7 @@ import {
   DueNumberAuditEntry,
   CashAdjustment,
   DailyDueEntry,
+  DueMessageRecord,
 } from '../types';
 import { StorageService, DEFAULT_ROUTES } from '../services/storage';
 import {
@@ -149,6 +150,7 @@ interface AppContextType {
     updates: Array<{ ledgerId?: string; oldDueNo: string; newDueNo: string; oldDate?: string; newDate?: string }>,
     reason?: string
   ) => { success: boolean; updatedCount: number; error?: string };
+  addDueMessageRecord: (record: Omit<DueMessageRecord, 'id' | 'createdAt'>) => DueMessageRecord;
 
   addProduct: (productInput: Omit<Product, 'id' | 'currentStock' | 'createdAt'>) => Product;
   updateProduct: (product: Product) => void;
@@ -1802,6 +1804,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true, updatedCount: validChanges.length };
   };
 
+  const addDueMessageRecord = (
+    record: Omit<DueMessageRecord, 'id' | 'createdAt'>
+  ): DueMessageRecord => {
+    const newRecord: DueMessageRecord = {
+      ...record,
+      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: new Date().toISOString(),
+      createdBy: record.createdBy || currentUser.name || 'মালিক',
+    };
+
+    const currentMessages = Array.isArray(db.dueMessages) ? db.dueMessages : [];
+    const updatedMessages = [newRecord, ...currentMessages];
+
+    updateDb({
+      ...db,
+      dueMessages: updatedMessages,
+    });
+
+    return newRecord;
+  };
+
   // 6. PRODUCT CRUD
   const addProduct = (input: Omit<Product, 'id' | 'currentStock' | 'createdAt'>): Product => {
     const prodId = `prod-${Date.now()}`;
@@ -3187,6 +3210,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         voidDueEntry,
         updateDueNumber,
         updateCustomerDueNumbers,
+        addDueMessageRecord,
         addProduct,
         updateProduct,
         deleteProduct,

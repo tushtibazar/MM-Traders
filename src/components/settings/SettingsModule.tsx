@@ -22,6 +22,7 @@ import {
   FolderPlus,
   RefreshCw,
   Wrench,
+  Share2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -45,6 +46,7 @@ import { PinPromptModal } from '../modals/PinPromptModal';
 import { ExpenseCleanupModal } from '../modals/ExpenseCleanupModal';
 import { formatDate } from '../../utils/dateUtils';
 import { findDueNumberDuplicate, toEnglishDigits } from '../../utils/dueUtils';
+import { DEFAULT_DUE_MESSAGE_TEMPLATE } from '../../utils/shareUtils';
 
 export const SettingsModule: React.FC = () => {
   const {
@@ -70,6 +72,9 @@ export const SettingsModule: React.FC = () => {
   const [securityPin, setSecurityPin] = useState(db.settings.securityPin || '1234');
   const [nextDueNumberCounter, setNextDueNumberCounter] = useState<string>(
     String(db.settings.nextDueNumberCounter || 1)
+  );
+  const [dueMessageTemplate, setDueMessageTemplate] = useState<string>(
+    db.settings.dueMessageTemplate || DEFAULT_DUE_MESSAGE_TEMPLATE
   );
   const [dueCounterWarning, setDueCounterWarning] = useState<string>('');
   const [saveMsg, setSaveMsg] = useState('');
@@ -139,6 +144,7 @@ export const SettingsModule: React.FC = () => {
       currency,
       securityPin: securityPin.trim() || '1234',
       nextDueNumberCounter: Math.max(1, parsedCounter),
+      dueMessageTemplate: dueMessageTemplate.trim() || DEFAULT_DUE_MESSAGE_TEMPLATE,
     });
     setSaveMsg('সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
     setTimeout(() => setSaveMsg(''), 3500);
@@ -491,6 +497,64 @@ export const SettingsModule: React.FC = () => {
                   {dueCounterWarning}
                 </p>
               )}
+            </div>
+          </div>
+
+          {/* Section: বাকির মেসেজ টেমপ্লেট (Due Message Template) */}
+          <div className="mt-6 pt-5 border-t border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5 font-bengali">
+                  <Share2 className="h-4 w-4 text-emerald-600" />
+                  বাকির মেসেজ টেমপ্লেট (WhatsApp ও Messenger শেয়ার)
+                </h3>
+                <p className="text-xs text-slate-500 font-bengali mt-0.5">
+                  বাকি পেজ ও লেজার থেকে কাস্টমারকে বকেয়ার বিবরণ পাঠানোর জন্য ব্যবহৃত মেসেজের ফরম্যাট।
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDueMessageTemplate(DEFAULT_DUE_MESSAGE_TEMPLATE)}
+                className="inline-flex items-center gap-1 self-start sm:self-auto text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                title="ডিফল্ট টেমপ্লেটে ফিরিয়ে আনুন"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>ডিফল্টে ফিরুন</span>
+              </button>
+            </div>
+
+            <textarea
+              rows={7}
+              value={dueMessageTemplate}
+              onChange={(e) => setDueMessageTemplate(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white p-3 text-xs font-sans text-slate-900 leading-relaxed focus:border-emerald-500 focus:outline-none"
+              placeholder="মেসেজ টেমপ্লেট লিখুন..."
+            />
+
+            {/* Placeholders Guide */}
+            <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs font-bengali">
+              <span className="font-bold text-slate-700 block text-[11px]">
+                ব্যবহারযোগ্য ভেরিয়েবলসমূহ (ক্লিক করে কপি বা মেসেজে লিখতে পারেন):
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { tag: '{নাম}', desc: 'কাস্টমার / দোকানের নাম' },
+                  { tag: '{বাকির_তালিকা}', desc: 'বকেয়া বাকিগুলোর তালিকা (তারিখ ও নম্বরসহ)' },
+                  { tag: '{মোট_বকেয়া}', desc: 'মোট নির্বাচিত বকেয়া টাকা' },
+                  { tag: '{ব্যবসার_নাম}', desc: 'ব্যবসার নাম (যেমন MM TRADERS)' },
+                  { tag: '{মালিকের_নাম}', desc: 'মালিকের নাম' },
+                  { tag: '{অফিসের_ফোন}', desc: 'অফিসের ফোন নম্বর' },
+                ].map((item) => (
+                  <span
+                    key={item.tag}
+                    className="inline-flex items-center gap-1 bg-white border border-slate-300 px-2 py-0.5 rounded text-[11px] font-mono text-slate-800 shadow-2xs"
+                    title={item.desc}
+                  >
+                    <code className="text-emerald-700 font-bold">{item.tag}</code>
+                    <span className="text-[10px] text-slate-500 font-sans font-normal font-bengali">({item.desc})</span>
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         </div>

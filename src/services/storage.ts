@@ -17,6 +17,7 @@ import {
   StockTransaction,
   User,
 } from '../types';
+import { DEFAULT_DUE_MESSAGE_TEMPLATE } from '../utils/shareUtils';
 
 export const STORAGE_KEY = 'mm_traders_business_db_v2';
 export const CLEANUP_APPLIED_KEY = 'mm_traders_cleanup_applied_v3';
@@ -46,6 +47,7 @@ export const INITIAL_SETTINGS: BusinessSettings = {
   customRoutes: DEFAULT_ROUTES,
   dsrList: [],
   nextDueNumberCounter: 1,
+  dueMessageTemplate: DEFAULT_DUE_MESSAGE_TEMPLATE,
   businessPosition: {
     stockAdjustment: 0,
     stockNote: '',
@@ -178,6 +180,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
     cashAdjustments: [],
     summaryProductOrder: [],
     dueNumberAuditTrail: [],
+    dueMessages: [],
     settings: {
       businessName: preservedSettings?.businessName || INITIAL_SETTINGS.businessName,
       subtitle: preservedSettings?.subtitle || INITIAL_SETTINGS.subtitle,
@@ -192,6 +195,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
       customRoutes: [],
       dsrList: [],
       nextDueNumberCounter: 1,
+      dueMessageTemplate: preservedSettings?.dueMessageTemplate || INITIAL_SETTINGS.dueMessageTemplate,
       businessPosition: {
         stockAdjustment: 0,
         stockNote: '',
@@ -248,6 +252,7 @@ export function getInitialDatabase(): AppDatabase {
     cashAdjustments: [],
     summaryProductOrder: [],
     dueNumberAuditTrail: [],
+    dueMessages: [],
     settings: INITIAL_SETTINGS,
     lastUpdated: new Date().toISOString(),
   };
@@ -319,6 +324,12 @@ export class StorageService {
           }
           if (!Array.isArray(parsed.dueNumberAuditTrail)) {
             parsed.dueNumberAuditTrail = [];
+          }
+          if (!Array.isArray(parsed.dueMessages)) {
+            parsed.dueMessages = [];
+          }
+          if (!parsed.settings.dueMessageTemplate) {
+            parsed.settings.dueMessageTemplate = DEFAULT_DUE_MESSAGE_TEMPLATE;
           }
           if (!parsed.settings.nextDueNumberCounter || parsed.settings.nextDueNumberCounter < 1) {
             parsed.settings.nextDueNumberCounter = 1;

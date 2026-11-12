@@ -18,6 +18,10 @@ import {
   CheckCircle2,
   Check,
   X,
+  Share2,
+  MessageSquare,
+  Send,
+  History,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Customer, CustomerLedgerEntry } from '../../types';
@@ -31,7 +35,9 @@ import {
   compareCustomersByLastDueNumber,
   getCustomerDueNumbersInfo,
 } from '../../utils/dueUtils';
+import { formatMessageDateTime } from '../../utils/shareUtils';
 import { LedgerEntryEditModal } from '../modals/LedgerEntryEditModal';
+import { DueShareModal } from '../modals/DueShareModal';
 
 interface CustomerLedgerProps {
   customer: Customer | null;
@@ -58,7 +64,13 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
   // Edit individual due entry state (Amount / date with PIN)
   const [entryToEdit, setEntryToEdit] = useState<CustomerLedgerEntry | null>(null);
   const [isEntryEditModalOpen, setIsEntryEditModalOpen] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [ledgerSuccessMsg, setLedgerSuccessMsg] = useState('');
+
+  const customerMessages = useMemo(() => {
+    if (!activeCustomer) return [];
+    return (db.dueMessages || []).filter((m) => m.customerId === activeCustomer.id);
+  }, [db.dueMessages, activeCustomer]);
 
   // Due Number Edit State (No PIN needed)
   const [dueNoEditEntry, setDueNoEditEntry] = useState<CustomerLedgerEntry | null>(null);
@@ -238,6 +250,16 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              id="ledger-share-btn"
+              onClick={() => setIsShareModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3.5 py-2.5 text-xs sm:text-sm font-bold text-emerald-800 hover:bg-emerald-100 hover:border-emerald-400 transition-colors shadow-xs cursor-pointer active:scale-95"
+              title="কাস্টমারের বাকি তথ্য WhatsApp বা Messenger-এ পাঠান"
+            >
+              <Share2 className="h-4 w-4 text-emerald-600" />
+              <span>বাকির তথ্য পাঠান</span>
+            </button>
+
             <button
               id="ledger-print-btn"
               onClick={handleDownloadPDF}
@@ -626,6 +648,99 @@ export const CustomerLedger: React.FC<CustomerLedgerProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Message History Section for this customer */}
+      <div className="rounded-xl border border-slate-200 bg-white shadow-xs overflow-hidden">
+        <div className="border-b border-slate-200 bg-slate-50 px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800">
+              <History className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-slate-900 font-bengali">
+                মেসেজ পাঠানোর ইতিহাস (Due Message History)
+              </h3>
+              <p className="text-[11px] text-slate-500 font-bengali">
+                {activeCustomer.shopName}-কে WhatsApp ও Messenger-এ পাঠানো বার্তার রেকর্ড
+              </p>
+            </div>
+          </div>
+          <span className="text-xs bg-slate-200/80 text-slate-700 font-bold px-2 py-0.5 rounded-full">
+            মোট {customerMessages.length} টি রেকর্ড
+          </span>
+        </div>
+
+        {customerMessages.length === 0 ? (
+          <div className="p-6 text-center text-slate-400 text-xs font-bengali">
+            এই কাস্টমারকে এখনও কোনো বাকির মেসেজ পাঠানো হয়নি। উপরের &quot;বাকির তথ্য পাঠান&quot; বাটনে চাপ দিয়ে WhatsApp বা Messenger-এ পাঠাতে পারেন।
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs font-bengali">
+              <thead className="bg-slate-50/50 text-[11px] font-bold text-slate-600 border-b border-slate-200">
+                <tr>
+                  <th className="py-2.5 px-3">তারিখ ও সময়</th>
+                  <th className="py-2.5 px-3">মাধ্যম</th>
+                  <th className="py-2.5 px-3">প্রাপকের ঠিকানা</th>
+                  <th className="py-2.5 px-3 text-right">বকেয়া বাকি</th>
+                  <th className="py-2.5 px-3">প্রেরক</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {customerMessages.map((msg) => (
+                  <tr key={msg.id} className="hover:bg-slate-50/60">
+                    <td className="py-2.5 px-3 font-mono font-medium text-slate-700">
+                      {formatMessageDateTime(msg.createdAt)}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      {msg.channel === 'whatsapp' ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-emerald-100 text-emerald-800 px-2 py-0.5 text-[10.5px] font-bold border border-emerald-300">
+                          <MessageSquare className="h-3 w-3" />
+                          <span>WhatsApp</span>
+                        </span>
+                      ) : msg.channel === 'messenger' ? (
+                        <span className="inline-flex items-center gap-1 rounded bg-sky-100 text-sky-800 px-2 py-0.5 text-[10.5px] font-bold border border-sky-300">
+                          <Send className="h-3 w-3" />
+                          <span>Messenger</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded bg-slate-100 text-slate-700 px-2 py-0.5 text-[10.5px] font-bold border border-slate-300">
+                          <span>কপি</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 font-mono text-slate-600">
+                      {msg.recipientPhone || msg.recipientFacebook || '-'}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-700">
+                      {currency} {msg.totalOutstanding.toLocaleString()}
+                      {msg.includedDueIds && msg.includedDueIds.length > 0 && (
+                        <span className="block text-[10px] text-slate-400 font-sans font-normal">
+                          ({msg.includedDueIds.length} টি বাকি)
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-slate-600 text-[11px]">
+                      {msg.createdBy || 'মালিক'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Due Share Modal */}
+      <DueShareModal
+        isOpen={isShareModalOpen}
+        customer={activeCustomer}
+        onClose={() => setIsShareModalOpen(false)}
+        onSuccess={(msg) => {
+          setLedgerSuccessMsg(msg);
+          setTimeout(() => setLedgerSuccessMsg(''), 6000);
+        }}
+      />
 
       {/* Individual Due Entry Edit Modal (with PIN) */}
       <LedgerEntryEditModal

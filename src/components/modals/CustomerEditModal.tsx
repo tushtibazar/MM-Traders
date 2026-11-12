@@ -53,6 +53,8 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
   const [name, setName] = useState('');
   const [shopName, setShopName] = useState('');
   const [phone, setPhone] = useState('');
+  const [whatsappNumber, setWhatsappNumber] = useState('');
+  const [facebookProfile, setFacebookProfile] = useState('');
   const [address, setAddress] = useState('');
   const [route, setRoute] = useState('');
   const [assignedSrId, setAssignedSrId] = useState('');
@@ -84,6 +86,8 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
       setName(customer.name || '');
       setShopName(customer.shopName || '');
       setPhone(customer.phone || '');
+      setWhatsappNumber(customer.whatsappNumber || '');
+      setFacebookProfile(customer.facebookProfile || '');
       setAddress(customer.address || '');
       setRoute(customer.route || '');
       setAssignedSrId(customer.assignedSrId || '');
@@ -399,6 +403,8 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
       name: name.trim(),
       shopName: shopName.trim() || name.trim(),
       phone: phone.trim(),
+      whatsappNumber: whatsappNumber.trim(),
+      facebookProfile: facebookProfile.trim(),
       address: address.trim(),
       route: route.trim(),
       assignedSrId: assignedSrId || '',
@@ -591,6 +597,40 @@ export const CustomerEditModal: React.FC<CustomerEditModalProps> = ({
                 </select>
                 <p className="text-[10.5px] text-slate-400 mt-1 font-bengali">
                   রুট পরিবর্তন করলে রুটের মোট বাকি ও ফিল্টারে এই কাস্টমার নতুন রুটে স্থানান্তরিত হবে।
+                </p>
+              </div>
+
+              {/* WhatsApp Number (Optional) */}
+              <div>
+                <label className="block text-slate-700 font-bold mb-1 font-bengali">
+                  WhatsApp নম্বর (ঐচ্ছিক)
+                </label>
+                <input
+                  type="tel"
+                  value={whatsappNumber}
+                  onChange={(e) => setWhatsappNumber(e.target.value)}
+                  placeholder="খালি রাখলে ফোন নম্বর ব্যবহৃত হবে"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-slate-900 focus:border-amber-500 focus:outline-hidden font-mono"
+                />
+                <p className="text-[10.5px] text-slate-400 mt-1 font-bengali">
+                  খালি রাখলে মূল ফোন নম্বরে WhatsApp বার্তা পাঠানো যাবে।
+                </p>
+              </div>
+
+              {/* Facebook Profile / Username (Optional) */}
+              <div>
+                <label className="block text-slate-700 font-bold mb-1 font-bengali">
+                  Facebook প্রোফাইল লিংক / ইউজারনেম (ঐচ্ছিক)
+                </label>
+                <input
+                  type="text"
+                  value={facebookProfile}
+                  onChange={(e) => setFacebookProfile(e.target.value)}
+                  placeholder="যেমন: facebook.com/username অথবা শুধু ইউজারনেম"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-slate-900 focus:border-amber-500 focus:outline-hidden"
+                />
+                <p className="text-[10.5px] text-slate-400 mt-1 font-bengali">
+                  Messenger-এ সরাসরি চ্যাট ওপেন করতে ব্যবহৃত হবে।
                 </p>
               </div>
 
