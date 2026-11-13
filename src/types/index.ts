@@ -282,6 +282,7 @@ export interface BusinessSettings {
   summaryProductOrder?: string[];
   nextDueNumberCounter?: number; // Starting counter for automatic sequential due numbers
   dueMessageTemplate?: string; // Customizable template for sharing customer due messages
+  dueListMessageTemplate?: string; // Customizable template for sharing all dues list
   includeShopInDueMessage?: boolean; // When true, includes shop/area in {নাম} in share due message (default false)
 }
 
@@ -422,10 +423,26 @@ export interface CashAdjustment {
   createdBy: string;
 }
 
+export type RecipientDesignation = 'SR' | 'DSR' | 'TSM' | 'হেড অফ সেলস' | 'অন্যান্য';
+
+export interface SavedRecipient {
+  id: string;
+  name: string;
+  designation: RecipientDesignation;
+  customDesignation?: string;
+  phone: string;
+  whatsappNumber?: string;
+  facebookProfile?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface DueMessageRecord {
   id: string;
-  customerId: string;
-  customerName: string;
+  type?: 'customer' | 'list';
+  customerId?: string;
+  customerName?: string;
+  recipientName?: string;
   channel: 'whatsapp' | 'messenger' | 'copy';
   createdAt: string;
   createdBy?: string;
@@ -434,6 +451,10 @@ export interface DueMessageRecord {
   recipientPhone?: string;
   recipientFacebook?: string;
   messageText?: string;
+  partNumber?: string;
+  scopeSummary?: string;
+  duesCount?: number;
+  customerCount?: number;
   note?: string;
 }
 
@@ -451,6 +472,7 @@ export interface AppDatabase {
   lessSettlements?: LessSettlement[];
   salesRepresentatives: SalesRepresentative[];
   deliveryRepresentatives?: DeliveryRepresentative[];
+  savedRecipients?: SavedRecipient[];
   doPayments?: DOPayment[];
   cashAdjustments?: CashAdjustment[];
   summaryProductOrder?: string[];

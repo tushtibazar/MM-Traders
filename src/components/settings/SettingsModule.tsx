@@ -23,6 +23,8 @@ import {
   RefreshCw,
   Wrench,
   Share2,
+  Users,
+  Phone,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -46,7 +48,13 @@ import { PinPromptModal } from '../modals/PinPromptModal';
 import { ExpenseCleanupModal } from '../modals/ExpenseCleanupModal';
 import { formatDate } from '../../utils/dateUtils';
 import { findDueNumberDuplicate, toEnglishDigits } from '../../utils/dueUtils';
-import { DEFAULT_DUE_MESSAGE_TEMPLATE } from '../../utils/shareUtils';
+import {
+  DEFAULT_DUE_MESSAGE_TEMPLATE,
+  DEFAULT_DUE_LIST_MESSAGE_TEMPLATE,
+  normalizeWhatsAppNumber,
+  normalizeFacebookProfile,
+} from '../../utils/shareUtils';
+import { RecipientDesignation, SavedRecipient } from '../../types';
 
 export const SettingsModule: React.FC = () => {
   const {
@@ -58,6 +66,9 @@ export const SettingsModule: React.FC = () => {
     addRoute,
     updateRoute,
     deleteRoute,
+    addSavedRecipient,
+    updateSavedRecipient,
+    deleteSavedRecipient,
     resetToBlankData,
     duplicateExpenseReport,
     cleanDuplicateExpenses,
@@ -76,11 +87,25 @@ export const SettingsModule: React.FC = () => {
   const [dueMessageTemplate, setDueMessageTemplate] = useState<string>(
     db.settings.dueMessageTemplate || DEFAULT_DUE_MESSAGE_TEMPLATE
   );
+  const [dueListMessageTemplate, setDueListMessageTemplate] = useState<string>(
+    db.settings.dueListMessageTemplate || DEFAULT_DUE_LIST_MESSAGE_TEMPLATE
+  );
   const [includeShopInDueMessage, setIncludeShopInDueMessage] = useState<boolean>(
     Boolean(db.settings.includeShopInDueMessage)
   );
   const [dueCounterWarning, setDueCounterWarning] = useState<string>('');
   const [saveMsg, setSaveMsg] = useState('');
+
+  // Saved Recipients Management State (প্রাপক তালিকা)
+  const [isRecipientModalOpen, setIsRecipientModalOpen] = useState<boolean>(false);
+  const [editingRecipient, setEditingRecipient] = useState<SavedRecipient | null>(null);
+  const [recipName, setRecipName] = useState<string>('');
+  const [recipDesignation, setRecipDesignation] = useState<RecipientDesignation>('SR');
+  const [recipCustomDesignation, setRecipCustomDesignation] = useState<string>('');
+  const [recipPhone, setRecipPhone] = useState<string>('');
+  const [recipFacebook, setRecipFacebook] = useState<string>('');
+  const [recipientToDelete, setRecipientToDelete] = useState<SavedRecipient | null>(null);
+  const [recipientMsg, setRecipientMsg] = useState<string>('');
 
   // Local Folder Auto-Save states (File System Access API)
   const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
@@ -148,6 +173,8 @@ export const SettingsModule: React.FC = () => {
       securityPin: securityPin.trim() || '1234',
       nextDueNumberCounter: Math.max(1, parsedCounter),
       dueMessageTemplate: dueMessageTemplate.trim() || DEFAULT_DUE_MESSAGE_TEMPLATE,
+      dueListMessageTemplate:
+        dueListMessageTemplate.trim() || DEFAULT_DUE_LIST_MESSAGE_TEMPLATE,
       includeShopInDueMessage,
     });
     setSaveMsg('সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
@@ -578,6 +605,64 @@ export const SettingsModule: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Section: বাকি তালিকার মেসেজ টেমপ্লেট (All Dues Share Template) */}
+          <div className="mt-6 pt-5 border-t border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5 font-bengali">
+                  <Share2 className="h-4 w-4 text-sky-600" />
+                  বাকি তালিকার মেসেজ টেমপ্লেট (সকল বাকি শেয়ার)
+                </h3>
+                <p className="text-xs text-slate-500 font-bengali mt-0.5">
+                  SR, DSR, TSM বা ম্যানেজারকে সম্পূর্ণ বা আংশিক বকেয়া তালিকা পাঠানোর হেডার ফরম্যাট (বকেয়ার লাইনগুলো এর পরে যোগ হবে)।
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDueListMessageTemplate(DEFAULT_DUE_LIST_MESSAGE_TEMPLATE)}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer self-start sm:self-auto"
+                title="ডিফল্ট টেমপ্লেটে ফিরিয়ে আনুন"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span>ডিফল্টে ফিরুন</span>
+              </button>
+            </div>
+
+            <textarea
+              rows={4}
+              value={dueListMessageTemplate}
+              onChange={(e) => setDueListMessageTemplate(e.target.value)}
+              className="w-full rounded-xl border border-slate-300 bg-white p-3 text-xs font-sans text-slate-900 leading-relaxed focus:border-sky-500 focus:outline-none"
+              placeholder="বাকি তালিকার মেসেজ হেডার টেমপ্লেট লিখুন..."
+            />
+
+            <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 text-xs font-bengali">
+              <span className="font-bold text-slate-700 block text-[11px]">
+                বাকি তালিকার জন্য ব্যবহারযোগ্য ভেরিয়েবলসমূহ:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { tag: '{প্রাপকের_নাম}', desc: 'প্রাপকের নাম' },
+                  { tag: '{পদবী}', desc: 'প্রাপকের পদবী (যেমন SR, TSM)' },
+                  { tag: '{ব্যবসার_নাম}', desc: 'প্রতিষ্ঠানের নাম' },
+                  { tag: '{তারিখ}', desc: 'আজকের তারিখ (দিন/মাস/বছর)' },
+                  { tag: '{মোট_সংখ্যা}', desc: 'মোট বাকি সংখ্যা' },
+                  { tag: '{মোট_কাস্টমার}', desc: 'মোট কাস্টমার সংখ্যা' },
+                  { tag: '{মোট_বকেয়া}', desc: 'মোট বকেয়া টাকা' },
+                ].map((item) => (
+                  <span
+                    key={item.tag}
+                    className="inline-flex items-center gap-1 bg-white border border-slate-300 px-2 py-0.5 rounded text-[11px] font-mono text-slate-800 shadow-2xs"
+                    title={item.desc}
+                  >
+                    <code className="text-sky-700 font-bold">{item.tag}</code>
+                    <span className="text-[10px] text-slate-500 font-sans font-normal font-bengali">({item.desc})</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 flex justify-end">
@@ -590,6 +675,338 @@ export const SettingsModule: React.FC = () => {
           </button>
         </div>
       </form>
+
+      {/* Saved Recipients Section (প্রাপক তালিকা) */}
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <div>
+            <h2 className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+              <Users className="h-4 w-4 text-emerald-600" />
+              প্রাপক তালিকা (সকল বাকি শেয়ার)
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              TSM, হেড অফ সেলস, SR, DSR বা ম্যানেজারের WhatsApp ও Facebook তথ্য সংরক্ষণ করুন যেন বাকি পেজ থেকে এক ক্লিকে তালিকা পাঠানো যায়।
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingRecipient(null);
+              setRecipName('');
+              setRecipDesignation('SR');
+              setRecipCustomDesignation('');
+              setRecipPhone('');
+              setRecipFacebook('');
+              setIsRecipientModalOpen(true);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs cursor-pointer self-start sm:self-auto"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>+ নতুন প্রাপক যোগ করুন</span>
+          </button>
+        </div>
+
+        {recipientMsg && (
+          <div className="mb-4 rounded-lg bg-emerald-50 p-2.5 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            <span>{recipientMsg}</span>
+          </div>
+        )}
+
+        <div className="rounded-xl border border-slate-200 overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+              <tr>
+                <th className="px-4 py-2.5 w-12 text-center">#</th>
+                <th className="px-4 py-2.5">নাম</th>
+                <th className="px-4 py-2.5">পদবী</th>
+                <th className="px-4 py-2.5">WhatsApp নম্বর</th>
+                <th className="px-4 py-2.5">Facebook</th>
+                <th className="px-4 py-2.5 text-right w-32">অ্যাকশন</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {(!db.savedRecipients || db.savedRecipients.length === 0) ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
+                    এখনো কোনো প্রাপক সংরক্ষণ করা হয়নি। উপরে "+ নতুন প্রাপক যোগ করুন" বাটনে ক্লিক করুন।
+                  </td>
+                </tr>
+              ) : (
+                db.savedRecipients.map((rec, idx) => {
+                  const desigLabel =
+                    rec.designation === 'অন্যান্য' && rec.customDesignation
+                      ? rec.customDesignation
+                      : rec.designation;
+                  return (
+                    <tr key={rec.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="px-4 py-2.5 text-center text-slate-400 font-mono text-[11px]">
+                        {idx + 1}
+                      </td>
+                      <td className="px-4 py-2.5 font-bold text-slate-800">{rec.name}</td>
+                      <td className="px-4 py-2.5">
+                        <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                          {desigLabel}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-slate-700">
+                        <span className="inline-flex items-center gap-1">
+                          <Phone className="h-3 w-3 text-emerald-600" />
+                          {rec.whatsappNumber || rec.phone || '-'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-slate-600 font-mono text-[11px]">
+                        {rec.facebookProfile || '-'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingRecipient(rec);
+                              setRecipName(rec.name);
+                              setRecipDesignation(rec.designation);
+                              setRecipCustomDesignation(rec.customDesignation || '');
+                              setRecipPhone(rec.whatsappNumber || rec.phone || '');
+                              setRecipFacebook(rec.facebookProfile || '');
+                              setIsRecipientModalOpen(true);
+                            }}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer"
+                            title="এডিট করুন"
+                          >
+                            <Edit2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRecipientToDelete(rec)}
+                            className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            title="মুছে ফেলুন"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Add / Edit Recipient Modal */}
+        {isRecipientModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="h-8 w-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <Users className="h-4 w-4" />
+                  </div>
+                  <h3 className="text-sm font-bold text-slate-900">
+                    {editingRecipient ? 'প্রাপকের তথ্য এডিট করুন' : 'নতুন প্রাপক যোগ করুন'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsRecipientModalOpen(false)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {(() => {
+                const waNorm = normalizeWhatsAppNumber(recipPhone);
+                const fbNorm = normalizeFacebookProfile(recipFacebook);
+                return (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      const cleanName = recipName.trim();
+                      if (!cleanName) return;
+                      const normalizedPhone = waNorm.normalized || recipPhone.trim();
+                      const cleanFb = fbNorm.usernameOrId || recipFacebook.trim() || undefined;
+                      const customDesig =
+                        recipDesignation === 'অন্যান্য'
+                          ? recipCustomDesignation.trim() || undefined
+                          : undefined;
+
+                      if (editingRecipient) {
+                        updateSavedRecipient({
+                          ...editingRecipient,
+                          name: cleanName,
+                          designation: recipDesignation,
+                          customDesignation: customDesig,
+                          phone: normalizedPhone,
+                          whatsappNumber: normalizedPhone,
+                          facebookProfile: cleanFb,
+                        });
+                        setRecipientMsg(`প্রাপক "${cleanName}" আপডেট করা হয়েছে!`);
+                      } else {
+                        addSavedRecipient({
+                          name: cleanName,
+                          designation: recipDesignation,
+                          customDesignation: customDesig,
+                          phone: normalizedPhone,
+                          whatsappNumber: normalizedPhone,
+                          facebookProfile: cleanFb,
+                        });
+                        setRecipientMsg(`নতুন প্রাপক "${cleanName}" সফলভাবে যোগ করা হয়েছে!`);
+                      }
+                      setIsRecipientModalOpen(false);
+                      setTimeout(() => setRecipientMsg(''), 3500);
+                    }}
+                    className="space-y-3.5"
+                  >
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        নাম *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        autoFocus
+                        value={recipName}
+                        onChange={(e) => setRecipName(e.target.value)}
+                        placeholder="যেমন: মো. করিম"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        পদবী *
+                      </label>
+                      <select
+                        value={recipDesignation}
+                        onChange={(e) =>
+                          setRecipDesignation(e.target.value as RecipientDesignation)
+                        }
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                      >
+                        <option value="SR">SR</option>
+                        <option value="DSR">DSR</option>
+                        <option value="TSM">TSM</option>
+                        <option value="হেড অফ সেলস">হেড অফ সেলস</option>
+                        <option value="অন্যান্য">অন্যান্য</option>
+                      </select>
+                      {recipDesignation === 'অন্যান্য' && (
+                        <input
+                          type="text"
+                          value={recipCustomDesignation}
+                          onChange={(e) => setRecipCustomDesignation(e.target.value)}
+                          placeholder="পদবীর নাম লিখুন (যেমন: ম্যানেজার)..."
+                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                        />
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        WhatsApp নম্বর *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={recipPhone}
+                        onChange={(e) => setRecipPhone(e.target.value)}
+                        placeholder="যেমন: 01712345678"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono text-slate-900 focus:border-emerald-500 focus:outline-none"
+                      />
+                      {recipPhone.trim() && (
+                        <div className="mt-1 flex items-center justify-between text-[11px]">
+                          <span className="font-mono text-slate-600">
+                            সংরক্ষিত হবে: {waNorm.normalized || '-'}
+                          </span>
+                          {waNorm.warning && (
+                            <span className="text-amber-700 font-semibold">
+                              {waNorm.warning}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Facebook প্রোফাইল লিংক / ইউজারনেম (ঐচ্ছিক)
+                      </label>
+                      <input
+                        type="text"
+                        value={recipFacebook}
+                        onChange={(e) => setRecipFacebook(e.target.value)}
+                        placeholder="যেমন: https://facebook.com/username বা username"
+                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                      />
+                      {recipFacebook.trim() && fbNorm.usernameOrId && (
+                        <p className="mt-1 text-[11px] font-mono text-sky-700">
+                          Messenger লিংক: m.me/{fbNorm.usernameOrId}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsRecipientModalOpen(false)}
+                        className="px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                      >
+                        বাতিল
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!recipName.trim() || !recipPhone.trim()}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs disabled:opacity-50 cursor-pointer"
+                      >
+                        <Save className="h-3.5 w-3.5" />
+                        <span>{editingRecipient ? 'আপডেট করুন' : 'সংরক্ষণ করুন'}</span>
+                      </button>
+                    </div>
+                  </form>
+                );
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* Simple Delete Recipient Confirmation Modal (No PIN needed) */}
+        {recipientToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 space-y-4">
+              <div className="flex items-center gap-2.5 text-rose-700">
+                <AlertTriangle className="h-5 w-5 shrink-0" />
+                <h3 className="text-sm font-bold">প্রাপক মুছে ফেলবেন?</h3>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed">
+                আপনি কি নিশ্চিত যে <strong>"{recipientToDelete.name}"</strong>-কে প্রাপক তালিকা থেকে মুছে ফেলতে চান?
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRecipientToDelete(null)}
+                  className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  বাতিল
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const name = recipientToDelete.name;
+                    deleteSavedRecipient(recipientToDelete.id);
+                    setRecipientToDelete(null);
+                    setRecipientMsg(`প্রাপক "${name}" তালিকা থেকে মুছে ফেলা হয়েছে।`);
+                    setTimeout(() => setRecipientMsg(''), 3500);
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"
+                >
+                  হ্যাঁ, মুছে ফেলুন
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Route Management Section */}
       <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-xs">

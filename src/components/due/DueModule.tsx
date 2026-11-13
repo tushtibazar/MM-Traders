@@ -55,6 +55,7 @@ import { DueCollectionConfirmModal } from '../modals/DueCollectionConfirmModal';
 import { DuePrintPreviewModal } from './DuePrintPreviewModal';
 import { CustomerEditModal } from '../modals/CustomerEditModal';
 import { DueShareModal } from '../modals/DueShareModal';
+import { AllDuesShareModal, AllDuesPrintScopeParams } from '../modals/AllDuesShareModal';
 
 interface DueModuleProps {
   onOpenQuickPayment: (customerId: string) => void;
@@ -133,6 +134,8 @@ export const DueModule: React.FC<DueModuleProps> = ({
   // Customer share due state
   const [shareCustomer, setShareCustomer] = useState<Customer | null>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
+  const [isAllDuesShareModalOpen, setIsAllDuesShareModalOpen] = useState<boolean>(false);
+  const [printScopeOverride, setPrintScopeOverride] = useState<AllDuesPrintScopeParams | null>(null);
 
   // Sub-tabs: 'customers' | 'search_collect' | 'collection_history' | 'due_vouchers'
   const [activeTab, setActiveTab] = useState<
@@ -641,9 +644,108 @@ export const DueModule: React.FC<DueModuleProps> = ({
   const [printAction, setPrintAction] = useState<'png' | 'pdf' | null>(null);
 
   const handleOpenPrintPreview = (action?: 'png' | 'pdf' | null) => {
+    setPrintScopeOverride(null);
     setPrintAction(action || null);
     setIsPrintModalOpen(true);
   };
+
+  // Compute scoped customers & flatDues when opening Print Preview from AllDuesShareModal
+  const scopedPrintPreviewData = useMemo(() => {
+    if (!printScopeOverride) return null;
+    const { routes, srIds, minAmount, search, combineByCustomer, sortBy } = printScopeOverride;
+    const qLower = (search || '').trim().toLowerCase();
+
+    const scopedFlatDues = flatDueList.filter((d) => {
+      if (d.isPaid || d.amount <= 0) return false;
+      if (routes.length > 0) {
+        const hasNoRoute = d.routes.length === 0;
+        const matchNoRoute = routes.includes('no_route') && hasNoRoute;
+        const matchRoute = d.routes.some((r) => routes.includes(r));
+        if (!matchNoRoute && !matchRoute) return false;
+      }
+      if (srIds.length > 0) {
+        const cust = db.customers.find((c) => c.id === d.customerId);
+        if (!cust || !cust.assignedSrId || !srIds.includes(cust.assignedSrId)) return false;
+      }
+      if (minAmount > 0 && d.amount < minAmount) return false;
+      if (qLower) {
+        const hit =
+          d.customerName.toLowerCase().includes(qLower) ||
+          d.shopName.toLowerCase().includes(qLower) ||
+          d.phone.includes(search) ||
+          d.address.toLowerCase().includes(qLower) ||
+          matchesDueNumber(d.rawDueNo, search);
+        if (!hit) return false;
+      }
+      return true;
+    });
+
+    if (sortBy === 'amount_desc') {
+      scopedFlatDues.sort((a, b) => b.amount - a.amount);
+    } else if (sortBy === 'name') {
+      scopedFlatDues.sort((a, b) => a.customerName.localeCompare(b.customerName, 'bn'));
+    } else {
+      scopedFlatDues.sort((a, b) => naturalCompareDueNumbers(a.rawDueNo, b.rawDueNo));
+    }
+
+    const scopedCustomers = db.customers.filter((c) => {
+      if ((c.currentDue || 0) <= 0) return false;
+      if (routes.length > 0) {
+        const cRoutes = customerRouteMap.get(c.id);
+        const hasNoRoute = !cRoutes || cRoutes.size === 0;
+        const matchNoRoute = routes.includes('no_route') && hasNoRoute;
+        const matchRoute = cRoutes ? Array.from(cRoutes).some((r) => routes.includes(r)) : false;
+        if (!matchNoRoute && !matchRoute) return false;
+      }
+      if (srIds.length > 0 && (!c.assignedSrId || !srIds.includes(c.assignedSrId))) {
+        return false;
+      }
+      if (minAmount > 0 && (c.currentDue || 0) < minAmount) {
+        return false;
+      }
+      if (qLower) {
+        const custDueInfo = customerDueNumbersInfoMap.get(c.id);
+        const matchDue = custDueInfo ? custDueInfo.dueNos.some((dn) => matchesDueNumber(dn, search)) : false;
+        const hit =
+          c.name.toLowerCase().includes(qLower) ||
+          c.shopName.toLowerCase().includes(qLower) ||
+          (c.phone || '').includes(search) ||
+          (c.address || '').toLowerCase().includes(qLower) ||
+          matchDue;
+        if (!hit) return false;
+      }
+      return true;
+    });
+
+    if (sortBy === 'amount_desc') {
+      scopedCustomers.sort((a, b) => (b.currentDue || 0) - (a.currentDue || 0));
+    } else if (sortBy === 'name') {
+      scopedCustomers.sort((a, b) => (a.shopName || a.name).localeCompare(b.shopName || b.name, 'bn'));
+    } else {
+      scopedCustomers.sort((a, b) => compareCustomersByLastDueNumber(a.id, b.id, db));
+    }
+
+    const totalDue = scopedCustomers.reduce((s, c) => s + (c.currentDue || 0), 0);
+    const srFilterLabel =
+      srIds.length === 0
+        ? 'all'
+        : srIds
+            .map((id) => db.salesRepresentatives.find((s) => s.id === id)?.name || id)
+            .join(', ');
+    const routeFilterLabel =
+      routes.length === 0
+        ? 'all'
+        : routes.map((r) => (r === 'no_route' ? 'রুট উল্লেখ নেই' : r)).join(', ');
+
+    return {
+      customers: scopedCustomers,
+      flatDues: scopedFlatDues,
+      totalDue,
+      srFilter: srFilterLabel,
+      routeFilter: routeFilterLabel,
+      printViewMode: (combineByCustomer ? 'by_customer' : 'by_due') as 'by_customer' | 'by_due',
+    };
+  }, [printScopeOverride, flatDueList, db, customerRouteMap, customerDueNumbersInfoMap]);
 
   const handleDownloadPDF = () => {
     handleOpenPrintPreview('pdf');
@@ -1173,6 +1275,16 @@ export const DueModule: React.FC<DueModuleProps> = ({
             >
               <Eye className="h-4 w-4 text-sky-600" />
               <span>প্রিন্ট প্রিভিউ</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setIsAllDuesShareModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition-colors shadow-xs cursor-pointer"
+              title="SR, DSR, TSM বা ম্যানেজারকে সকল বকেয়া তালিকা পাঠান"
+            >
+              <Share2 className="h-4 w-4 text-emerald-600" />
+              <span>সকল বাকি শেয়ার</span>
             </button>
           </div>
         </div>
@@ -2847,6 +2959,27 @@ export const DueModule: React.FC<DueModuleProps> = ({
         }}
       />
 
+      {/* All Dues Share Modal ("সকল বাকি শেয়ার") */}
+      <AllDuesShareModal
+        isOpen={isAllDuesShareModalOpen}
+        onClose={() => setIsAllDuesShareModalOpen(false)}
+        availableRoutes={availableRoutes}
+        customerRouteMap={customerRouteMap}
+        initialRouteFilter={selectedRouteFilter}
+        initialSrFilter={selectedSrFilter}
+        initialSearchQuery={searchQuery}
+        onOpenPrintPreviewWithScope={(params) => {
+          setIsAllDuesShareModalOpen(false);
+          setPrintScopeOverride(params);
+          setPrintAction(null);
+          setIsPrintModalOpen(true);
+        }}
+        onSuccess={(msg) => {
+          setCollectSuccessMsg(msg);
+          setTimeout(() => setCollectSuccessMsg(''), 6000);
+        }}
+      />
+
       {/* 4. Due Collection Confirmation & PIN Modal (New Unified Flow) */}
       <DueCollectionConfirmModal
         isOpen={isDueConfirmModalOpen}
@@ -2870,20 +3003,23 @@ export const DueModule: React.FC<DueModuleProps> = ({
       {/* 5. Due Print & Export Preview Modal */}
       <DuePrintPreviewModal
         isOpen={isPrintModalOpen}
-        onClose={() => setIsPrintModalOpen(false)}
+        onClose={() => {
+          setIsPrintModalOpen(false);
+          setPrintScopeOverride(null);
+        }}
         settings={db.settings}
         currency={currency}
-        customers={filteredCustomers}
-        totalDue={totalFilteredDue}
+        customers={scopedPrintPreviewData ? scopedPrintPreviewData.customers : filteredCustomers}
+        totalDue={scopedPrintPreviewData ? scopedPrintPreviewData.totalDue : totalFilteredDue}
         totalCollected={totalCollectedForPreview}
-        srFilter={selectedSrFilter}
-        routeFilter={selectedRouteFilter}
+        srFilter={scopedPrintPreviewData ? scopedPrintPreviewData.srFilter : selectedSrFilter}
+        routeFilter={scopedPrintPreviewData ? scopedPrintPreviewData.routeFilter : selectedRouteFilter}
         customerRouteMap={customerRouteMap}
         customerDueNumberMap={customerDueNumberMap}
         todayDateStr={todayDateStr}
         initialAction={printAction}
-        printViewMode={activeCustomerViewMode}
-        flatDues={flatDueList}
+        printViewMode={scopedPrintPreviewData ? scopedPrintPreviewData.printViewMode : activeCustomerViewMode}
+        flatDues={scopedPrintPreviewData ? scopedPrintPreviewData.flatDues : flatDueList}
       />
 
       {/* 6. Manual Due Entry Modal ("+ বাকি এন্ট্রি" - Add Existing/Opening Due) */}

@@ -22,6 +22,7 @@ import {
   CashAdjustment,
   DailyDueEntry,
   DueMessageRecord,
+  SavedRecipient,
 } from '../types';
 import { StorageService, DEFAULT_ROUTES } from '../services/storage';
 import {
@@ -152,6 +153,9 @@ interface AppContextType {
     reason?: string
   ) => { success: boolean; updatedCount: number; error?: string };
   addDueMessageRecord: (record: Omit<DueMessageRecord, 'id' | 'createdAt'>) => DueMessageRecord;
+  addSavedRecipient: (input: Omit<SavedRecipient, 'id' | 'createdAt'>) => SavedRecipient;
+  updateSavedRecipient: (recipient: SavedRecipient) => void;
+  deleteSavedRecipient: (id: string) => void;
 
   addProduct: (productInput: Omit<Product, 'id' | 'currentStock' | 'createdAt'>) => Product;
   updateProduct: (product: Product) => void;
@@ -1865,6 +1869,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return newRecord;
   };
 
+  // SAVED RECIPIENTS (সকল বাকি শেয়ার প্রাপক তালিকা)
+  const addSavedRecipient = (input: Omit<SavedRecipient, 'id' | 'createdAt'>): SavedRecipient => {
+    const newRecipient: SavedRecipient = {
+      ...input,
+      id: `recip-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const currentRecipients = Array.isArray(db.savedRecipients) ? db.savedRecipients : [];
+    updateDb({
+      ...db,
+      savedRecipients: [...currentRecipients, newRecipient],
+    });
+    return newRecipient;
+  };
+
+  const updateSavedRecipient = (recipient: SavedRecipient) => {
+    const currentRecipients = Array.isArray(db.savedRecipients) ? db.savedRecipients : [];
+    const updated = currentRecipients.map((r) =>
+      r.id === recipient.id ? { ...recipient, updatedAt: new Date().toISOString() } : r
+    );
+    updateDb({
+      ...db,
+      savedRecipients: updated,
+    });
+  };
+
+  const deleteSavedRecipient = (id: string) => {
+    const currentRecipients = Array.isArray(db.savedRecipients) ? db.savedRecipients : [];
+    updateDb({
+      ...db,
+      savedRecipients: currentRecipients.filter((r) => r.id !== id),
+    });
+  };
+
   // 6. PRODUCT CRUD
   const addProduct = (input: Omit<Product, 'id' | 'currentStock' | 'createdAt'>): Product => {
     const prodId = `prod-${Date.now()}`;
@@ -3251,6 +3290,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateDueNumber,
         updateCustomerDueNumbers,
         addDueMessageRecord,
+        addSavedRecipient,
+        updateSavedRecipient,
+        deleteSavedRecipient,
         addProduct,
         updateProduct,
         deleteProduct,

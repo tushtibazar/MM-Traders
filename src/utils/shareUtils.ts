@@ -1,6 +1,12 @@
 import { BusinessSettings, Customer } from '../types';
 import { formatDate, toBengaliDigits } from './dateUtils';
-import { formatDueNumber, toEnglishDigits } from './dueUtils';
+import { formatDueNumber, naturalCompareDueNumbers, toEnglishDigits } from './dueUtils';
+import {
+  DEFAULT_DUE_MESSAGE_TEMPLATE,
+  DEFAULT_DUE_LIST_MESSAGE_TEMPLATE,
+} from '../constants/shareTemplates';
+
+export { DEFAULT_DUE_MESSAGE_TEMPLATE, DEFAULT_DUE_LIST_MESSAGE_TEMPLATE };
 
 /**
  * Normalizes a Bangladeshi phone / WhatsApp number:
@@ -134,21 +140,7 @@ export function getCustomerDisplayName(
   return beforeComma || 'গ্রাহক';
 }
 
-/**
- * Default Due Message Template in Bengali
- * First line: "সম্মানিত {নাম},"
- * Second line: "{ব্যবসার_নাম} থেকে আপনার বকেয়া হিসাব বিবরণ:"
- */
-export const DEFAULT_DUE_MESSAGE_TEMPLATE = `সম্মানিত {নাম},
-{ব্যবসার_নাম} থেকে আপনার বকেয়া হিসাব বিবরণ:
-
-{বাকির_তালিকা}
-
-মোট বকেয়া: ৳{মোট_বকেয়া}
-
-অনুগ্রহ করে হিসাবটি দেখে দ্রুত পরিশোধের ব্যবস্থা করবেন। কোনো গরমিল থাকলে আমাদের সাথে যোগাযোগ করুন। ধন্যবাদ।
-— {মালিকের_নাম}, {ব্যবসার_নাম}
-মোবাইল: {অফিসের_ফোন}`;
+// Template constants imported & re-exported from ../constants/shareTemplates
 
 /**
  * Automatically migrates saved template:
@@ -329,4 +321,369 @@ export function formatMessageDateTime(isoString?: string): string {
   } catch {
     return '-';
   }
+}
+
+// DEFAULT_DUE_LIST_MESSAGE_TEMPLATE imported & re-exported from ../constants/shareTemplates
+
+export interface DueListShareItem {
+  id: string;
+  rawDueNo: string;
+  dueNo: string;
+  customerId: string;
+  customerName: string; // full display name (shop & area)
+  phone?: string;
+  amount: number; // remainingAmount
+  originalAmount: number;
+  route: string; // route name or 'রুট উল্লেখ নেই'
+  date?: string;
+}
+
+export interface GenerateAllDuesMessageParams {
+  items: DueListShareItem[];
+  recipientName: string;
+  designation: string;
+  settings: BusinessSettings;
+  customTemplate?: string;
+  dateStr?: string;
+  groupByRoute: boolean;
+  combineByCustomer: boolean;
+  sortBy: 'due_no' | 'amount_desc' | 'name';
+  includePhone: boolean;
+  summaryOnly: boolean;
+}
+
+/**
+ * Natural comparison helper for due numbers (reuses shared naturalCompareDueNumbers)
+ */
+function naturalCompare(a?: string | null, b?: string | null): number {
+  return naturalCompareDueNumbers(a || '', b || '');
+}
+
+/**
+ * Generates the complete formatted message text for All Dues Share
+ */
+export function generateAllDuesMessageText(params: GenerateAllDuesMessageParams): string {
+  const {
+    items,
+    recipientName,
+    designation,
+    settings,
+    customTemplate,
+    dateStr,
+    groupByRoute,
+    combineByCustomer,
+    sortBy,
+    includePhone,
+    summaryOnly,
+  } = params;
+
+  const totalDuesCount = items.length;
+  const uniqueCustomerIds = new Set(items.map((i) => i.customerId));
+  const totalAmount = items.reduce((sum, i) => sum + i.amount, 0);
+
+  const formattedDate = formatDate(dateStr || new Date().toISOString().slice(0, 10));
+
+  // Build header using template
+  const template = (customTemplate || settings.dueListMessageTemplate || DEFAULT_DUE_LIST_MESSAGE_TEMPLATE).trim();
+  const header = template
+    .replace(/\{প্রাপকের_নাম\}/g, recipientName || 'কর্মী')
+    .replace(/\{পদবী\}/g, designation || 'SR')
+    .replace(/\{ব্যবসার_নাম\}/g, settings.businessName || 'MM TRADERS')
+    .replace(/\{তারিখ\}/g, formattedDate)
+    .replace(/\{মোট_সংখ্যা\}/g, toBengaliDigits(totalDuesCount))
+    .replace(/\{মোট_কাস্টমার\}/g, toBengaliDigits(uniqueCustomerIds.size))
+    .replace(/\{মোট_বকেয়া\}/g, totalAmount.toLocaleString('bn-BD'));
+
+  // Sort comparator
+  const sortComparator = (a: DueListShareItem, b: DueListShareItem) => {
+    if (sortBy === 'amount_desc') {
+      return b.amount - a.amount;
+    }
+    if (sortBy === 'name') {
+      return (a.customerName || '').localeCompare(b.customerName || '', 'bn');
+    }
+    return naturalCompare(a.rawDueNo || a.dueNo, b.rawDueNo || b.dueNo);
+  };
+
+  const bodyLines: string[] = [];
+
+  if (summaryOnly) {
+    // Only route subtotals
+    const routeMap = new Map<string, { count: number; total: number }>();
+    items.forEach((item) => {
+      const r = item.route || 'রুট উল্লেখ নেই';
+      const cur = routeMap.get(r) || { count: 0, total: 0 };
+      cur.count += 1;
+      cur.total += item.amount;
+      routeMap.set(r, cur);
+    });
+
+    const routeKeys = Array.from(routeMap.keys()).sort((a, b) => {
+      if (a === 'রুট উল্লেখ নেই') return 1;
+      if (b === 'রুট উল্লেখ নেই') return -1;
+      return a.localeCompare(b, 'bn');
+    });
+
+    routeKeys.forEach((r) => {
+      const stat = routeMap.get(r)!;
+      bodyLines.push(
+        `*[${r}]* — ${toBengaliDigits(stat.count)} টি, ৳${stat.total.toLocaleString('bn-BD')}`
+      );
+    });
+  } else if (groupByRoute) {
+    // Group by route with 'রুট উল্লেখ নেই' coming last
+    const routeMap = new Map<string, DueListShareItem[]>();
+    items.forEach((item) => {
+      const r = item.route || 'রুট উল্লেখ নেই';
+      const list = routeMap.get(r) || [];
+      list.push(item);
+      routeMap.set(r, list);
+    });
+
+    const routeKeys = Array.from(routeMap.keys()).sort((a, b) => {
+      if (a === 'রুট উল্লেখ নেই') return 1;
+      if (b === 'রুট উল্লেখ নেই') return -1;
+      return a.localeCompare(b, 'bn');
+    });
+
+    routeKeys.forEach((route) => {
+      const routeItems = routeMap.get(route) || [];
+      const routeCount = routeItems.length;
+      const routeSubtotal = routeItems.reduce((s, i) => s + i.amount, 0);
+
+      bodyLines.push(
+        `\n*[${route}]* — ${toBengaliDigits(routeCount)} টি, ৳${routeSubtotal.toLocaleString('bn-BD')}`
+      );
+
+      if (combineByCustomer) {
+        // Group by customer in this route
+        const custMap = new Map<
+          string,
+          {
+            customerId: string;
+            customerName: string;
+            phone?: string;
+            dueNos: string[];
+            totalAmount: number;
+          }
+        >();
+
+        routeItems.forEach((item) => {
+          const cur = custMap.get(item.customerId) || {
+            customerId: item.customerId,
+            customerName: item.customerName,
+            phone: item.phone,
+            dueNos: [],
+            totalAmount: 0,
+          };
+          if (item.rawDueNo || item.dueNo) {
+            cur.dueNos.push(item.rawDueNo || item.dueNo);
+          }
+          cur.totalAmount += item.amount;
+          custMap.set(item.customerId, cur);
+        });
+
+        const custGroups = Array.from(custMap.values());
+        // Sort customer groups by their LARGEST due number (ascending)
+        custGroups.sort((a, b) => {
+          if (sortBy === 'amount_desc') return b.totalAmount - a.totalAmount;
+          if (sortBy === 'name') return a.customerName.localeCompare(b.customerName, 'bn');
+          const sortedA = [...a.dueNos].sort(naturalCompare);
+          const sortedB = [...b.dueNos].sort(naturalCompare);
+          const lastA = sortedA[sortedA.length - 1];
+          const lastB = sortedB[sortedB.length - 1];
+          return naturalCompare(lastA, lastB);
+        });
+
+        custGroups.forEach((cg) => {
+          const sortedDueNos = [...cg.dueNos].sort(naturalCompare);
+          const duesLabel = sortedDueNos.map((n) => toBengaliDigits(formatDueNumber(n))).join(', ') || '—';
+          const phoneLabel = includePhone && cg.phone ? ` (${cg.phone})` : '';
+          bodyLines.push(
+            `${duesLabel} | ${cg.customerName}${phoneLabel} | ৳${cg.totalAmount.toLocaleString('bn-BD')}`
+          );
+        });
+      } else {
+        // Individual due lines
+        const sortedRouteItems = [...routeItems].sort(sortComparator);
+        sortedRouteItems.forEach((item) => {
+          const dueNum = toBengaliDigits(formatDueNumber(item.rawDueNo || item.dueNo));
+          const phoneLabel = includePhone && item.phone ? ` (${item.phone})` : '';
+          bodyLines.push(
+            `${dueNum} | ${item.customerName}${phoneLabel} | ৳${item.amount.toLocaleString('bn-BD')}`
+          );
+        });
+      }
+    });
+  } else {
+    // Flat list (no route grouping)
+    if (combineByCustomer) {
+      const custMap = new Map<
+        string,
+        {
+          customerId: string;
+          customerName: string;
+          phone?: string;
+          dueNos: string[];
+          totalAmount: number;
+        }
+      >();
+
+      items.forEach((item) => {
+        const cur = custMap.get(item.customerId) || {
+          customerId: item.customerId,
+          customerName: item.customerName,
+          phone: item.phone,
+          dueNos: [],
+          totalAmount: 0,
+        };
+        if (item.rawDueNo || item.dueNo) cur.dueNos.push(item.rawDueNo || item.dueNo);
+        cur.totalAmount += item.amount;
+        custMap.set(item.customerId, cur);
+      });
+
+      const custGroups = Array.from(custMap.values());
+      custGroups.sort((a, b) => {
+        if (sortBy === 'amount_desc') return b.totalAmount - a.totalAmount;
+        if (sortBy === 'name') return a.customerName.localeCompare(b.customerName, 'bn');
+        const sortedA = [...a.dueNos].sort(naturalCompare);
+        const sortedB = [...b.dueNos].sort(naturalCompare);
+        const lastA = sortedA[sortedA.length - 1];
+        const lastB = sortedB[sortedB.length - 1];
+        return naturalCompare(lastA, lastB);
+      });
+
+      custGroups.forEach((cg) => {
+        const sortedDueNos = [...cg.dueNos].sort(naturalCompare);
+        const duesLabel = sortedDueNos.map((n) => toBengaliDigits(formatDueNumber(n))).join(', ') || '—';
+        const phoneLabel = includePhone && cg.phone ? ` (${cg.phone})` : '';
+        bodyLines.push(
+          `${duesLabel} | ${cg.customerName}${phoneLabel} | ৳${cg.totalAmount.toLocaleString('bn-BD')}`
+        );
+      });
+    } else {
+      const sortedItems = [...items].sort(sortComparator);
+      sortedItems.forEach((item) => {
+        const dueNum = toBengaliDigits(formatDueNumber(item.rawDueNo || item.dueNo));
+        const phoneLabel = includePhone && item.phone ? ` (${item.phone})` : '';
+        bodyLines.push(
+          `${dueNum} | ${item.customerName}${phoneLabel} | ৳${item.amount.toLocaleString('bn-BD')}`
+        );
+      });
+    }
+  }
+
+  // End line
+  bodyLines.push(`\n*সর্বমোট: ৳${totalAmount.toLocaleString('bn-BD')}*`);
+
+  return `${header}\n\n${bodyLines.join('\n').trim()}`;
+}
+
+export interface SplitMessagePart {
+  partIndex: number; // 1-indexed
+  totalParts: number;
+  partLabel: string; // e.g. "১/৩"
+  text: string;
+}
+
+/**
+ * Splits a long due list message into safe WhatsApp parts:
+ * - Conservative limit of ~1700 characters per link (never cut lines in half)
+ * - Part 1 contains the header
+ * - The last part contains the *সর্বমোট: ৳[total]* line
+ * - Route headings are repeated if a route continues across parts
+ * - Each part labeled with " (১/৩)"
+ */
+export function splitDueListMessage(
+  fullMessage: string,
+  recipientName: string = 'কর্মী',
+  maxCharsPerPart: number = 1600
+): SplitMessagePart[] {
+  // If the message is short enough, return single part
+  if (fullMessage.length <= maxCharsPerPart) {
+    return [
+      {
+        partIndex: 1,
+        totalParts: 1,
+        partLabel: '১/১',
+        text: fullMessage,
+      },
+    ];
+  }
+
+  const lines = fullMessage.split('\n');
+  const rawParts: string[][] = [];
+  let currentPartLines: string[] = [];
+  let currentLength = 0;
+  let activeRouteHeading: string | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    // Detect route heading line e.g. "*[রুট ১]* — ১০ টি, ৳৫,০০০"
+    if (line.startsWith('*[') && line.includes(']*')) {
+      activeRouteHeading = line;
+    } else if (line.startsWith('*সর্বমোট:')) {
+      activeRouteHeading = null;
+    }
+
+    const lineLength = line.length + 1; // +1 for newline
+
+    // Check if adding this line would exceed the limit
+    if (currentLength + lineLength > maxCharsPerPart && currentPartLines.length > 0) {
+      rawParts.push([...currentPartLines]);
+      currentPartLines = [];
+      currentLength = 0;
+
+      // Skip leading blank line on a new part
+      if (line.trim() === '') {
+        continue;
+      }
+
+      // If a route was in progress and this line isn't a new route heading or total, repeat route heading
+      if (activeRouteHeading && !line.startsWith('*[') && !line.startsWith('*সর্বমোট:')) {
+        const continuationHeading = `${activeRouteHeading} (চলমান)`;
+        currentPartLines.push(continuationHeading);
+        currentLength += continuationHeading.length + 1;
+      }
+    }
+
+    currentPartLines.push(line);
+    currentLength += lineLength;
+  }
+
+  if (currentPartLines.length > 0) {
+    rawParts.push(currentPartLines);
+  }
+
+  const totalParts = Math.max(1, rawParts.length);
+
+  return rawParts.map((partLines, idx) => {
+    const partNum = idx + 1;
+    const label = `${toBengaliDigits(partNum)}/${toBengaliDigits(totalParts)}`;
+
+    let partText = partLines.join('\n').trim();
+
+    // If part 1, append label in the first line or header
+    if (partNum === 1) {
+      const firstBreak = partText.indexOf('\n');
+      if (firstBreak !== -1) {
+        const line1 = partText.slice(0, firstBreak);
+        const rest = partText.slice(firstBreak);
+        partText = `${line1} (${label})${rest}`;
+      } else {
+        partText = `${partText} (${label})`;
+      }
+    } else {
+      // For parts > 1, add a top prefix identifying recipient & part
+      partText = `[অংশ ${label} — ${recipientName}]\n${partText}`;
+    }
+
+    return {
+      partIndex: partNum,
+      totalParts,
+      partLabel: label,
+      text: partText,
+    };
+  });
 }

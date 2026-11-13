@@ -17,7 +17,7 @@ import {
   StockTransaction,
   User,
 } from '../types';
-import { DEFAULT_DUE_MESSAGE_TEMPLATE } from '../utils/shareUtils';
+import { DEFAULT_DUE_MESSAGE_TEMPLATE, DEFAULT_DUE_LIST_MESSAGE_TEMPLATE } from '../constants/shareTemplates';
 
 export const STORAGE_KEY = 'mm_traders_business_db_v2';
 export const CLEANUP_APPLIED_KEY = 'mm_traders_cleanup_applied_v3';
@@ -48,6 +48,7 @@ export const INITIAL_SETTINGS: BusinessSettings = {
   dsrList: [],
   nextDueNumberCounter: 1,
   dueMessageTemplate: DEFAULT_DUE_MESSAGE_TEMPLATE,
+  dueListMessageTemplate: DEFAULT_DUE_LIST_MESSAGE_TEMPLATE,
   includeShopInDueMessage: false,
   businessPosition: {
     stockAdjustment: 0,
@@ -177,6 +178,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
     lessSettlements: [],
     salesRepresentatives: [],
     deliveryRepresentatives: [],
+    savedRecipients: [],
     doPayments: [],
     cashAdjustments: [],
     summaryProductOrder: [],
@@ -197,6 +199,7 @@ export function getBlankDatabase(preservedSettings?: BusinessSettings, ownerUser
       dsrList: [],
       nextDueNumberCounter: 1,
       dueMessageTemplate: preservedSettings?.dueMessageTemplate || INITIAL_SETTINGS.dueMessageTemplate,
+      dueListMessageTemplate: preservedSettings?.dueListMessageTemplate || INITIAL_SETTINGS.dueListMessageTemplate,
       includeShopInDueMessage: preservedSettings?.includeShopInDueMessage ?? false,
       businessPosition: {
         stockAdjustment: 0,
@@ -250,6 +253,7 @@ export function getInitialDatabase(): AppDatabase {
     lessSettlements: INITIAL_LESS_SETTLEMENTS,
     salesRepresentatives: INITIAL_SRS,
     deliveryRepresentatives: INITIAL_DSRS,
+    savedRecipients: [],
     doPayments: [],
     cashAdjustments: [],
     summaryProductOrder: [],
@@ -315,6 +319,9 @@ export class StorageService {
           if (!Array.isArray(parsed.deliveryRepresentatives)) {
             parsed.deliveryRepresentatives = [];
           }
+          if (!Array.isArray(parsed.savedRecipients)) {
+            parsed.savedRecipients = [];
+          }
           if (!Array.isArray(parsed.doPayments)) {
             parsed.doPayments = [];
           }
@@ -332,6 +339,9 @@ export class StorageService {
           }
           if (!parsed.settings.dueMessageTemplate) {
             parsed.settings.dueMessageTemplate = DEFAULT_DUE_MESSAGE_TEMPLATE;
+          }
+          if (!parsed.settings.dueListMessageTemplate) {
+            parsed.settings.dueListMessageTemplate = DEFAULT_DUE_LIST_MESSAGE_TEMPLATE;
           }
           if (!parsed.settings.nextDueNumberCounter || parsed.settings.nextDueNumberCounter < 1) {
             parsed.settings.nextDueNumberCounter = 1;
@@ -520,6 +530,12 @@ export function validateBackupJson(jsonStr: string): BackupValidationResult {
       deliveryRepresentatives: Array.isArray(parsed.deliveryRepresentatives)
         ? parsed.deliveryRepresentatives
         : (currentDb.deliveryRepresentatives || []),
+      savedRecipients: Array.isArray(parsed.savedRecipients)
+        ? parsed.savedRecipients
+        : (currentDb.savedRecipients || []),
+      dueMessages: Array.isArray(parsed.dueMessages)
+        ? parsed.dueMessages
+        : (currentDb.dueMessages || []),
       doPayments: Array.isArray(parsed.doPayments) ? parsed.doPayments : [],
       cashAdjustments: Array.isArray(parsed.cashAdjustments) ? parsed.cashAdjustments : [],
       summaryProductOrder: Array.isArray(parsed.summaryProductOrder)
