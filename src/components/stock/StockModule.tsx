@@ -15,12 +15,14 @@ import {
   X,
   ChevronDown,
   CheckCircle2,
+  Share2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { generateStockValuationPDF } from '../../services/pdfGenerator';
 import { Product } from '../../types';
 import { PinPromptModal } from '../modals/PinPromptModal';
 import { StockPrintPreviewModal } from './StockPrintPreviewModal';
+import { StockShareModal } from '../modals/StockShareModal';
 import { StockHistorySection } from './StockHistorySection';
 import { formatDate } from '../../utils/dateUtils';
 
@@ -179,6 +181,7 @@ export const StockModule: React.FC = () => {
 
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [printAction, setPrintAction] = useState<'png' | 'pdf' | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const handleOpenPrintPreview = (action?: 'png' | 'pdf' | null) => {
     setPrintAction(action || null);
@@ -220,6 +223,16 @@ export const StockModule: React.FC = () => {
           >
             <Eye className="h-4 w-4 text-sky-600" />
             <span>প্রিন্ট প্রিভিউ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsShareModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition-colors shadow-xs cursor-pointer"
+            title="WhatsApp বা Messenger-এ স্টকের তালিকা পাঠান"
+          >
+            <Share2 className="h-4 w-4 text-emerald-600" />
+            <span>শেয়ার</span>
           </button>
         </div>
       </div>
@@ -627,6 +640,13 @@ export const StockModule: React.FC = () => {
         products={warehouseProducts}
         todayDateStr={todayDateStr}
         initialAction={printAction}
+      />
+
+      {/* Stock WhatsApp & Messenger Share Modal */}
+      <StockShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        onSuccess={(msg) => setSuccessMsg(msg)}
       />
     </div>
   );

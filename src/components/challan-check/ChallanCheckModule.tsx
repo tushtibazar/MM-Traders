@@ -18,11 +18,13 @@ import {
   AlertCircle,
   Save,
   Tag,
+  Share2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Product } from '../../types';
 import { toBengaliDigits } from '../../utils/dateUtils';
 import { ChallanCheckPrintPreviewModal } from './ChallanCheckPrintPreviewModal';
+import { ChallanShareModal } from '../modals/ChallanShareModal';
 
 interface BatchRow {
   id: string;
@@ -133,6 +135,7 @@ export const ChallanCheckModule: React.FC = () => {
   });
   const [showHistory, setShowHistory] = useState<boolean>(false);
   const [isPrintPreviewOpen, setIsPrintPreviewOpen] = useState<boolean>(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState<boolean>(false);
 
   // Close product dropdown on click outside
   useEffect(() => {
@@ -632,6 +635,26 @@ export const ChallanCheckModule: React.FC = () => {
             <Printer className="h-4 w-4 text-slate-500" />
             <span>প্রিন্ট প্রিভিউ</span>
           </button>
+
+          <button
+            type="button"
+            disabled={columnTotals.sumPurchasePrice <= 0 && grandTotalPieces <= 0}
+            onClick={() => setIsShareModalOpen(true)}
+            title={
+              columnTotals.sumPurchasePrice <= 0 && grandTotalPieces <= 0
+                ? 'আগে হিসাব পূরণ করুন'
+                : 'WhatsApp বা Messenger-এ চালান চেক হিসাব পাঠান'
+            }
+            className="flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-3.5 py-2 text-xs sm:text-sm font-semibold text-emerald-900 hover:bg-emerald-100 hover:border-emerald-400 transition-colors shadow-xs font-bengali cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Share2 className="h-4 w-4 text-emerald-600" />
+            <span>শেয়ার</span>
+          </button>
+          {columnTotals.sumPurchasePrice <= 0 && grandTotalPieces <= 0 && (
+            <span className="text-[11px] font-medium text-slate-500 font-bengali">
+              আগে হিসাব পূরণ করুন
+            </span>
+          )}
         </div>
       </div>
 
@@ -1398,6 +1421,31 @@ export const ChallanCheckModule: React.FC = () => {
         sellingPricePerCarton={sellingPricePerCarton}
         sellingPricePerPiece={sellingPricePerPiece}
         todayDateStr={todayDateStr}
+      />
+
+      {/* WhatsApp & Messenger Share Modal */}
+      <ChallanShareModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        productName={productSearch}
+        rows={rows}
+        columnTotals={columnTotals}
+        grandTotalPieces={grandTotalPieces}
+        cartonCount={cartonCount}
+        undeliveredCartonCount={undeliveredCartonCount}
+        perPieceCost={perPieceCost}
+        piecesPerCarton={parsedPiecesPerCarton}
+        costPerCarton={costPerCarton}
+        profitMargin={parsedProfitMargin}
+        sellingPricePerCarton={sellingPricePerCarton}
+        formatMoneyBn={formatMoneyBn}
+        formatCartonNumber={formatCartonNumber}
+        onSuccess={(msg) =>
+          setNotification({
+            type: 'success',
+            message: msg,
+          })
+        }
       />
     </div>
   );

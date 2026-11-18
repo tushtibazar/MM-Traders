@@ -439,7 +439,7 @@ export interface SavedRecipient {
 
 export interface DueMessageRecord {
   id: string;
-  type?: 'customer' | 'list';
+  type?: 'customer' | 'list' | 'stock' | 'challan';
   customerId?: string;
   customerName?: string;
   recipientName?: string;
@@ -455,6 +455,8 @@ export interface DueMessageRecord {
   scopeSummary?: string;
   duesCount?: number;
   customerCount?: number;
+  productCount?: number;
+  generationTime?: string;
   note?: string;
 }
 

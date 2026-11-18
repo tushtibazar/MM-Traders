@@ -1,4 +1,4 @@
-import { BusinessSettings, Customer } from '../types';
+import { BusinessSettings, Customer, Product } from '../types';
 import { formatDate, toBengaliDigits } from './dateUtils';
 import { formatDueNumber, naturalCompareDueNumbers, toEnglishDigits } from './dueUtils';
 import {
@@ -687,3 +687,387 @@ export function splitDueListMessage(
     };
   });
 }
+
+/**
+ * Formats stock quantity using exact Stock/Summary unit display ("২১ কার্টুন ৫ পিস", "২১ কার্টুন", "০")
+ */
+export function formatStockUnitDisplay(product: Product): string {
+  const stock = Number(product.currentStock) || 0;
+  if (stock <= 0) {
+    return '০';
+  }
+
+  const pRatio = Number(product.piecesPerCarton || product.cartonQty);
+  const ratio = !isNaN(pRatio) && isFinite(pRatio) && pRatio > 0 ? pRatio : 1;
+  const isCarton = product.unit === 'কার্টন' || product.unit === 'কার্টুন' || ratio > 1;
+
+  if (isCarton && ratio > 1) {
+    const totalPieces = Math.round(stock * ratio);
+    if (totalPieces <= 0) return '০';
+    const cartons = Math.floor(totalPieces / ratio);
+    const remPieces = totalPieces % ratio;
+
+    if (cartons > 0 && remPieces > 0) {
+      return `${toBengaliDigits(cartons)} কার্টুন ${toBengaliDigits(remPieces)} পিস`;
+    } else if (cartons > 0) {
+      return `${toBengaliDigits(cartons)} কার্টুন`;
+    } else {
+      return `${toBengaliDigits(remPieces)} পিস`;
+    }
+  }
+
+  const rounded = Math.round(stock * 100) / 100;
+  if (product.unit) {
+    return `${toBengaliDigits(rounded)} ${product.unit}`;
+  }
+  return `${toBengaliDigits(rounded)}`;
+}
+
+/**
+ * Formats time in clean Bengali notation (e.g. "সকাল ০৯:৪৫" or "বিকাল ০৪:১৫")
+ */
+export function formatBanglaTimeOnly(date: Date = new Date()): string {
+  const hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const period =
+    hours < 6
+      ? 'রাত'
+      : hours < 12
+      ? 'সকাল'
+      : hours < 15
+      ? 'দুপুর'
+      : hours < 18
+      ? 'বিকাল'
+      : 'রাত';
+  const displayHour = String(hours % 12 || 12).padStart(2, '0');
+  return `${period} ${toBengaliDigits(displayHour)}:${toBengaliDigits(minutes)}`;
+}
+
+/**
+ * Generates the formatted WhatsApp/Messenger share message for Stock list.
+ * Strictly never includes purchasePrice, stock value in taka, profit or margin.
+ */
+export function generateStockShareMessage(params: {
+  products: Product[];
+  settings: BusinessSettings;
+  includePrice: boolean;
+  dateStr?: string;
+  generatedAt?: Date;
+}): string {
+  const { products, settings, includePrice, dateStr, generatedAt } = params;
+  const businessName = settings.businessName || 'MM TRADERS';
+  const rawDate = dateStr || new Date().toISOString().slice(0, 10);
+  const bnDate = toBengaliDigits(formatDate(rawDate));
+  const bnTime = formatBanglaTimeOnly(generatedAt || new Date());
+
+  const header = `${businessName} — স্টকের তালিকা (${bnDate}, ${bnTime})`;
+
+  if (products.length === 0) {
+    return `${header}\n\nকোনো পণ্য পাওয়া যায়নি।\n\nমোট ০ টি পণ্য`;
+  }
+
+  const lines = products.map((p, idx) => {
+    const num = toBengaliDigits(idx + 1);
+    const stockStr = formatStockUnitDisplay(p);
+    const priceStr = includePrice
+      ? ` — ৳${(Number(p.salePrice) || 0).toLocaleString('bn-BD')}`
+      : '';
+    return `${num}. ${p.name} — ${stockStr}${priceStr}`;
+  });
+
+  const footer = `মোট ${toBengaliDigits(products.length)} টি পণ্য`;
+
+  return `${header}\n\n${lines.join('\n')}\n\n${footer}`;
+}
+
+/**
+ * Splits a long Stock share message into WhatsApp-safe parts at line boundaries.
+ * Each part repeats a short header line with " (১/৩)" style label, and the last part carries the total count.
+ */
+export function splitStockShareMessage(
+  fullMessage: string,
+  businessName: string,
+  dateStr?: string,
+  maxCharsPerPart: number = 1600
+): SplitMessagePart[] {
+  if (fullMessage.length <= maxCharsPerPart) {
+    return [
+      {
+        partIndex: 1,
+        totalParts: 1,
+        partLabel: '১/১',
+        text: fullMessage,
+      },
+    ];
+  }
+
+  const lines = fullMessage.split('\n');
+  const rawDate = dateStr || new Date().toISOString().slice(0, 10);
+  const bnDate = toBengaliDigits(formatDate(rawDate));
+  const shortHeaderBase = `${businessName || 'MM TRADERS'} — স্টকের তালিকা (${bnDate})`;
+
+  const rawParts: string[][] = [];
+  let currentPartLines: string[] = [];
+  let currentLength = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineLength = line.length + 1;
+
+    if (currentLength + lineLength > maxCharsPerPart && currentPartLines.length > 0) {
+      rawParts.push([...currentPartLines]);
+      currentPartLines = [];
+      currentLength = 0;
+
+      if (line.trim() === '') {
+        continue;
+      }
+    }
+
+    currentPartLines.push(line);
+    currentLength += lineLength;
+  }
+
+  if (currentPartLines.length > 0) {
+    rawParts.push(currentPartLines);
+  }
+
+  const totalParts = Math.max(1, rawParts.length);
+
+  return rawParts.map((partLines, idx) => {
+    const partNum = idx + 1;
+    const label = `${toBengaliDigits(partNum)}/${toBengaliDigits(totalParts)}`;
+    let partText = partLines.join('\n').trim();
+
+    if (partNum === 1) {
+      const firstBreak = partText.indexOf('\n');
+      if (firstBreak !== -1) {
+        const line1 = partText.slice(0, firstBreak);
+        const rest = partText.slice(firstBreak);
+        partText = `${line1} (${label})${rest}`;
+      } else {
+        partText = `${partText} (${label})`;
+      }
+    } else {
+      partText = `${shortHeaderBase} (${label})\n${partText}`;
+    }
+
+    return {
+      partIndex: partNum,
+      totalParts,
+      partLabel: label,
+      text: partText,
+    };
+  });
+}
+
+export interface ChallanShareBatchRow {
+  id: string;
+  purchasePrice: string | number;
+  totalPieces: string | number;
+  freePieces: string | number;
+  undeliveredPieces: string | number;
+}
+
+export interface GenerateChallanShareParams {
+  settings: BusinessSettings;
+  dateStr?: string;
+  productName: string;
+  rows: ChallanShareBatchRow[];
+  columnTotals: {
+    sumPurchasePrice: number;
+    sumTotalPieces: number;
+    sumFreePieces: number;
+    sumUndelivered: number;
+  };
+  grandTotalPieces: number;
+  cartonCount: number;
+  receivedPieces: number;
+  receivedCartonCount: number;
+  undeliveredCartonCount: number;
+  perPieceCost: number;
+  piecesPerCarton: number;
+  costPerCarton: number;
+  profitMargin: number;
+  sellingPricePerCarton: number;
+  includePurchaseAccount: boolean;
+  includeProfitAndSelling: boolean;
+  formatMoneyBn: (val: number, maxDecimals?: number, minDecimals?: number) => string;
+  formatCartonNumber: (val: number) => string;
+}
+
+/**
+ * Generates Challan Check message directly from the page's exact live state and helpers.
+ */
+export function generateChallanShareMessage(params: GenerateChallanShareParams): string {
+  const {
+    settings,
+    dateStr,
+    productName,
+    rows,
+    columnTotals,
+    grandTotalPieces,
+    cartonCount,
+    receivedPieces,
+    receivedCartonCount,
+    undeliveredCartonCount,
+    perPieceCost,
+    piecesPerCarton,
+    costPerCarton,
+    profitMargin,
+    sellingPricePerCarton,
+    includePurchaseAccount,
+    includeProfitAndSelling,
+    formatMoneyBn,
+    formatCartonNumber,
+  } = params;
+
+  const businessName = settings.businessName || 'MM TRADERS';
+  const rawDate = dateStr || new Date().toISOString().slice(0, 10);
+  const bnDate = toBengaliDigits(formatDate(rawDate));
+  const cleanName = productName.trim() || '(নাম দেওয়া হয়নি)';
+
+  const lines: string[] = [
+    `${businessName} — চালান চেক (${bnDate})`,
+    `পণ্য: ${cleanName}`,
+  ];
+
+  if (includePurchaseAccount) {
+    const activeRows = rows.filter((r) => {
+      const buy = parseFloat(String(r.purchasePrice)) || 0;
+      const pcs = parseFloat(String(r.totalPieces)) || 0;
+      const free = parseFloat(String(r.freePieces)) || 0;
+      const undeliv = parseFloat(String(r.undeliveredPieces)) || 0;
+      return buy > 0 || pcs > 0 || free > 0 || undeliv > 0;
+    });
+
+    if (activeRows.length > 0) {
+      lines.push('');
+      const directRows = activeRows.slice(0, 10);
+      directRows.forEach((r, idx) => {
+        const buy = parseFloat(String(r.purchasePrice)) || 0;
+        const pcs = parseFloat(String(r.totalPieces)) || 0;
+        const free = parseFloat(String(r.freePieces)) || 0;
+        const undeliv = parseFloat(String(r.undeliveredPieces)) || 0;
+        lines.push(
+          `ব্যাচ ${toBengaliDigits(idx + 1)}: ক্রয় ৳${formatMoneyBn(buy, 2, 2)} | পিস ${toBengaliDigits(pcs)} | ফ্রি ${toBengaliDigits(free)} | আনডেলিভারি ${toBengaliDigits(undeliv)}`
+        );
+      });
+
+      if (activeRows.length > 10) {
+        const extraRows = activeRows.slice(10);
+        const extraBuy = extraRows.reduce((s, r) => s + (parseFloat(String(r.purchasePrice)) || 0), 0);
+        const extraPcs = extraRows.reduce((s, r) => s + (parseFloat(String(r.totalPieces)) || 0), 0);
+        const extraFree = extraRows.reduce((s, r) => s + (parseFloat(String(r.freePieces)) || 0), 0);
+        const extraUndeliv = extraRows.reduce((s, r) => s + (parseFloat(String(r.undeliveredPieces)) || 0), 0);
+        lines.push(
+          `অতিরিক্ত ${toBengaliDigits(extraRows.length)} টি ব্যাচ (${toBengaliDigits(11)}–${toBengaliDigits(activeRows.length)}): ক্রয় ৳${formatMoneyBn(extraBuy, 2, 2)} | পিস ${toBengaliDigits(extraPcs)} | ফ্রি ${toBengaliDigits(extraFree)} | আনডেলিভারি ${toBengaliDigits(extraUndeliv)}`
+        );
+      }
+    }
+
+    lines.push('');
+    lines.push(
+      `যোগফল: ৳${formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)} | পিস ${toBengaliDigits(columnTotals.sumTotalPieces)} | ফ্রি ${toBengaliDigits(columnTotals.sumFreePieces)} | আনডেলিভারি ${toBengaliDigits(columnTotals.sumUndelivered)}`
+    );
+    lines.push(
+      `মোট পিস: ${toBengaliDigits(grandTotalPieces)} (${formatCartonNumber(cartonCount)} কার্টুন)`
+    );
+    lines.push(
+      `প্রাপ্তি: ${toBengaliDigits(receivedPieces)} পিস (${formatCartonNumber(receivedCartonCount)} কার্টুন)`
+    );
+    lines.push(
+      `আনডেলিভারি: ${toBengaliDigits(columnTotals.sumUndelivered)} পিস (${formatCartonNumber(undeliveredCartonCount)} কার্টুন)`
+    );
+    lines.push(
+      `সামগ্রিক ক্রয় অনুপাত: ৳${formatMoneyBn(columnTotals.sumPurchasePrice, 2, 2)} টাকায় ${toBengaliDigits(grandTotalPieces)} পিস`
+    );
+    lines.push(`পিছ মূল্য: ৳${formatMoneyBn(perPieceCost, 3, 2)}`);
+    lines.push(
+      `প্রতি কার্টুন ক্রয় (${toBengaliDigits(piecesPerCarton)} পিসের): ৳${formatMoneyBn(costPerCarton, 2, 2)}`
+    );
+  }
+
+  if (includeProfitAndSelling) {
+    lines.push('');
+    const marginStr = toBengaliDigits(
+      Number(profitMargin % 1 === 0 ? profitMargin : profitMargin.toFixed(2))
+    );
+    lines.push(
+      `প্রফিট মার্জিন: ${marginStr}% | বিক্রয় মূল্য (কার্টুন): ৳${formatMoneyBn(sellingPricePerCarton, 2, 2)}`
+    );
+  }
+
+  return lines.join('\n').trim();
+}
+
+/**
+ * Splits a generic multi-line message (such as an edited Challan Check message) safely at line boundaries.
+ */
+export function splitGenericShareMessage(
+  fullMessage: string,
+  shortTitle: string,
+  maxCharsPerPart: number = 1600
+): SplitMessagePart[] {
+  if (fullMessage.length <= maxCharsPerPart) {
+    return [
+      {
+        partIndex: 1,
+        totalParts: 1,
+        partLabel: '১/১',
+        text: fullMessage,
+      },
+    ];
+  }
+
+  const lines = fullMessage.split('\n');
+  const rawParts: string[][] = [];
+  let currentPartLines: string[] = [];
+  let currentLength = 0;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lineLength = line.length + 1;
+
+    if (currentLength + lineLength > maxCharsPerPart && currentPartLines.length > 0) {
+      rawParts.push([...currentPartLines]);
+      currentPartLines = [];
+      currentLength = 0;
+      if (line.trim() === '') continue;
+    }
+
+    currentPartLines.push(line);
+    currentLength += lineLength;
+  }
+
+  if (currentPartLines.length > 0) {
+    rawParts.push(currentPartLines);
+  }
+
+  const totalParts = Math.max(1, rawParts.length);
+
+  return rawParts.map((partLines, idx) => {
+    const partNum = idx + 1;
+    const label = `${toBengaliDigits(partNum)}/${toBengaliDigits(totalParts)}`;
+    let partText = partLines.join('\n').trim();
+
+    if (partNum === 1) {
+      const firstBreak = partText.indexOf('\n');
+      if (firstBreak !== -1) {
+        partText = `${partText.slice(0, firstBreak)} (${label})${partText.slice(firstBreak)}`;
+      } else {
+        partText = `${partText} (${label})`;
+      }
+    } else {
+      partText = `${shortTitle} (${label})\n${partText}`;
+    }
+
+    return {
+      partIndex: partNum,
+      totalParts,
+      partLabel: label,
+      text: partText,
+    };
+  });
+}
+
