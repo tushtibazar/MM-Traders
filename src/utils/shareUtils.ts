@@ -280,6 +280,14 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     console.warn('navigator.clipboard.writeText failed, using fallback:', err);
   }
 
+  return copyTextFallbackTextarea(text);
+}
+
+/**
+ * Synchronous hidden-textarea fallback copy (keeps user-gesture activation intact for window.open)
+ */
+function copyTextFallbackTextarea(text: string): boolean {
+  if (!text) return false;
   try {
     const textArea = document.createElement('textarea');
     textArea.value = text;
@@ -296,6 +304,77 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
     console.error('Fallback copy failed:', err);
     return false;
   }
+}
+
+/**
+ * Copies text synchronously inside a user click handler so subsequent window.open()
+ * in the same click handler is not blocked by popup blockers, while also firing
+ * navigator.clipboard.writeText when supported.
+ */
+export function copyTextSyncForOpen(text: string): boolean {
+  if (!text) return false;
+  const fallbackOk = copyTextFallbackTextarea(text);
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      return true;
+    }
+  } catch {
+    // fallbackOk already ran
+  }
+  return fallbackOk;
+}
+
+const WHATSAPP_GROUP_PREFIX = 'https://chat.whatsapp.com/';
+
+/**
+ * Normalizes and validates a WhatsApp Group invite link:
+ * - Trims leading/trailing spaces
+ * - Strips any "?..." tracking parameters
+ * - Accepts ONLY links starting with "https://chat.whatsapp.com/" with an invite code
+ * - Optional field: empty input is valid and yields cleaned = ''
+ */
+export function normalizeWhatsAppGroupLink(input?: string): {
+  raw: string;
+  cleaned: string;
+  isEmpty: boolean;
+  isValid: boolean;
+  warning?: string;
+} {
+  const raw = (input || '').trim();
+  if (!raw) {
+    return {
+      raw: '',
+      cleaned: '',
+      isEmpty: true,
+      isValid: true,
+    };
+  }
+
+  // Remove any "?..." tracking query part and trailing slashes/whitespace
+  const withoutQuery = raw.split('?')[0].split('#')[0].trim().replace(/\/+$/, '');
+
+  const startsValid = withoutQuery.startsWith(WHATSAPP_GROUP_PREFIX);
+  const codePart = startsValid ? withoutQuery.slice(WHATSAPP_GROUP_PREFIX.length).trim() : '';
+  const isValid = startsValid && codePart.length > 0 && !/\s/.test(codePart);
+
+  return {
+    raw,
+    cleaned: isValid ? `${WHATSAPP_GROUP_PREFIX}${codePart}` : '',
+    isEmpty: false,
+    isValid,
+    warning: isValid
+      ? undefined
+      : 'গ্রুপ লিংক অবশ্যই https://chat.whatsapp.com/ দিয়ে শুরু হতে হবে',
+  };
+}
+
+/**
+ * Returns masked WhatsApp group link for UI display (never exposes raw code unless revealed)
+ */
+export function maskWhatsAppGroupLink(link?: string): string {
+  if (!link || !link.trim()) return '';
+  return `${WHATSAPP_GROUP_PREFIX}••••••••`;
 }
 
 /**

@@ -25,6 +25,9 @@ import {
   Share2,
   Users,
   Phone,
+  Eye,
+  EyeOff,
+  Link2,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import {
@@ -53,8 +56,10 @@ import {
   DEFAULT_DUE_LIST_MESSAGE_TEMPLATE,
   normalizeWhatsAppNumber,
   normalizeFacebookProfile,
+  normalizeWhatsAppGroupLink,
+  maskWhatsAppGroupLink,
 } from '../../utils/shareUtils';
-import { RecipientDesignation, SavedRecipient } from '../../types';
+import { RecipientDesignation, RecipientType, SavedRecipient } from '../../types';
 
 export const SettingsModule: React.FC = () => {
   const {
@@ -99,11 +104,17 @@ export const SettingsModule: React.FC = () => {
   // Saved Recipients Management State (প্রাপক তালিকা)
   const [isRecipientModalOpen, setIsRecipientModalOpen] = useState<boolean>(false);
   const [editingRecipient, setEditingRecipient] = useState<SavedRecipient | null>(null);
+  const [recipType, setRecipType] = useState<RecipientType>('person');
   const [recipName, setRecipName] = useState<string>('');
   const [recipDesignation, setRecipDesignation] = useState<RecipientDesignation>('SR');
   const [recipCustomDesignation, setRecipCustomDesignation] = useState<string>('');
   const [recipPhone, setRecipPhone] = useState<string>('');
   const [recipFacebook, setRecipFacebook] = useState<string>('');
+  const [recipGroupLink, setRecipGroupLink] = useState<string>('');
+  const [recipNote, setRecipNote] = useState<string>('');
+  const [recipAskPrivacy, setRecipAskPrivacy] = useState<boolean>(true);
+  const [isGroupLinkRevealedInModal, setIsGroupLinkRevealedInModal] = useState<boolean>(false);
+  const [revealedRowLinkIds, setRevealedRowLinkIds] = useState<Set<string>>(new Set());
   const [recipientToDelete, setRecipientToDelete] = useState<SavedRecipient | null>(null);
   const [recipientMsg, setRecipientMsg] = useState<string>('');
 
@@ -692,11 +703,16 @@ export const SettingsModule: React.FC = () => {
             type="button"
             onClick={() => {
               setEditingRecipient(null);
+              setRecipType('person');
               setRecipName('');
               setRecipDesignation('SR');
               setRecipCustomDesignation('');
               setRecipPhone('');
               setRecipFacebook('');
+              setRecipGroupLink('');
+              setRecipNote('');
+              setRecipAskPrivacy(true);
+              setIsGroupLinkRevealedInModal(true);
               setIsRecipientModalOpen(true);
             }}
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3.5 py-2 text-xs font-bold text-white hover:bg-emerald-700 shadow-xs cursor-pointer self-start sm:self-auto"
@@ -718,10 +734,10 @@ export const SettingsModule: React.FC = () => {
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
               <tr>
                 <th className="px-4 py-2.5 w-12 text-center">#</th>
-                <th className="px-4 py-2.5">নাম</th>
-                <th className="px-4 py-2.5">পদবী</th>
-                <th className="px-4 py-2.5">WhatsApp নম্বর</th>
-                <th className="px-4 py-2.5">Facebook</th>
+                <th className="px-4 py-2.5">নাম / গ্রুপের নাম</th>
+                <th className="px-4 py-2.5">ধরন / পদবী</th>
+                <th className="px-4 py-2.5">WhatsApp নম্বর / গ্রুপ লিংক</th>
+                <th className="px-4 py-2.5">Facebook / নোট</th>
                 <th className="px-4 py-2.5 text-right w-32">অ্যাকশন</th>
               </tr>
             </thead>
@@ -729,11 +745,13 @@ export const SettingsModule: React.FC = () => {
               {(!db.savedRecipients || db.savedRecipients.length === 0) ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
-                    এখনো কোনো প্রাপক সংরক্ষণ করা হয়নি। উপরে "+ নতুন প্রাপক যোগ করুন" বাটনে ক্লিক করুন।
+                    এখনো কোনো প্রাপক বা WhatsApp গ্রুপ সংরক্ষণ করা হয়নি। উপরে "+ নতুন প্রাপক যোগ করুন" বাটনে ক্লিক করুন।
                   </td>
                 </tr>
               ) : (
                 db.savedRecipients.map((rec, idx) => {
+                  const isGroup = rec.recipientType === 'whatsapp_group';
+                  const isRowLinkRevealed = revealedRowLinkIds.has(rec.id);
                   const desigLabel =
                     rec.designation === 'অন্যান্য' && rec.customDesignation
                       ? rec.customDesignation
@@ -743,20 +761,92 @@ export const SettingsModule: React.FC = () => {
                       <td className="px-4 py-2.5 text-center text-slate-400 font-mono text-[11px]">
                         {idx + 1}
                       </td>
-                      <td className="px-4 py-2.5 font-bold text-slate-800">{rec.name}</td>
+                      <td className="px-4 py-2.5 font-bold text-slate-800">
+                        <div className="flex items-center gap-1.5">
+                          {isGroup && (
+                            <Users className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
+                          )}
+                          <span>{rec.name}</span>
+                        </div>
+                      </td>
                       <td className="px-4 py-2.5">
-                        <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
-                          {desigLabel}
-                        </span>
+                        {isGroup ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-bold text-emerald-800">
+                              WhatsApp গ্রুপ
+                            </span>
+                            {rec.skipPrivacyPrompt && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateSavedRecipient({
+                                    ...rec,
+                                    skipPrivacyPrompt: false,
+                                  });
+                                  setRecipientMsg(`"${rec.name}" গ্রুপের জন্য গোপনীয়তা সতর্কতা পুনরায় চালু হয়েছে।`);
+                                  setTimeout(() => setRecipientMsg(''), 3500);
+                                }}
+                                title="ক্লিক করলে শেয়ারের আগে গোপনীয়তা সতর্কতা আবার জিজ্ঞাসা করবে"
+                                className="inline-flex items-center rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800 hover:bg-amber-200 cursor-pointer"
+                              >
+                                সতর্কতা বন্ধ (চালু করুন)
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="inline-flex rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-bold text-slate-700">
+                            {desigLabel}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 font-mono text-slate-700">
-                        <span className="inline-flex items-center gap-1">
-                          <Phone className="h-3 w-3 text-emerald-600" />
-                          {rec.whatsappNumber || rec.phone || '-'}
-                        </span>
+                        {isGroup ? (
+                          rec.groupLink ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              <Link2 className="h-3 w-3 text-emerald-600 shrink-0" />
+                              <span className="text-[11px] break-all">
+                                {isRowLinkRevealed
+                                  ? rec.groupLink
+                                  : maskWhatsAppGroupLink(rec.groupLink)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRevealedRowLinkIds((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(rec.id)) next.delete(rec.id);
+                                    else next.add(rec.id);
+                                    return next;
+                                  });
+                                }}
+                                className="p-1 rounded text-slate-500 hover:bg-slate-200 hover:text-slate-800 cursor-pointer"
+                                title={isRowLinkRevealed ? 'লিংক লুকান' : 'লিংক দেখুন'}
+                              >
+                                {isRowLinkRevealed ? (
+                                  <EyeOff className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Eye className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 font-sans text-[11px]">
+                              লিংক নেই
+                            </span>
+                          )
+                        ) : (
+                          <span className="inline-flex items-center gap-1">
+                            <Phone className="h-3 w-3 text-emerald-600" />
+                            {rec.whatsappNumber || rec.phone || '-'}
+                          </span>
+                        )}
                       </td>
-                      <td className="px-4 py-2.5 text-slate-600 font-mono text-[11px]">
-                        {rec.facebookProfile || '-'}
+                      <td className="px-4 py-2.5 text-slate-600 text-[11px]">
+                        {isGroup ? (
+                          <span>{rec.note || '-'}</span>
+                        ) : (
+                          <span className="font-mono">{rec.facebookProfile || '-'}</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-1.5">
@@ -764,11 +854,16 @@ export const SettingsModule: React.FC = () => {
                             type="button"
                             onClick={() => {
                               setEditingRecipient(rec);
+                              setRecipType(rec.recipientType || 'person');
                               setRecipName(rec.name);
-                              setRecipDesignation(rec.designation);
+                              setRecipDesignation(rec.designation || 'SR');
                               setRecipCustomDesignation(rec.customDesignation || '');
                               setRecipPhone(rec.whatsappNumber || rec.phone || '');
                               setRecipFacebook(rec.facebookProfile || '');
+                              setRecipGroupLink(rec.groupLink || '');
+                              setRecipNote(rec.note || '');
+                              setRecipAskPrivacy(!rec.skipPrivacyPrompt);
+                              setIsGroupLinkRevealedInModal(!rec.groupLink);
                               setIsRecipientModalOpen(true);
                             }}
                             className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 cursor-pointer"
@@ -796,15 +891,19 @@ export const SettingsModule: React.FC = () => {
 
         {/* Add / Edit Recipient Modal */}
         {isRecipientModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4">
-            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-4 overflow-y-auto">
+            <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 my-auto">
               <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
                 <div className="flex items-center gap-2">
                   <div className="h-8 w-8 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center">
                     <Users className="h-4 w-4" />
                   </div>
                   <h3 className="text-sm font-bold text-slate-900">
-                    {editingRecipient ? 'প্রাপকের তথ্য এডিট করুন' : 'নতুন প্রাপক যোগ করুন'}
+                    {editingRecipient
+                      ? recipType === 'whatsapp_group'
+                        ? 'WhatsApp গ্রুপ এডিট করুন'
+                        : 'প্রাপকের তথ্য এডিট করুন'
+                      : 'নতুন প্রাপক যোগ করুন'}
                   </h3>
                 </div>
                 <button
@@ -816,15 +915,96 @@ export const SettingsModule: React.FC = () => {
                 </button>
               </div>
 
+              {/* Type Selector: ব্যক্তি | WhatsApp গ্রুপ */}
+              <div className="mb-4">
+                <span className="block text-[11px] font-bold text-slate-600 mb-1.5">
+                  প্রাপকের ধরন:
+                </span>
+                <div className="grid grid-cols-2 rounded-xl border border-slate-300 bg-slate-100 p-1 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setRecipType('person')}
+                    className={`rounded-lg py-1.5 transition-colors cursor-pointer ${
+                      recipType === 'person'
+                        ? 'bg-white text-slate-900 shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ব্যক্তি
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRecipType('whatsapp_group')}
+                    className={`rounded-lg py-1.5 transition-colors cursor-pointer ${
+                      recipType === 'whatsapp_group'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    WhatsApp গ্রুপ
+                  </button>
+                </div>
+              </div>
+
               {(() => {
                 const waNorm = normalizeWhatsAppNumber(recipPhone);
                 const fbNorm = normalizeFacebookProfile(recipFacebook);
+                const groupLinkNorm = normalizeWhatsAppGroupLink(recipGroupLink);
+                const isGroupInvalidSubmit =
+                  recipType === 'whatsapp_group' &&
+                  !groupLinkNorm.isEmpty &&
+                  !groupLinkNorm.isValid;
+
                 return (
                   <form
                     onSubmit={(e) => {
                       e.preventDefault();
                       const cleanName = recipName.trim();
                       if (!cleanName) return;
+
+                      if (recipType === 'whatsapp_group') {
+                        if (isGroupInvalidSubmit) {
+                          return;
+                        }
+                        const cleanLink = groupLinkNorm.isEmpty
+                          ? undefined
+                          : groupLinkNorm.cleaned;
+                        const cleanNote = recipNote.trim() || undefined;
+
+                        if (editingRecipient) {
+                          updateSavedRecipient({
+                            ...editingRecipient,
+                            recipientType: 'whatsapp_group',
+                            name: cleanName,
+                            designation: 'অন্যান্য',
+                            customDesignation: 'WhatsApp গ্রুপ',
+                            phone: '',
+                            whatsappNumber: undefined,
+                            facebookProfile: undefined,
+                            groupLink: cleanLink,
+                            note: cleanNote,
+                            skipPrivacyPrompt: !recipAskPrivacy,
+                          });
+                          setRecipientMsg(`WhatsApp গ্রুপ "${cleanName}" আপডেট করা হয়েছে!`);
+                        } else {
+                          addSavedRecipient({
+                            recipientType: 'whatsapp_group',
+                            name: cleanName,
+                            designation: 'অন্যান্য',
+                            customDesignation: 'WhatsApp গ্রুপ',
+                            phone: '',
+                            groupLink: cleanLink,
+                            note: cleanNote,
+                            skipPrivacyPrompt: !recipAskPrivacy,
+                          });
+                          setRecipientMsg(`নতুন WhatsApp গ্রুপ "${cleanName}" সফলভাবে যোগ করা হয়েছে!`);
+                        }
+                        setIsRecipientModalOpen(false);
+                        setTimeout(() => setRecipientMsg(''), 3500);
+                        return;
+                      }
+
+                      // Person recipient
                       const normalizedPhone = waNorm.normalized || recipPhone.trim();
                       const cleanFb = fbNorm.usernameOrId || recipFacebook.trim() || undefined;
                       const customDesig =
@@ -835,16 +1015,21 @@ export const SettingsModule: React.FC = () => {
                       if (editingRecipient) {
                         updateSavedRecipient({
                           ...editingRecipient,
+                          recipientType: 'person',
                           name: cleanName,
                           designation: recipDesignation,
                           customDesignation: customDesig,
                           phone: normalizedPhone,
                           whatsappNumber: normalizedPhone,
                           facebookProfile: cleanFb,
+                          groupLink: undefined,
+                          note: undefined,
+                          skipPrivacyPrompt: undefined,
                         });
                         setRecipientMsg(`প্রাপক "${cleanName}" আপডেট করা হয়েছে!`);
                       } else {
                         addSavedRecipient({
+                          recipientType: 'person',
                           name: cleanName,
                           designation: recipDesignation,
                           customDesignation: customDesig,
@@ -859,92 +1044,211 @@ export const SettingsModule: React.FC = () => {
                     }}
                     className="space-y-3.5"
                   >
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        নাম *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        autoFocus
-                        value={recipName}
-                        onChange={(e) => setRecipName(e.target.value)}
-                        placeholder="যেমন: মো. করিম"
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
-                      />
-                    </div>
+                    {recipType === 'whatsapp_group' ? (
+                      <>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            গ্রুপের নাম *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            autoFocus
+                            value={recipName}
+                            onChange={(e) => setRecipName(e.target.value)}
+                            placeholder="যেমন: বিক্রয় টিম"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        পদবী *
-                      </label>
-                      <select
-                        value={recipDesignation}
-                        onChange={(e) =>
-                          setRecipDesignation(e.target.value as RecipientDesignation)
-                        }
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
-                      >
-                        <option value="SR">SR</option>
-                        <option value="DSR">DSR</option>
-                        <option value="TSM">TSM</option>
-                        <option value="হেড অফ সেলস">হেড অফ সেলস</option>
-                        <option value="অন্যান্য">অন্যান্য</option>
-                      </select>
-                      {recipDesignation === 'অন্যান্য' && (
-                        <input
-                          type="text"
-                          value={recipCustomDesignation}
-                          onChange={(e) => setRecipCustomDesignation(e.target.value)}
-                          placeholder="পদবীর নাম লিখুন (যেমন: ম্যানেজার)..."
-                          className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
-                        />
-                      )}
-                    </div>
+                        <div>
+                          <div className="flex items-center justify-between mb-1">
+                            <label className="block text-xs font-semibold text-slate-700">
+                              গ্রুপ লিংক (ঐচ্ছিক)
+                            </label>
+                            {recipGroupLink.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => setIsGroupLinkRevealedInModal((v) => !v)}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 hover:text-slate-900 cursor-pointer"
+                              >
+                                {isGroupLinkRevealedInModal ? (
+                                  <>
+                                    <EyeOff className="h-3 w-3" />
+                                    <span>লুকান</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="h-3 w-3" />
+                                    <span>দেখুন</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        WhatsApp নম্বর *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={recipPhone}
-                        onChange={(e) => setRecipPhone(e.target.value)}
-                        placeholder="যেমন: 01712345678"
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono text-slate-900 focus:border-emerald-500 focus:outline-none"
-                      />
-                      {recipPhone.trim() && (
-                        <div className="mt-1 flex items-center justify-between text-[11px]">
-                          <span className="font-mono text-slate-600">
-                            সংরক্ষিত হবে: {waNorm.normalized || '-'}
-                          </span>
-                          {waNorm.warning && (
-                            <span className="text-amber-700 font-semibold">
-                              {waNorm.warning}
-                            </span>
+                          {!isGroupLinkRevealedInModal && recipGroupLink.trim() ? (
+                            <div className="flex items-center justify-between rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-xs font-mono text-slate-700">
+                              <span>{maskWhatsAppGroupLink(recipGroupLink)}</span>
+                              <button
+                                type="button"
+                                onClick={() => setIsGroupLinkRevealedInModal(true)}
+                                className="inline-flex items-center gap-1 text-[11px] font-sans font-bold text-emerald-700 hover:underline cursor-pointer"
+                              >
+                                <Eye className="h-3.5 w-3.5" />
+                                <span>দেখুন / পরিবর্তন</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              value={recipGroupLink}
+                              onChange={(e) => setRecipGroupLink(e.target.value)}
+                              placeholder="https://chat.whatsapp.com/..."
+                              className={`w-full rounded-lg border px-3 py-2 text-xs font-mono text-slate-900 focus:outline-none ${
+                                isGroupInvalidSubmit
+                                  ? 'border-amber-400 bg-amber-50/40 focus:border-amber-500'
+                                  : 'border-slate-300 focus:border-emerald-500'
+                              }`}
+                            />
+                          )}
+
+                          {recipGroupLink.trim() && (
+                            <div className="mt-1 text-[11px]">
+                              {groupLinkNorm.isValid ? (
+                                <span className="text-emerald-700 font-semibold">
+                                  ✓ বৈধ লিংক (সংরক্ষিত হবে: {maskWhatsAppGroupLink(groupLinkNorm.cleaned)})
+                                </span>
+                              ) : (
+                                <span className="text-amber-700 font-bold flex items-center gap-1">
+                                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                  {groupLinkNorm.warning}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
 
-                    <div>
-                      <label className="block text-xs font-semibold text-slate-700 mb-1">
-                        Facebook প্রোফাইল লিংক / ইউজারনেম (ঐচ্ছিক)
-                      </label>
-                      <input
-                        type="text"
-                        value={recipFacebook}
-                        onChange={(e) => setRecipFacebook(e.target.value)}
-                        placeholder="যেমন: https://facebook.com/username বা username"
-                        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
-                      />
-                      {recipFacebook.trim() && fbNorm.usernameOrId && (
-                        <p className="mt-1 text-[11px] font-mono text-sky-700">
-                          Messenger লিংক: m.me/{fbNorm.usernameOrId}
-                        </p>
-                      )}
-                    </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            সংক্ষিপ্ত নোট (ঐচ্ছিক)
+                          </label>
+                          <input
+                            type="text"
+                            value={recipNote}
+                            onChange={(e) => setRecipNote(e.target.value)}
+                            placeholder="যেমন: সকালের ডেলিভারি ও বাকি তালিকা"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={recipAskPrivacy}
+                            onChange={(e) => setRecipAskPrivacy(e.target.checked)}
+                            className="h-3.5 w-3.5 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>শেয়ারের আগে গোপনীয়তা নিশ্চিতকরণ জিজ্ঞাসা করুন</span>
+                        </label>
+
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-2.5 text-[11px] font-medium text-amber-900 leading-relaxed flex items-start gap-2">
+                          <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                          <span>
+                            গ্রুপ লিংক গোপন রাখুন; লিংক পেলে যে কেউ গ্রুপে ঢুকতে পারে। ব্যাকআপ ফাইলেও এটি থাকে, ফাইল নিরাপদে রাখুন।
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            নাম *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            autoFocus
+                            value={recipName}
+                            onChange={(e) => setRecipName(e.target.value)}
+                            placeholder="যেমন: মো. করিম"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            পদবী *
+                          </label>
+                          <select
+                            value={recipDesignation}
+                            onChange={(e) =>
+                              setRecipDesignation(e.target.value as RecipientDesignation)
+                            }
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                          >
+                            <option value="SR">SR</option>
+                            <option value="DSR">DSR</option>
+                            <option value="TSM">TSM</option>
+                            <option value="হেড অফ সেলস">হেড অফ সেলস</option>
+                            <option value="অন্যান্য">অন্যান্য</option>
+                          </select>
+                          {recipDesignation === 'অন্যান্য' && (
+                            <input
+                              type="text"
+                              value={recipCustomDesignation}
+                              onChange={(e) => setRecipCustomDesignation(e.target.value)}
+                              placeholder="পদবীর নাম লিখুন (যেমন: ম্যানেজার)..."
+                              className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                            />
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            WhatsApp নম্বর *
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={recipPhone}
+                            onChange={(e) => setRecipPhone(e.target.value)}
+                            placeholder="যেমন: 01712345678"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono text-slate-900 focus:border-emerald-500 focus:outline-none"
+                          />
+                          {recipPhone.trim() && (
+                            <div className="mt-1 flex items-center justify-between text-[11px]">
+                              <span className="font-mono text-slate-600">
+                                সংরক্ষিত হবে: {waNorm.normalized || '-'}
+                              </span>
+                              {waNorm.warning && (
+                                <span className="text-amber-700 font-semibold">
+                                  {waNorm.warning}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-semibold text-slate-700 mb-1">
+                            Facebook প্রোফাইল লিংক / ইউজারনেম (ঐচ্ছিক)
+                          </label>
+                          <input
+                            type="text"
+                            value={recipFacebook}
+                            onChange={(e) => setRecipFacebook(e.target.value)}
+                            placeholder="যেমন: https://facebook.com/username বা username"
+                            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs text-slate-900 focus:border-emerald-500 focus:outline-none"
+                          />
+                          {recipFacebook.trim() && fbNorm.usernameOrId && (
+                            <p className="mt-1 text-[11px] font-mono text-sky-700">
+                              Messenger লিংক: m.me/{fbNorm.usernameOrId}
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    )}
 
                     <div className="flex items-center justify-end gap-2 pt-2">
                       <button
@@ -956,7 +1260,12 @@ export const SettingsModule: React.FC = () => {
                       </button>
                       <button
                         type="submit"
-                        disabled={!recipName.trim() || !recipPhone.trim()}
+                        disabled={
+                          !recipName.trim() ||
+                          (recipType === 'person'
+                            ? !recipPhone.trim()
+                            : isGroupInvalidSubmit)
+                        }
                         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs disabled:opacity-50 cursor-pointer"
                       >
                         <Save className="h-3.5 w-3.5" />
@@ -976,7 +1285,11 @@ export const SettingsModule: React.FC = () => {
             <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl border border-slate-200 space-y-4">
               <div className="flex items-center gap-2.5 text-rose-700">
                 <AlertTriangle className="h-5 w-5 shrink-0" />
-                <h3 className="text-sm font-bold">প্রাপক মুছে ফেলবেন?</h3>
+                <h3 className="text-sm font-bold">
+                  {recipientToDelete.recipientType === 'whatsapp_group'
+                    ? 'WhatsApp গ্রুপ মুছে ফেলবেন?'
+                    : 'প্রাপক মুছে ফেলবেন?'}
+                </h3>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
                 আপনি কি নিশ্চিত যে <strong>"{recipientToDelete.name}"</strong>-কে প্রাপক তালিকা থেকে মুছে ফেলতে চান?
@@ -995,7 +1308,7 @@ export const SettingsModule: React.FC = () => {
                     const name = recipientToDelete.name;
                     deleteSavedRecipient(recipientToDelete.id);
                     setRecipientToDelete(null);
-                    setRecipientMsg(`প্রাপক "${name}" তালিকা থেকে মুছে ফেলা হয়েছে।`);
+                    setRecipientMsg(`"${name}" তালিকা থেকে মুছে ফেলা হয়েছে।`);
                     setTimeout(() => setRecipientMsg(''), 3500);
                   }}
                   className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer"

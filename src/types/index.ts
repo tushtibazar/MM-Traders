@@ -425,14 +425,20 @@ export interface CashAdjustment {
 
 export type RecipientDesignation = 'SR' | 'DSR' | 'TSM' | 'হেড অফ সেলস' | 'অন্যান্য';
 
+export type RecipientType = 'person' | 'whatsapp_group';
+
 export interface SavedRecipient {
   id: string;
+  recipientType?: RecipientType; // defaults to 'person'
   name: string;
   designation: RecipientDesignation;
   customDesignation?: string;
   phone: string;
   whatsappNumber?: string;
   facebookProfile?: string;
+  groupLink?: string; // Cleaned https://chat.whatsapp.com/... invite link (never logged or printed)
+  note?: string;
+  skipPrivacyPrompt?: boolean; // Per-group preference: "এই গ্রুপে আর জিজ্ঞাসা করবেন না"
   createdAt: string;
   updatedAt?: string;
 }
@@ -443,7 +449,7 @@ export interface DueMessageRecord {
   customerId?: string;
   customerName?: string;
   recipientName?: string;
-  channel: 'whatsapp' | 'messenger' | 'copy';
+  channel: 'whatsapp' | 'whatsapp_group' | 'messenger' | 'copy';
   createdAt: string;
   createdBy?: string;
   includedDueIds: string[];

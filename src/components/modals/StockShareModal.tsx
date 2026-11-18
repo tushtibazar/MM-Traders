@@ -18,6 +18,7 @@ import { useApp } from '../../context/AppContext';
 import { toBengaliDigits } from '../../utils/dateUtils';
 import {
   copyTextToClipboard,
+  copyTextSyncForOpen,
   formatBanglaTimeOnly,
   formatStockUnitDisplay,
   generateStockShareMessage,
@@ -29,6 +30,7 @@ import {
   SplitPartButtonsBar,
   ShareActionFooter,
   ShareHistoryPanel,
+  GroupPrivacyConfirmModal,
 } from './ShareCommonControls';
 
 interface StockShareModalProps {
@@ -45,10 +47,10 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
   onClose,
   onSuccess,
 }) => {
-  const { db, todayDateStr, addDueMessageRecord } = useApp();
+  const { db, todayDateStr, addDueMessageRecord, updateSavedRecipient } = useApp();
   const currency = db.settings.currency || '৳';
 
-  // Recipient Picker (includes "কাস্টমার থেকে বেছে নিন")
+  // Recipient Picker (includes "কাস্টমার থেকে বেছে নিন" and WhatsApp groups)
   const picker = useRecipientPickerState({
     isOpen,
     allowCustomerPicker: true,
@@ -68,6 +70,7 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
   const [isManuallyEdited, setIsManuallyEdited] = useState<boolean>(false);
   const [clickedPartIndices, setClickedPartIndices] = useState<number[]>([]);
   const [showHistory, setShowHistory] = useState<boolean>(false);
+  const [pendingPrivacyAction, setPendingPrivacyAction] = useState<(() => void) | null>(null);
   const [toastMessage, setToastMessage] = useState<{
     text: string;
     type: 'success' | 'info' | 'warning';
@@ -86,6 +89,7 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
     setIsManuallyEdited(false);
     setClickedPartIndices([]);
     setShowHistory(false);
+    setPendingPrivacyAction(null);
     setToastMessage(null);
   }, [isOpen]);
 
@@ -237,15 +241,20 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
     return parts.join(' | ');
   }, [scopeFilter, includePrice, searchQuery]);
 
-  // Share log helper (for stock: stores filters, product count, generation time — NOT full text)
+  const isGroupMode = picker.activeRecipient.mode === 'whatsapp_group';
+  const groupRecord = picker.activeRecipient.groupRecord;
+  const hasGroupLink = Boolean(groupRecord?.groupLink);
+
+  // Share log helper (for stock: stores filters, product count, generation time — NEVER stores group link or full text)
   const logStockShare = (
-    channel: 'whatsapp' | 'messenger' | 'copy',
+    channel: 'whatsapp' | 'whatsapp_group' | 'messenger' | 'copy',
     partNumberLabel?: string
   ) => {
-    const recName =
-      picker.activeRecipient.mode === 'pick_contact'
-        ? 'কন্টাক্ট বাছাই'
-        : `${picker.activeRecipient.name} (${picker.activeRecipient.designation})`;
+    const recName = isGroupMode
+      ? picker.activeRecipient.name
+      : picker.activeRecipient.mode === 'pick_contact'
+      ? 'কন্টাক্ট বাছাই'
+      : `${picker.activeRecipient.name} (${picker.activeRecipient.designation})`;
 
     addDueMessageRecord({
       type: 'stock',
@@ -259,18 +268,27 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
       generationTime: formatBanglaTimeOnly(generatedAt),
       includedDueIds: [],
       totalOutstanding: 0,
-      recipientPhone: picker.waNorm.normalized || undefined,
-      recipientFacebook: picker.fbNorm.usernameOrId || undefined,
+      recipientPhone: isGroupMode ? undefined : picker.waNorm.normalized || undefined,
+      recipientFacebook: isGroupMode ? undefined : picker.fbNorm.usernameOrId || undefined,
     });
   };
 
-  const handleSendWhatsAppPart = (
+  // For Stock share: ask group privacy confirmation only if "দর (কার্টুন) সহ" is ON
+  const runWithGroupPrivacyCheck = (actionFn: () => void) => {
+    if (isGroupMode && includePrice && !groupRecord?.skipPrivacyPrompt) {
+      setPendingPrivacyAction(() => actionFn);
+      return;
+    }
+    actionFn();
+  };
+
+  const executeSendWhatsAppPart = (
     partIdx: number,
     partLabel: string,
     partText: string
   ) => {
     if (includedProducts.length === 0) return;
-    const isPickContact = picker.activeRecipient.mode === 'pick_contact';
+    const isPickContact = picker.activeRecipient.mode === 'pick_contact' || isGroupMode;
 
     if (!isPickContact && !picker.waNorm.normalized) {
       setToastMessage({
@@ -289,23 +307,57 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
 
     window.open(waUrl, '_blank', 'noopener,noreferrer');
 
-    logStockShare('whatsapp', messageParts.length > 1 ? partLabel : undefined);
+    logStockShare(
+      isGroupMode ? 'whatsapp_group' : 'whatsapp',
+      messageParts.length > 1 ? partLabel : undefined
+    );
 
     setClickedPartIndices((prev) =>
       prev.includes(partIdx) ? prev : [...prev, partIdx]
     );
 
     setToastMessage({
-      text:
-        messageParts.length > 1
-          ? `অংশ ${partLabel} WhatsApp-এ খোলা হয়েছে — চ্যাটে Send চাপুন।`
-          : 'WhatsApp খোলা হয়েছে — চ্যাটে Send চাপুন।',
+      text: isGroupMode
+        ? messageParts.length > 1
+          ? `অংশ ${partLabel} WhatsApp-এ খোলা হয়েছে — গ্রুপ "${picker.activeRecipient.name}" বেছে Send চাপুন।`
+          : `WhatsApp খোলা হয়েছে — গ্রুপ "${picker.activeRecipient.name}" বেছে Send চাপুন।`
+        : messageParts.length > 1
+        ? `অংশ ${partLabel} WhatsApp-এ খোলা হয়েছে — চ্যাটে Send চাপুন।`
+        : 'WhatsApp খোলা হয়েছে — চ্যাটে Send চাপুন।',
       type: 'success',
     });
 
     if (onSuccess) {
       onSuccess(`"${picker.activeRecipient.name}"-এর জন্য স্টক তালিকা WhatsApp-এ খোলা হয়েছে`);
     }
+  };
+
+  const handleSendWhatsAppPart = (
+    partIdx: number,
+    partLabel: string,
+    partText: string
+  ) => {
+    runWithGroupPrivacyCheck(() =>
+      executeSendWhatsAppPart(partIdx, partLabel, partText)
+    );
+  };
+
+  const executeOpenGroupAndCopy = () => {
+    if (includedProducts.length === 0 || !groupRecord?.groupLink) return;
+    copyTextSyncForOpen(messageText);
+    setToastMessage({
+      text: 'মেসেজ কপি হয়েছে — গ্রুপে Ctrl+V দিয়ে পেস্ট করে Send চাপুন',
+      type: 'info',
+    });
+    window.open(groupRecord.groupLink, '_blank', 'noopener');
+    logStockShare('whatsapp_group');
+    if (onSuccess) {
+      onSuccess(`"${picker.activeRecipient.name}" গ্রুপ খোলা হয়েছে এবং সম্পূর্ণ স্টক তালিকা কপি হয়েছে`);
+    }
+  };
+
+  const handleOpenGroupAndCopy = () => {
+    runWithGroupPrivacyCheck(executeOpenGroupAndCopy);
   };
 
   const handleCopyAll = async () => {
@@ -659,6 +711,8 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
               parts={messageParts}
               clickedPartIndices={clickedPartIndices}
               hasValidWaTarget={picker.hasValidWaTarget}
+              isGroupMode={isGroupMode}
+              groupName={picker.activeRecipient.name}
               onSendPart={handleSendWhatsAppPart}
             />
           )}
@@ -670,6 +724,9 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
           hasValidWaTarget={picker.hasValidWaTarget}
           isMultiPart={messageParts.length > 1}
           isPickContactMode={picker.activeRecipient.mode === 'pick_contact'}
+          isGroupMode={isGroupMode}
+          groupName={picker.activeRecipient.name}
+          hasGroupLink={hasGroupLink}
           onSendSingleWhatsApp={() =>
             handleSendWhatsAppPart(
               1,
@@ -677,9 +734,28 @@ export const StockShareModal: React.FC<StockShareModalProps> = ({
               messageParts[0]?.text || messageText
             )
           }
+          onOpenGroupAndCopy={handleOpenGroupAndCopy}
           onCopyAll={handleCopyAll}
           onSendMessenger={handleSendMessenger}
           onClose={onClose}
+        />
+
+        {/* Group Privacy Confirmation */}
+        <GroupPrivacyConfirmModal
+          isOpen={Boolean(pendingPrivacyAction)}
+          groupName={picker.activeRecipient.name}
+          onCancel={() => setPendingPrivacyAction(null)}
+          onConfirm={(dontAskAgain) => {
+            if (dontAskAgain && groupRecord) {
+              updateSavedRecipient({
+                ...groupRecord,
+                skipPrivacyPrompt: true,
+              });
+            }
+            const fn = pendingPrivacyAction;
+            setPendingPrivacyAction(null);
+            if (fn) fn();
+          }}
         />
       </div>
     </div>

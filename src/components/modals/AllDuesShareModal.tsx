@@ -18,6 +18,7 @@ import {
   History,
   UserPlus,
   MessageSquare,
+  Link2,
 } from 'lucide-react';
 import {
   Customer,
@@ -36,11 +37,13 @@ import {
   normalizeWhatsAppNumber,
   normalizeFacebookProfile,
   copyTextToClipboard,
+  copyTextSyncForOpen,
   formatMessageDateTime,
   generateAllDuesMessageText,
   splitDueListMessage,
   DueListShareItem,
 } from '../../utils/shareUtils';
+import { GroupPrivacyConfirmModal } from './ShareCommonControls';
 
 export interface AllDuesPrintScopeParams {
   routes: string[];
@@ -137,10 +140,21 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
     type: 'success' | 'info' | 'warning';
   } | null>(null);
   const [showHistory, setShowHistory] = useState<boolean>(false);
+  const [pendingPrivacyAction, setPendingPrivacyAction] = useState<(() => void) | null>(null);
 
-  const savedRecipients = useMemo(
+  const allSaved = useMemo(
     () => (Array.isArray(db.savedRecipients) ? db.savedRecipients : []),
     [db.savedRecipients]
+  );
+
+  const savedRecipients = useMemo(
+    () => allSaved.filter((r) => r.recipientType !== 'whatsapp_group'),
+    [allSaved]
+  );
+
+  const savedGroups = useMemo(
+    () => allSaved.filter((r) => r.recipientType === 'whatsapp_group'),
+    [allSaved]
   );
 
   // Active SRs & DSRs with phone numbers (do not duplicate into savedRecipients)
@@ -206,6 +220,7 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
     setClickedPartIndices([]);
     setToastMessage(null);
     setShowHistory(false);
+    setPendingPrivacyAction(null);
     setShowFbInputBox(false);
     setCustomSavedThisSession(false);
     setSaveCustomToRecipients(false);
@@ -229,6 +244,8 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
       setSelectedRecipientKey(`saved:${savedRecipients[0].id}`);
     } else if (staffRecipients.length > 0) {
       setSelectedRecipientKey(staffRecipients[0].key);
+    } else if (savedGroups.length > 0) {
+      setSelectedRecipientKey(`group:${savedGroups[0].id}`);
     } else {
       setSelectedRecipientKey('custom');
     }
@@ -238,6 +255,7 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
     initialSrFilter,
     initialSearchQuery,
     savedRecipients,
+    savedGroups,
     staffRecipients,
   ]);
 
@@ -404,6 +422,7 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
         phoneRaw: '',
         fbRaw: inlineFbOverride,
         savedRecord: null as SavedRecipient | null,
+        groupRecord: null as SavedRecipient | null,
       };
     }
 
@@ -419,6 +438,21 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
         phoneRaw: customPhone,
         fbRaw: customFacebook,
         savedRecord: null as SavedRecipient | null,
+        groupRecord: null as SavedRecipient | null,
+      };
+    }
+
+    if (selectedRecipientKey.startsWith('group:')) {
+      const id = selectedRecipientKey.slice(6);
+      const grp = savedGroups.find((g) => g.id === id) || null;
+      return {
+        mode: 'whatsapp_group' as const,
+        name: grp?.name || 'গ্রুপ',
+        designation: 'WhatsApp গ্রুপ',
+        phoneRaw: '',
+        fbRaw: inlineFbOverride,
+        savedRecord: null as SavedRecipient | null,
+        groupRecord: grp,
       };
     }
 
@@ -436,6 +470,7 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
         phoneRaw: inlinePhoneOverride || rec?.whatsappNumber || rec?.phone || '',
         fbRaw: inlineFbOverride || rec?.facebookProfile || '',
         savedRecord: rec,
+        groupRecord: null as SavedRecipient | null,
       };
     }
 
@@ -448,6 +483,7 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
         phoneRaw: inlinePhoneOverride || staff.phone || '',
         fbRaw: inlineFbOverride,
         savedRecord: null as SavedRecipient | null,
+        groupRecord: null as SavedRecipient | null,
       };
     }
 
@@ -458,10 +494,12 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
       phoneRaw: customPhone,
       fbRaw: customFacebook,
       savedRecord: null as SavedRecipient | null,
+      groupRecord: null as SavedRecipient | null,
     };
   }, [
     selectedRecipientKey,
     savedRecipients,
+    savedGroups,
     staffRecipients,
     customName,
     customDesignation,
@@ -615,16 +653,24 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
     }
   };
 
-  // Log share click in dueMessages
+  const isGroupMode = activeRecipient.mode === 'whatsapp_group';
+  const groupRecord = activeRecipient.groupRecord;
+  const hasGroupLink = Boolean(groupRecord?.groupLink);
+
+  // Log share click in dueMessages (NEVER stores invite link)
   const logListShare = (
-    channel: 'whatsapp' | 'messenger' | 'copy',
+    channel: 'whatsapp' | 'whatsapp_group' | 'messenger' | 'copy',
     partNumberLabel?: string
   ) => {
+    const recLabel = isGroupMode
+      ? activeRecipient.name
+      : `${activeRecipient.name} (${activeRecipient.designation})`;
+
     const rec: Omit<DueMessageRecord, 'id' | 'createdAt'> = {
       type: 'list',
       customerId: 'all-dues-list',
-      customerName: `${activeRecipient.name} (${activeRecipient.designation})`,
-      recipientName: `${activeRecipient.name} (${activeRecipient.designation})`,
+      customerName: recLabel,
+      recipientName: recLabel,
       channel,
       partNumber: partNumberLabel,
       scopeSummary: scopeSummaryText,
@@ -632,18 +678,26 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
       customerCount: liveStats.customerCount,
       includedDueIds: filteredItems.map((i) => i.id),
       totalOutstanding: liveStats.totalAmount,
-      recipientPhone: waNorm.normalized || undefined,
-      recipientFacebook: fbNorm.usernameOrId || undefined,
+      recipientPhone: isGroupMode ? undefined : waNorm.normalized || undefined,
+      recipientFacebook: isGroupMode ? undefined : fbNorm.usernameOrId || undefined,
       messageText,
     };
     addDueMessageRecord(rec);
   };
 
+  const runWithGroupPrivacyCheck = (actionFn: () => void) => {
+    if (isGroupMode && !groupRecord?.skipPrivacyPrompt) {
+      setPendingPrivacyAction(() => actionFn);
+      return;
+    }
+    actionFn();
+  };
+
   // Click handler for WhatsApp (single or specific part)
-  const handleSendWhatsAppPart = (partIdx: number, partLabel: string, partText: string) => {
+  const executeSendWhatsAppPart = (partIdx: number, partLabel: string, partText: string) => {
     if (liveStats.duesCount === 0) return;
 
-    const isPickContact = activeRecipient.mode === 'pick_contact';
+    const isPickContact = activeRecipient.mode === 'pick_contact' || isGroupMode;
     if (!isPickContact && !waNorm.normalized) {
       setToastMessage({
         text: 'WhatsApp নম্বর নেই বা সঠিক নয়। নম্বর দিন অথবা "কন্টাক্ট বেছে নিন" ব্যবহার করুন।',
@@ -662,23 +716,53 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
     // Open synchronously inside click handler so pop-ups are not blocked
     window.open(waUrl, '_blank', 'noopener,noreferrer');
 
-    logListShare('whatsapp', messageParts.length > 1 ? partLabel : undefined);
+    logListShare(
+      isGroupMode ? 'whatsapp_group' : 'whatsapp',
+      messageParts.length > 1 ? partLabel : undefined
+    );
 
     setClickedPartIndices((prev) =>
       prev.includes(partIdx) ? prev : [...prev, partIdx]
     );
 
     setToastMessage({
-      text:
-        messageParts.length > 1
-          ? `অংশ ${partLabel} WhatsApp-এ খোলা হয়েছে — চ্যাটে Send চাপুন।`
-          : 'WhatsApp খোলা হয়েছে — চ্যাটে Send চাপুন।',
+      text: isGroupMode
+        ? messageParts.length > 1
+          ? `অংশ ${partLabel} WhatsApp-এ খোলা হয়েছে — গ্রুপ "${activeRecipient.name}" বেছে Send চাপুন।`
+          : `WhatsApp খোলা হয়েছে — গ্রুপ "${activeRecipient.name}" বেছে Send চাপুন।`
+        : messageParts.length > 1
+        ? `অংশ ${partLabel} WhatsApp-এ খোলা হয়েছে — চ্যাটে Send চাপুন।`
+        : 'WhatsApp খোলা হয়েছে — চ্যাটে Send চাপুন।',
       type: 'success',
     });
 
     if (onSuccess) {
       onSuccess(`"${activeRecipient.name}"-এর জন্য WhatsApp খোলা হয়েছে`);
     }
+  };
+
+  const handleSendWhatsAppPart = (partIdx: number, partLabel: string, partText: string) => {
+    runWithGroupPrivacyCheck(() =>
+      executeSendWhatsAppPart(partIdx, partLabel, partText)
+    );
+  };
+
+  const executeOpenGroupAndCopy = () => {
+    if (liveStats.duesCount === 0 || !groupRecord?.groupLink) return;
+    copyTextSyncForOpen(messageText);
+    setToastMessage({
+      text: 'মেসেজ কপি হয়েছে — গ্রুপে Ctrl+V দিয়ে পেস্ট করে Send চাপুন',
+      type: 'info',
+    });
+    window.open(groupRecord.groupLink, '_blank', 'noopener');
+    logListShare('whatsapp_group');
+    if (onSuccess) {
+      onSuccess(`"${activeRecipient.name}" গ্রুপ খোলা হয়েছে এবং সম্পূর্ণ তালিকা কপি হয়েছে`);
+    }
+  };
+
+  const handleOpenGroupAndCopy = () => {
+    runWithGroupPrivacyCheck(executeOpenGroupAndCopy);
   };
 
   // Copy all as single text
@@ -753,7 +837,9 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
   if (!isOpen) return null;
 
   const hasValidWaTarget =
-    activeRecipient.mode === 'pick_contact' || Boolean(waNorm.normalized);
+    activeRecipient.mode === 'pick_contact' ||
+    activeRecipient.mode === 'whatsapp_group' ||
+    Boolean(waNorm.normalized);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto">
@@ -843,14 +929,16 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
                           <td className="px-2.5 py-1.5 whitespace-nowrap">
                             <span
                               className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-bold ${
-                                h.channel === 'whatsapp'
+                                h.channel === 'whatsapp' || h.channel === 'whatsapp_group'
                                   ? 'bg-emerald-100 text-emerald-800'
                                   : h.channel === 'messenger'
                                   ? 'bg-sky-100 text-sky-800'
                                   : 'bg-slate-100 text-slate-700'
                               }`}
                             >
-                              {h.channel === 'whatsapp'
+                              {h.channel === 'whatsapp_group'
+                                ? 'WhatsApp গ্রুপ'
+                                : h.channel === 'whatsapp'
                                 ? 'WhatsApp'
                                 : h.channel === 'messenger'
                                 ? 'Messenger'
@@ -922,6 +1010,17 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
                     </optgroup>
                   )}
 
+                  {savedGroups.length > 0 && (
+                    <optgroup label="👥 গ্রুপ">
+                      {savedGroups.map((g) => (
+                        <option key={g.id} value={`group:${g.id}`}>
+                          👥 {g.name}
+                          {g.groupLink ? ' (লিংক সংরক্ষিত)' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
                   <optgroup label="অন্যান্য বিকল্প">
                     <option value="custom">অন্য নম্বর (নতুন নম্বর লিখুন)</option>
                     <option value="pick_contact">কন্টাক্ট বেছে নিন (WhatsApp অ্যাপে বাছাই)</option>
@@ -929,9 +1028,33 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
                 </select>
               </div>
 
-              {/* Active Recipient Phone Status */}
+              {/* Active Recipient Phone / Group Status */}
               <div className="flex items-center gap-2">
-                {selectedRecipientKey === 'pick_contact' ? (
+                {isGroupMode ? (
+                  <div className="w-full rounded-lg border border-emerald-300 bg-emerald-50/80 px-3 py-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="flex items-center gap-1.5 font-bold text-emerald-950">
+                        <Users className="h-3.5 w-3.5 text-emerald-700 shrink-0" />
+                        <span>গ্রুপ: {activeRecipient.name}</span>
+                      </span>
+                      {hasGroupLink ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded shrink-0">
+                          <Link2 className="h-3 w-3" />
+                          লিংক আছে ✓
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded shrink-0">
+                          লিংক নেই
+                        </span>
+                      )}
+                    </div>
+                    {groupRecord?.note && (
+                      <p className="mt-0.5 text-[11px] text-emerald-900/80 truncate">
+                        {groupRecord.note}
+                      </p>
+                    )}
+                  </div>
+                ) : selectedRecipientKey === 'pick_contact' ? (
                   <div className="w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 font-medium">
                     WhatsApp খোলার পর সরাসরি অ্যাপ থেকে কন্টাক্ট বাছাই করতে পারবেন।
                   </div>
@@ -979,6 +1102,15 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
                 )}
               </div>
             </div>
+
+            {isGroupMode && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-900 flex items-center gap-2">
+                <Users className="h-4 w-4 text-emerald-700 shrink-0" />
+                <span>
+                  WhatsApp-এ গ্রুপ বেছে নিন: <strong>{activeRecipient.name}</strong>, তারপর Send চাপুন।
+                </span>
+              </div>
+            )}
 
             {/* Custom Number Inputs */}
             {selectedRecipientKey === 'custom' && (
@@ -1456,7 +1588,9 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3.5 space-y-2.5">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-bold text-emerald-950">
-                  তালিকাটি {toBengaliDigits(messageParts.length)} টি নিরাপদ অংশে ভাগ হয়েছে — প্রতিটি অংশে Send চাপতে হবে।
+                  {isGroupMode
+                    ? `তালিকাটি ${toBengaliDigits(messageParts.length)} টি নিরাপদ অংশে ভাগ হয়েছে — প্রতিবার গ্রুপ "${activeRecipient.name}" বেছে Send চাপতে হবে।`
+                    : `তালিকাটি ${toBengaliDigits(messageParts.length)} টি নিরাপদ অংশে ভাগ হয়েছে — প্রতিটি অংশে Send চাপতে হবে।`}
                 </span>
                 <span className="text-[11px] font-bold text-emerald-700">
                   খোলা হয়েছে: {toBengaliDigits(clickedPartIndices.length)}/
@@ -1504,60 +1638,129 @@ export const AllDuesShareModal: React.FC<AllDuesShareModalProps> = ({
         </div>
 
         {/* Modal Footer Action Bar */}
-        <div className="border-t border-slate-200 bg-slate-50 px-5 py-3.5 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Single-part WhatsApp send button */}
-            {messageParts.length <= 1 && (
+        <div className="border-t border-slate-200 bg-slate-50 px-5 py-3.5 space-y-2 shrink-0">
+          <div className="flex flex-wrap items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-2">
+              {isGroupMode ? (
+                <>
+                  {messageParts.length <= 1 && (
+                    <button
+                      type="button"
+                      disabled={liveStats.duesCount === 0}
+                      onClick={() =>
+                        handleSendWhatsAppPart(
+                          1,
+                          '১/১',
+                          messageParts[0]?.text || messageText
+                        )
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Send className="h-4 w-4" />
+                      <span>WhatsApp গ্রুপে পাঠান</span>
+                      <ExternalLink className="h-3.5 w-3.5 opacity-80" />
+                    </button>
+                  )}
+
+                  {hasGroupLink && (
+                    <button
+                      type="button"
+                      disabled={liveStats.duesCount === 0}
+                      onClick={handleOpenGroupAndCopy}
+                      className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-600 bg-emerald-50 px-3.5 py-2.5 text-xs font-bold text-emerald-900 hover:bg-emerald-100 transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Link2 className="h-4 w-4 text-emerald-700" />
+                      <span>গ্রুপ খুলুন + মেসেজ কপি</span>
+                      <ExternalLink className="h-3.5 w-3.5 opacity-75" />
+                    </button>
+                  )}
+                </>
+              ) : (
+                messageParts.length <= 1 && (
+                  <button
+                    type="button"
+                    disabled={liveStats.duesCount === 0 || !hasValidWaTarget}
+                    onClick={() =>
+                      handleSendWhatsAppPart(1, '১/১', messageParts[0]?.text || messageText)
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Send className="h-4 w-4" />
+                    <span>
+                      {activeRecipient.mode === 'pick_contact'
+                        ? 'কন্টাক্ট বেছে WhatsApp-এ পাঠান'
+                        : 'WhatsApp-এ পাঠান'}
+                    </span>
+                    <ExternalLink className="h-3.5 w-3.5 opacity-80" />
+                  </button>
+                )
+              )}
+
+              {/* Copy all as one text */}
               <button
                 type="button"
-                disabled={liveStats.duesCount === 0 || !hasValidWaTarget}
-                onClick={() =>
-                  handleSendWhatsAppPart(1, '১/১', messageParts[0]?.text || messageText)
-                }
-                className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-bold text-white hover:bg-emerald-700 transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={liveStats.duesCount === 0}
+                onClick={handleCopyAll}
+                className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Send className="h-4 w-4" />
-                <span>
-                  {activeRecipient.mode === 'pick_contact'
-                    ? 'কন্টাক্ট বেছে WhatsApp-এ পাঠান'
-                    : 'WhatsApp-এ পাঠান'}
-                </span>
+                <Copy className="h-4 w-4 text-slate-600" />
+                <span>সব একসাথে কপি করুন</span>
+              </button>
+
+              {/* Messenger button */}
+              <button
+                type="button"
+                disabled={liveStats.duesCount === 0}
+                onClick={handleSendMessenger}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-sky-700 transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Messenger-এ পাঠান</span>
                 <ExternalLink className="h-3.5 w-3.5 opacity-80" />
               </button>
-            )}
+            </div>
 
-            {/* Copy all as one text */}
             <button
               type="button"
-              disabled={liveStats.duesCount === 0}
-              onClick={handleCopyAll}
-              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-xs font-bold text-slate-800 hover:bg-slate-100 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={onClose}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
             >
-              <Copy className="h-4 w-4 text-slate-600" />
-              <span>সব একসাথে কপি করুন</span>
-            </button>
-
-            {/* Messenger button */}
-            <button
-              type="button"
-              disabled={liveStats.duesCount === 0}
-              onClick={handleSendMessenger}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-sky-600 px-3.5 py-2.5 text-xs font-bold text-white hover:bg-sky-700 transition-colors shadow-xs cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <MessageSquare className="h-4 w-4" />
-              <span>Messenger-এ পাঠান</span>
-              <ExternalLink className="h-3.5 w-3.5 opacity-80" />
+              বন্ধ করুন
             </button>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-100 cursor-pointer"
-          >
-            বন্ধ করুন
-          </button>
+          {isGroupMode && (
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+              <span>
+                WhatsApp নিজে থেকে গ্রুপে পোস্ট করতে দেয় না; Send আপনাকেই চাপতে হবে।
+                {activeRecipient.name ? ` (গ্রুপ: ${activeRecipient.name})` : ''}
+              </span>
+              {hasGroupLink && (
+                <span className="text-emerald-800 font-medium">
+                  আপনি সদস্য থাকলে সাধারণত গ্রুপ চ্যাটই খোলে।
+                </span>
+              )}
+            </div>
+          )}
         </div>
+
+        {/* Group Privacy Confirmation */}
+        <GroupPrivacyConfirmModal
+          isOpen={Boolean(pendingPrivacyAction)}
+          groupName={activeRecipient.name}
+          onCancel={() => setPendingPrivacyAction(null)}
+          onConfirm={(dontAskAgain) => {
+            if (dontAskAgain && groupRecord) {
+              updateSavedRecipient({
+                ...groupRecord,
+                skipPrivacyPrompt: true,
+              });
+            }
+            const fn = pendingPrivacyAction;
+            setPendingPrivacyAction(null);
+            if (fn) fn();
+          }}
+        />
       </div>
     </div>
   );
